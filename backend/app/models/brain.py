@@ -139,6 +139,7 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
     publication_performance_status: dict[str, Any] | None = None
     publication_performance_lifecycle: dict[str, Any] | None = None
     feezie_runtime_context: dict[str, Any] | None = None
+    weekly_plan: dict[str, Any] | None = None
     persona_review_refresh: Literal["recompute_db_owned"] | None = None
 
     @model_validator(mode="after")
@@ -152,6 +153,7 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
             self.publication_performance_status,
             self.publication_performance_lifecycle,
             self.feezie_runtime_context,
+            self.weekly_plan,
         )
         if self.persona_review_refresh is not None:
             if any(value is not None for value in snapshot_values):
@@ -161,6 +163,18 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
             return self
         if not any(value is not None for value in snapshot_values):
             raise ValueError("Provide at least one allowlisted Brain workspace snapshot.")
+        if self.weekly_plan is not None:
+            from app.services.workspace_snapshot_service import (
+                compact_and_validate_weekly_plan_projection,
+            )
+
+            try:
+                self.weekly_plan = compact_and_validate_weekly_plan_projection(
+                    self.weekly_plan,
+                    envelope_generated_at=self.generated_at,
+                )
+            except ValueError as exc:
+                raise ValueError("weekly_plan does not match the public-safe projection contract.") from exc
         if self.publication_performance_summary is not None:
             summary = self.publication_performance_summary
             allowed_summary_keys = {

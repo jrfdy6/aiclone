@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import sys
@@ -401,6 +402,33 @@ SNAPSHOT_DOC_ENTRIES = "doc_entries"
 SNAPSHOT_OPERATOR_STORY_SIGNALS = "operator_story_signals"
 SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS = "content_safe_operator_lessons"
 PERSONA_REVIEW_REFRESH_LOCK_KEY = "aiclone:linkedin-content-os:persona-review-summary"
+FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA = "feezie_weekly_plan_projection/v1"
+FEEZIE_WEEKLY_PLAN_DATA_POLICY = {
+    "projection": "public_safe_editorial_metadata",
+    "raw_drafts_included": False,
+    "raw_persona_included": False,
+    "recommendation_copy_included": False,
+    "source_urls_included": False,
+    "source_paths_included": False,
+    "publishing_identity_included": False,
+    "absolute_paths_included": False,
+    "hold_items_included": False,
+    "market_signals_included": False,
+    "research_notes_included": False,
+}
+FEEZIE_WEEKLY_PLAN_LEGACY_BROWSER_SCHEMA = "feezie_weekly_plan_browser_status/v1"
+FEEZIE_WEEKLY_PLAN_LEGACY_BROWSER_DATA_POLICY = {
+    "projection": "legacy_aggregate_status_only",
+    "legacy_rows_included": False,
+    "recommendation_copy_included": False,
+    "publishing_cards_included": False,
+    "portfolio_learning_rows_included": False,
+    "identifiers_or_hashes_included": False,
+    "source_urls_included": False,
+    "source_paths_included": False,
+    "raw_drafts_included": False,
+    "raw_persona_included": False,
+}
 PRIVATE_INVENTORY_SCHEMA = "privacy_safe_workspace_inventory/v1"
 BROWSER_PRIVATE_GROUNDING_SCHEMA = "feezie_private_grounding_browser_status/v1"
 WORKSPACE_SNAPSHOT_STATUS_SCHEMA = "workspace_editorial_status/v1"
@@ -469,6 +497,501 @@ PUBLICATION_PERFORMANCE_BROWSER_POLICY = {
     "audience_identities_included": False,
     "raw_copy_included": False,
 }
+
+_WEEKLY_PLAN_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "generated_at",
+    "workspace",
+    "strategy_contract",
+    "positioning_model",
+    "priority_lanes",
+    "pillar_coverage",
+    "development_card_count",
+    "recommendations",
+    "publishing_board",
+    "portfolio_learning",
+    "source_counts",
+    "data_policy",
+}
+_WEEKLY_RECOMMENDATION_TEXT_LIMITS = {
+    "title": 240,
+    "intent": 40,
+    "priority_lane": 160,
+    "publish_posture": 80,
+    "canonical_pillar": 160,
+    "career_signal": 80,
+    "employer_proximity": 80,
+    "employer_safety": 80,
+    "proof_posture": 80,
+    "audience": 240,
+    "audience_consequence": 600,
+    "distinct_thesis": 600,
+    "why_now": 600,
+    "development_status": 80,
+    "source_kind": 80,
+}
+_WEEKLY_RECOMMENDATION_KEYS = set(_WEEKLY_RECOMMENDATION_TEXT_LIMITS)
+_WEEKLY_PORTFOLIO_LEARNING_KEYS = {
+    "schema_version",
+    "source_state",
+    "summary_generated_at",
+    "learning_mode",
+    "confidence",
+    "counts",
+    "thresholds",
+    "remaining_to_advisory",
+    "remaining_to_strategy_review",
+    "contract_sequence",
+    "advisory_aggregates",
+    "decision_policy",
+}
+_WEEKLY_PRIVATE_FIELD_NAMES = {
+    "body",
+    "content",
+    "copy",
+    "draft",
+    "draft_body",
+    "excerpt",
+    "file",
+    "files",
+    "notes",
+    "persona",
+    "private",
+    "raw",
+    "raw_copy",
+    "raw_draft",
+    "raw_persona",
+    "raw_text",
+    "record",
+    "records",
+    "research_notes",
+    "source_path",
+    "source_url",
+    "text",
+}
+_WEEKLY_PRIVATE_TEXT_RE = re.compile(
+    r"(?:/Users/|file://|~/|[A-Za-z]:\\\\|BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY|"
+    r"(?:password|access[_ -]?token|api[_ -]?key|client[_ -]?secret)\s*[:=]\s*\S+)",
+    flags=re.IGNORECASE,
+)
+_WEEKLY_EMAIL_RE = re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w.-])")
+
+
+def _weekly_projection_text(
+    value: Any,
+    *,
+    field: str,
+    max_length: int,
+    required: bool = False,
+) -> str | None:
+    if value is None:
+        if required:
+            raise ValueError(f"weekly_plan.{field} is required.")
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"weekly_plan.{field} must be a string.")
+    text = " ".join(value.split())
+    if not text:
+        if required:
+            raise ValueError(f"weekly_plan.{field} cannot be empty.")
+        return None
+    if len(text) > max_length:
+        raise ValueError(f"weekly_plan.{field} exceeds its bounded length.")
+    if _WEEKLY_PRIVATE_TEXT_RE.search(text) or _WEEKLY_EMAIL_RE.search(text):
+        raise ValueError(f"weekly_plan.{field} contains private or credential-shaped text.")
+    return text
+
+
+def _weekly_projection_text_list(
+    value: Any,
+    *,
+    field: str,
+    max_items: int,
+    max_length: int,
+) -> list[str]:
+    if not isinstance(value, list) or len(value) > max_items:
+        raise ValueError(f"weekly_plan.{field} must be a bounded list.")
+    compacted: list[str] = []
+    for index, item in enumerate(value):
+        text = _weekly_projection_text(
+            item,
+            field=f"{field}[{index}]",
+            max_length=max_length,
+        )
+        if text is not None:
+            compacted.append(text)
+    return compacted
+
+
+def _weekly_projection_counts(
+    value: Any,
+    *,
+    field: str,
+    max_items: int = 24,
+    max_value: int = 1_000_000,
+) -> dict[str, int]:
+    if not isinstance(value, dict) or len(value) > max_items:
+        raise ValueError(f"weekly_plan.{field} must be a bounded count map.")
+    compacted: dict[str, int] = {}
+    for raw_key, raw_value in value.items():
+        key = _weekly_projection_text(
+            raw_key,
+            field=f"{field}.key",
+            max_length=120,
+            required=True,
+        )
+        if isinstance(raw_value, bool) or not isinstance(raw_value, int) or not 0 <= raw_value <= max_value:
+            raise ValueError(f"weekly_plan.{field}.{key} must be a bounded nonnegative integer.")
+        compacted[key] = raw_value
+    return compacted
+
+
+def _compact_weekly_strategy_contract(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("weekly_plan.strategy_contract is required.")
+    allowed = {
+        "schema_version",
+        "version",
+        "contract_version",
+        "contract_hash",
+        "approved_at",
+        "freshness_state",
+    }
+    unsupported = set(value) - allowed
+    if unsupported:
+        raise ValueError("weekly_plan.strategy_contract contains unsupported content.")
+    schema_version = _weekly_projection_text(
+        value.get("schema_version"),
+        field="strategy_contract.schema_version",
+        max_length=80,
+        required=True,
+    )
+    contract_hash = _weekly_projection_text(
+        value.get("contract_hash"),
+        field="strategy_contract.contract_hash",
+        max_length=64,
+        required=True,
+    )
+    if re.fullmatch(r"[a-f0-9]{64}", contract_hash.lower()) is None:
+        raise ValueError("weekly_plan.strategy_contract.contract_hash must be a SHA-256 value.")
+    compacted: dict[str, Any] = {
+        "schema_version": schema_version,
+        "contract_hash": contract_hash.lower(),
+    }
+    for key, limit in (
+        ("version", 40),
+        ("contract_version", 40),
+        ("approved_at", 64),
+        ("freshness_state", 40),
+    ):
+        text = _weekly_projection_text(
+            value.get(key),
+            field=f"strategy_contract.{key}",
+            max_length=limit,
+        )
+        if text is not None:
+            compacted[key] = text
+    return compacted
+
+
+def _compact_weekly_pillar_coverage(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("weekly_plan.pillar_coverage is required.")
+    allowed = {"counts", "unmapped_count", "missing_pillars", "warnings"}
+    if set(value) - allowed:
+        raise ValueError("weekly_plan.pillar_coverage contains unsupported fields.")
+    counts = _weekly_projection_counts(value.get("counts"), field="pillar_coverage.counts", max_items=8)
+    unmapped_count = value.get("unmapped_count", 0)
+    if isinstance(unmapped_count, bool) or not isinstance(unmapped_count, int) or not 0 <= unmapped_count <= 1_000:
+        raise ValueError("weekly_plan.pillar_coverage.unmapped_count is invalid.")
+    return {
+        "counts": counts,
+        "unmapped_count": unmapped_count,
+        "missing_pillars": _weekly_projection_text_list(
+            value.get("missing_pillars"),
+            field="pillar_coverage.missing_pillars",
+            max_items=8,
+            max_length=160,
+        ),
+        "warnings": _weekly_projection_text_list(
+            value.get("warnings"),
+            field="pillar_coverage.warnings",
+            max_items=8,
+            max_length=320,
+        ),
+    }
+
+
+def _compact_weekly_recommendation(value: Any, *, index: int) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"weekly_plan.recommendations[{index}] must be an object.")
+    unsupported = set(value) - _WEEKLY_RECOMMENDATION_KEYS
+    if unsupported:
+        raise ValueError(f"weekly_plan.recommendations[{index}] contains unsupported or private fields.")
+    compacted: dict[str, Any] = {}
+    for key, max_length in _WEEKLY_RECOMMENDATION_TEXT_LIMITS.items():
+        text = _weekly_projection_text(
+            value.get(key),
+            field=f"recommendations[{index}].{key}",
+            max_length=max_length,
+            required=key == "title",
+        )
+        if text is not None:
+            compacted[key] = text
+    enums = {
+        "intent": {"value", "invitation", "personal"},
+        "career_signal": {"education_anchor", "bridge", "tech_proof"},
+        "employer_proximity": {"personal_build", "public_event", "generalized_work", "employer_specific"},
+        "employer_safety": {"pass", "owner_review_required"},
+        "proof_posture": {
+            "verified_public",
+            "verified_private_anonymize",
+            "owner_confirmation_required",
+            "principle_only",
+            "missing",
+        },
+    }
+    for key, allowed in enums.items():
+        if key in compacted and compacted[key] not in allowed:
+            raise ValueError(f"weekly_plan.recommendations[{index}].{key} is not allowlisted.")
+    return compacted
+
+
+def _compact_weekly_publishing_board_card(value: Any, *, field: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"weekly_plan.{field} must contain receipt objects.")
+    allowed = {
+        "schema_version",
+        "board_role",
+        "canonical_pillar",
+        "intent",
+        "treatment",
+        "employer_safety",
+        "proof_posture",
+        "exact_copy_bound",
+        "critic_status",
+        "owner_decision_state",
+        "approval_completed",
+        "publication_confirmed",
+        "performance_state",
+        "lifecycle_state",
+        "next_action",
+    }
+    if set(value) - allowed:
+        raise ValueError(f"weekly_plan.{field} contains non-lifecycle content.")
+    schema_version = _weekly_projection_text(
+        value.get("schema_version"),
+        field=f"{field}.schema_version",
+        max_length=80,
+        required=True,
+    )
+    if schema_version != "feezie_publishing_board_card/v1":
+        raise ValueError(f"weekly_plan.{field} has an unsupported receipt schema.")
+    compacted: dict[str, Any] = {"schema_version": schema_version}
+    for key, limit in (
+        ("board_role", 40),
+        ("canonical_pillar", 160),
+        ("intent", 40),
+        ("treatment", 120),
+        ("employer_safety", 80),
+        ("proof_posture", 80),
+        ("critic_status", 80),
+        ("owner_decision_state", 80),
+        ("performance_state", 80),
+        ("lifecycle_state", 80),
+        ("next_action", 160),
+    ):
+        text = _weekly_projection_text(value.get(key), field=f"{field}.{key}", max_length=limit)
+        if text is not None:
+            compacted[key] = text
+    for key in ("exact_copy_bound", "approval_completed", "publication_confirmed"):
+        raw = value.get(key)
+        if not isinstance(raw, bool):
+            raise ValueError(f"weekly_plan.{field}.{key} must be boolean.")
+        compacted[key] = raw
+    if compacted["publication_confirmed"] and not compacted["approval_completed"]:
+        raise ValueError(f"weekly_plan.{field} cannot confirm publication before approval.")
+    return compacted
+
+
+def _compact_weekly_publishing_board(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("weekly_plan.publishing_board is required.")
+    allowed = {
+        "schema_version",
+        "window_days",
+        "primary",
+        "backup",
+        "developing",
+        "publication_authority",
+        "may_publish_fewer",
+        "exact_copy_rule",
+    }
+    if set(value) - allowed:
+        raise ValueError("weekly_plan.publishing_board contains unsupported content.")
+    if value.get("schema_version") != "feezie_seven_day_publishing_board/v1":
+        raise ValueError("weekly_plan.publishing_board has an unsupported schema.")
+    window_days = value.get("window_days")
+    if isinstance(window_days, bool) or not isinstance(window_days, int) or not 1 <= window_days <= 14:
+        raise ValueError("weekly_plan.publishing_board.window_days is invalid.")
+    compacted: dict[str, Any] = {
+        "schema_version": "feezie_seven_day_publishing_board/v1",
+        "window_days": window_days,
+    }
+    for key, limit in (("primary", 3), ("backup", 3), ("developing", 3)):
+        items = value.get(key)
+        if not isinstance(items, list) or len(items) > limit:
+            raise ValueError(f"weekly_plan.publishing_board.{key} must be bounded.")
+        compacted[key] = [
+            _compact_weekly_publishing_board_card(item, field=f"publishing_board.{key}[{index}]")
+            for index, item in enumerate(items)
+        ]
+    authority = _weekly_projection_text(
+        value.get("publication_authority"),
+        field="publishing_board.publication_authority",
+        max_length=40,
+        required=True,
+    )
+    if authority != "owner_only" or not isinstance(value.get("may_publish_fewer"), bool):
+        raise ValueError("weekly_plan.publishing_board authority policy is invalid.")
+    compacted["publication_authority"] = authority
+    compacted["may_publish_fewer"] = value["may_publish_fewer"]
+    exact_copy_rule = _weekly_projection_text(
+        value.get("exact_copy_rule"),
+        field="publishing_board.exact_copy_rule",
+        max_length=600,
+        required=True,
+    )
+    compacted["exact_copy_rule"] = exact_copy_rule
+    return compacted
+
+
+def _compact_weekly_aggregate_value(value: Any, *, field: str, depth: int = 0) -> Any:
+    if depth > 6:
+        raise ValueError(f"weekly_plan.{field} exceeds the aggregate depth limit.")
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        if not -1_000_000 <= value <= 1_000_000:
+            raise ValueError(f"weekly_plan.{field} contains an unbounded integer.")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not -1_000_000 <= value <= 1_000_000:
+            raise ValueError(f"weekly_plan.{field} contains an unbounded number.")
+        return value
+    if isinstance(value, str):
+        return _weekly_projection_text(value, field=field, max_length=240)
+    if isinstance(value, list):
+        if len(value) > 24:
+            raise ValueError(f"weekly_plan.{field} contains an oversized aggregate list.")
+        return [
+            _compact_weekly_aggregate_value(item, field=f"{field}[{index}]", depth=depth + 1)
+            for index, item in enumerate(value)
+        ]
+    if isinstance(value, dict):
+        if len(value) > 40:
+            raise ValueError(f"weekly_plan.{field} contains an oversized aggregate map.")
+        compacted: dict[str, Any] = {}
+        for raw_key, item in value.items():
+            key = str(raw_key or "").strip()
+            if (
+                not key
+                or len(key) > 80
+                or re.fullmatch(r"[A-Za-z0-9_.:-]+", key) is None
+                or key.lower() in _WEEKLY_PRIVATE_FIELD_NAMES
+            ):
+                raise ValueError(f"weekly_plan.{field} contains a private or invalid aggregate field.")
+            compacted[key] = _compact_weekly_aggregate_value(
+                item,
+                field=f"{field}.{key}",
+                depth=depth + 1,
+            )
+        return compacted
+    raise ValueError(f"weekly_plan.{field} contains an unsupported aggregate value.")
+
+
+def _compact_weekly_portfolio_learning(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("weekly_plan.portfolio_learning is required.")
+    if set(value) - _WEEKLY_PORTFOLIO_LEARNING_KEYS:
+        raise ValueError("weekly_plan.portfolio_learning contains non-aggregate content.")
+    if value.get("schema_version") != "feezie_portfolio_learning_receipt/v1":
+        raise ValueError("weekly_plan.portfolio_learning has an unsupported schema.")
+    compacted = _compact_weekly_aggregate_value(value, field="portfolio_learning")
+    if not isinstance(compacted, dict):
+        raise ValueError("weekly_plan.portfolio_learning could not be compacted.")
+    decision_policy = compacted.get("decision_policy")
+    if not isinstance(decision_policy, dict):
+        raise ValueError("weekly_plan.portfolio_learning.decision_policy is required.")
+    if decision_policy.get("strategy_contract_mutation_allowed") is not False:
+        raise ValueError("weekly_plan.portfolio_learning cannot authorize strategy mutation.")
+    return compacted
+
+
+def compact_and_validate_weekly_plan_projection(
+    value: Any,
+    *,
+    envelope_generated_at: str,
+) -> dict[str, Any]:
+    """Return the closed, public-safe weekly plan projection accepted from the Mac."""
+
+    if not isinstance(value, dict):
+        raise ValueError("weekly_plan must be an object.")
+    unsupported = set(value) - _WEEKLY_PLAN_TOP_LEVEL_KEYS
+    if unsupported:
+        raise ValueError("weekly_plan contains unsupported or private top-level fields.")
+    if value.get("schema_version") != FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA:
+        raise ValueError("weekly_plan has an unsupported projection schema.")
+    if value.get("generated_at") != envelope_generated_at:
+        raise ValueError("weekly_plan generated_at must exactly match the sync envelope.")
+    if value.get("workspace") not in {WORKSPACE_KEY, "workspaces/linkedin-content-os"}:
+        raise ValueError("weekly_plan workspace identity is invalid.")
+    recommendations = value.get("recommendations")
+    if not isinstance(recommendations, list) or len(recommendations) > 5:
+        raise ValueError("weekly_plan recommendations must contain at most five items.")
+    compacted_recommendations = [
+        _compact_weekly_recommendation(item, index=index)
+        for index, item in enumerate(recommendations)
+    ]
+    development_card_count = value.get("development_card_count")
+    if (
+        isinstance(development_card_count, bool)
+        or not isinstance(development_card_count, int)
+        or not 0 <= development_card_count <= min(3, len(compacted_recommendations))
+    ):
+        raise ValueError("weekly_plan development_card_count is invalid.")
+    if value.get("data_policy") != FEEZIE_WEEKLY_PLAN_DATA_POLICY:
+        raise ValueError("weekly_plan data_policy does not match the public-safe projection contract.")
+
+    compacted = {
+        "schema_version": FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA,
+        "generated_at": envelope_generated_at,
+        "workspace": WORKSPACE_KEY,
+        "strategy_contract": _compact_weekly_strategy_contract(value.get("strategy_contract")),
+        "positioning_model": _weekly_projection_text_list(
+            value.get("positioning_model"),
+            field="positioning_model",
+            max_items=8,
+            max_length=320,
+        ),
+        "priority_lanes": _weekly_projection_text_list(
+            value.get("priority_lanes"),
+            field="priority_lanes",
+            max_items=8,
+            max_length=200,
+        ),
+        "pillar_coverage": _compact_weekly_pillar_coverage(value.get("pillar_coverage")),
+        "development_card_count": development_card_count,
+        "recommendations": compacted_recommendations,
+        "publishing_board": _compact_weekly_publishing_board(value.get("publishing_board")),
+        "portfolio_learning": _compact_weekly_portfolio_learning(value.get("portfolio_learning")),
+        "source_counts": _weekly_projection_counts(value.get("source_counts"), field="source_counts"),
+        "data_policy": dict(FEEZIE_WEEKLY_PLAN_DATA_POLICY),
+    }
+    encoded = json.dumps(compacted, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    if len(encoded) > 128 * 1024:
+        raise ValueError("weekly_plan projection exceeds the 128 KB compacted limit.")
+    return compacted
 
 ACTIVITY_STAGE_ORDER = {
     "owner_review": 0,
@@ -1070,12 +1593,119 @@ def _browser_private_grounding_projection(snapshot_type: str, payload: Any) -> d
     }
 
 
+def _browser_weekly_strategy_freshness(value: Any) -> dict[str, Any] | None:
+    """Return only bounded strategy freshness state and approved identifiers."""
+
+    if not isinstance(value, dict):
+        return None
+    state = value.get("state")
+    if state not in {"current", "stale", "legacy", "unavailable"}:
+        return None
+    compacted: dict[str, Any] = {"state": state}
+    for key in ("planned_hash", "current_hash"):
+        raw_hash = value.get(key)
+        if raw_hash is None:
+            compacted[key] = None
+        elif isinstance(raw_hash, str) and re.fullmatch(r"[a-f0-9]{64}", raw_hash.lower()):
+            compacted[key] = raw_hash.lower()
+        else:
+            compacted[key] = None
+    compacted["approved_at"] = _browser_status_timestamp(value.get("approved_at"))
+    if compacted["approved_at"] is None:
+        approved_date = value.get("approved_at")
+        if isinstance(approved_date, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", approved_date.strip()):
+            compacted["approved_at"] = approved_date.strip()
+    compacted["checked_at"] = _browser_status_timestamp(value.get("checked_at"))
+    return compacted
+
+
+def _bounded_browser_collection_count(value: Any, *, maximum: int = 1_000) -> int:
+    if not isinstance(value, list):
+        return 0
+    return min(len(value), maximum)
+
+
+def _legacy_weekly_plan_browser_projection(payload: Any) -> dict[str, Any]:
+    """Reduce an old or invalid weekly plan to status/counts without forwarding rows."""
+
+    source = payload if isinstance(payload, dict) else {}
+    board = source.get("publishing_board") if isinstance(source.get("publishing_board"), dict) else {}
+    source_counts = source.get("source_counts") if isinstance(source.get("source_counts"), dict) else {}
+    safe_source_counts: dict[str, int] = {}
+    for key in ("drafts", "media", "research", "total"):
+        raw_count = source_counts.get(key)
+        if isinstance(raw_count, int) and not isinstance(raw_count, bool) and 0 <= raw_count <= 1_000_000:
+            safe_source_counts[key] = raw_count
+    development_card_count = source.get("development_card_count")
+    if (
+        isinstance(development_card_count, bool)
+        or not isinstance(development_card_count, int)
+        or not 0 <= development_card_count <= 3
+    ):
+        development_card_count = 0
+    projected = {
+        "schema_version": FEEZIE_WEEKLY_PLAN_LEGACY_BROWSER_SCHEMA,
+        "state": "legacy_redacted" if isinstance(payload, dict) else "missing",
+        "generated_at": _browser_status_timestamp(source.get("generated_at")),
+        "workspace": WORKSPACE_KEY,
+        "positioning_model": [],
+        "priority_lanes": [],
+        "pillar_coverage": {
+            "counts": {},
+            "unmapped_count": 0,
+            "missing_pillars": [],
+            "warnings": [],
+        },
+        "development_card_count": development_card_count,
+        "recommendation_count": _bounded_browser_collection_count(source.get("recommendations")),
+        "recommendations": [],
+        "publishing_board": {
+            "schema_version": "feezie_publishing_board_browser_status/v1",
+            "counts": {
+                key: _bounded_browser_collection_count(board.get(key), maximum=3)
+                for key in ("primary", "backup", "developing")
+            },
+        },
+        "portfolio_learning": {},
+        "source_counts": safe_source_counts,
+        "data_policy": dict(FEEZIE_WEEKLY_PLAN_LEGACY_BROWSER_DATA_POLICY),
+    }
+    freshness = _browser_weekly_strategy_freshness(source.get("strategy_contract_freshness"))
+    if freshness is not None:
+        projected["strategy_contract_freshness"] = freshness
+    return projected
+
+
+def _browser_weekly_plan_projection(payload: Any) -> dict[str, Any]:
+    """Keep signed narrow plans useful and redact all legacy weekly-plan rows."""
+
+    if not isinstance(payload, dict) or payload.get("schema_version") != FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA:
+        return _legacy_weekly_plan_browser_projection(payload)
+    source = dict(payload)
+    raw_freshness = source.pop("strategy_contract_freshness", None)
+    generated_at = source.get("generated_at")
+    if not isinstance(generated_at, str):
+        return _legacy_weekly_plan_browser_projection(payload)
+    try:
+        projected = compact_and_validate_weekly_plan_projection(
+            source,
+            envelope_generated_at=generated_at,
+        )
+    except (TypeError, ValueError):
+        return _legacy_weekly_plan_browser_projection(payload)
+    freshness = _browser_weekly_strategy_freshness(raw_freshness)
+    if freshness is not None:
+        projected["strategy_contract_freshness"] = freshness
+    return projected
+
+
 def project_linkedin_os_snapshot_for_browser(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Return the authenticated browser projection without private grounding rows."""
 
     if not isinstance(snapshot, dict):
         raise TypeError("Workspace snapshot must be a mapping.")
     projected = dict(snapshot)
+    projected[SNAPSHOT_WEEKLY_PLAN] = _browser_weekly_plan_projection(snapshot.get(SNAPSHOT_WEEKLY_PLAN))
     for snapshot_type in BROWSER_PRIVATE_GROUNDING_SNAPSHOT_TYPES:
         projected[snapshot_type] = _browser_private_grounding_projection(
             snapshot_type,

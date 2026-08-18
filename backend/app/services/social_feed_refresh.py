@@ -54,6 +54,7 @@ def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     cmd.append("--skip-brain-context-sync")
     cmd.append("--skip-strategy-refresh")
     cmd.append("--skip-content-bank")
+    cmd.append("--skip-feezie-workspace-sync")
     cmd.append("--compact-output")
     if sources != "safe":
         cmd.extend(["--sources", sources])

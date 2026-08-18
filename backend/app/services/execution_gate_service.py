@@ -45,6 +45,7 @@ KNOWN_CAPABILITIES = frozenset(
         "brain.long_form_ingest/v1",
         "brain.linkedin_performance_record/v1",
         "brain.youtube_watchlist_ingest/v1",
+        "brain.refresh_feezie_workspace/v1",
         "brain.refresh_persona_review/v1",
         "host.local_durable_writeback/v1",
         "host.execution_result_writeback/v1",
@@ -60,6 +61,7 @@ SAFE_BRAIN_ACTION_CAPABILITIES = {
     "long_form_ingest": "brain.long_form_ingest/v1",
     "linkedin_performance_record": "brain.linkedin_performance_record/v1",
     "youtube_watchlist_ingest": "brain.youtube_watchlist_ingest/v1",
+    "refresh_feezie_workspace": "brain.refresh_feezie_workspace/v1",
     "refresh_persona_review": "brain.refresh_persona_review/v1",
 }
 

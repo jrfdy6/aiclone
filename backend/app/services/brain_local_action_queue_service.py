@@ -35,6 +35,7 @@ BRAIN_LOCAL_ACTIONS = frozenset(
         "long_form_ingest",
         "linkedin_performance_record",
         "youtube_watchlist_ingest",
+        "refresh_feezie_workspace",
         "refresh_persona_review",
     }
 )
@@ -47,6 +48,7 @@ _ACTION_TITLES = {
     "long_form_ingest": "Brain: ingest long-form source locally",
     "linkedin_performance_record": "Brain: record LinkedIn evidence locally",
     "youtube_watchlist_ingest": "Brain: ingest YouTube source locally",
+    "refresh_feezie_workspace": "Brain: refresh FEEZIE workspace locally",
     "refresh_persona_review": "Brain: refresh persona review locally",
 }
 
@@ -171,9 +173,11 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
                 label="youtube_watchlist_ingest request",
             )
         }
-    else:
-        _validate_exact_keys(parameters, set(), label="refresh_persona_review parameters")
+    elif action in {"refresh_feezie_workspace", "refresh_persona_review"}:
+        _validate_exact_keys(parameters, set(), label=f"{action} parameters")
         normalized = {}
+    else:  # pragma: no cover - the action allowlist rejects this branch first.
+        raise ValueError("Unsupported Brain local action.")
 
     expected_key = hashlib.sha256(_canonical_json({"action": action, "parameters": normalized}).encode("utf-8")).hexdigest()
     supplied_key = str(envelope.get("idempotency_key") or "").strip()
@@ -211,11 +215,57 @@ def build_brain_local_action(action: str, parameters: dict[str, Any]) -> dict[st
     return validate_brain_local_action(envelope)
 
 
+def build_brain_local_action_card_request(action: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    """Build the canonical PM request that Railway will gate and sign.
+
+    Local launchd jobs use this shape through the authenticated PM endpoint;
+    they never need the execution-signing secret and cannot self-sign work.
+    """
+
+    envelope = build_brain_local_action(action, parameters)
+    trigger_key = f"brain-local-action:{envelope['action']}:{envelope['idempotency_key']}"
+    now = _now_iso()
+    request = PMCardCreate(
+        title=_ACTION_TITLES[envelope["action"]],
+        owner="Jean-Claude",
+        status="todo",
+        source=f"brain_local_action:{envelope['action']}",
+        link_type="brain_local_action",
+        link_id=str(envelope["parameters"].get("signal_id") or "").strip() or None,
+        payload={
+            "workspace_key": "shared_ops",
+            "scope": "shared_ops",
+            "front_door_agent": "Neo",
+            "source_agent": "Brain",
+            "requested_by": "Neo",
+            "trigger_origin": "brain_authenticated_control_plane",
+            "trigger_key": trigger_key,
+            "reason": "Authenticated Brain mutation requires deterministic execution on the local Codex host.",
+            "brain_local_action": envelope,
+            "execution": {
+                "lane": "codex",
+                "state": "queued",
+                "manager_agent": "Jean-Claude",
+                "target_agent": "Brain Local Action",
+                "execution_mode": "brain_local_action",
+                "requested_by": "Neo",
+                "assigned_runner": "codex_workspace_execution",
+                "reason": f"Run signed Brain local action `{envelope['action']}` without model invocation.",
+                "queued_at": now,
+                "last_transition_at": now,
+                "source": "brain_authenticated_control_plane",
+            },
+        },
+    )
+    return request.model_dump(mode="json", exclude_none=True)
+
+
 def enqueue_brain_local_action(action: str, parameters: dict[str, Any]) -> tuple[PMCard, str]:
     if not execution_signing_configured():
         raise RuntimeError("Brain local-action queue is unavailable because signed-job authorization is not configured.")
-    envelope = build_brain_local_action(action, parameters)
-    trigger_key = f"brain-local-action:{envelope['action']}:{envelope['idempotency_key']}"
+    card_request = build_brain_local_action_card_request(action, parameters)
+    envelope = validate_brain_local_action(card_request["payload"]["brain_local_action"])
+    trigger_key = str(card_request["payload"]["trigger_key"])
     existing = pm_card_service.find_active_card_by_trigger_key(trigger_key)
     if existing is not None:
         existing_action = validate_brain_local_action(dict(existing.payload or {}).get("brain_local_action"))
@@ -257,42 +307,7 @@ def enqueue_brain_local_action(action: str, parameters: dict[str, Any]) -> tuple
                 raise RuntimeError("Failed to requeue the signed Brain local-action PM card.")
             return updated, "requeued"
         return existing, "already_active"
-    signal_id = str(envelope["parameters"].get("signal_id") or "").strip() or None
-    now = _now_iso()
-    card = pm_card_service.create_card(
-        PMCardCreate(
-            title=_ACTION_TITLES[envelope["action"]],
-            owner="Jean-Claude",
-            status="todo",
-            source=f"brain_local_action:{envelope['action']}",
-            link_type="brain_local_action",
-            link_id=signal_id,
-            payload={
-                "workspace_key": "shared_ops",
-                "scope": "shared_ops",
-                "front_door_agent": "Neo",
-                "source_agent": "Brain",
-                "requested_by": "Neo",
-                "trigger_origin": "brain_authenticated_control_plane",
-                "trigger_key": trigger_key,
-                "reason": "Authenticated Brain mutation requires deterministic execution on the local Codex host.",
-                "brain_local_action": envelope,
-                "execution": {
-                    "lane": "codex",
-                    "state": "queued",
-                    "manager_agent": "Jean-Claude",
-                    "target_agent": "Brain Local Action",
-                    "execution_mode": "brain_local_action",
-                    "requested_by": "Neo",
-                    "assigned_runner": "codex_workspace_execution",
-                    "reason": f"Run signed Brain local action `{envelope['action']}` without model invocation.",
-                    "queued_at": now,
-                    "last_transition_at": now,
-                    "source": "brain_authenticated_control_plane",
-                },
-            },
-        )
-    )
+    card = pm_card_service.create_card(PMCardCreate.model_validate(card_request))
     if not verify_execution_payload(card.id, dict(card.payload or {})):
         raise RuntimeError("Brain local-action PM card was not signed correctly.")
     return card, "queued"
@@ -341,6 +356,60 @@ def get_linkedin_performance_record_job(card_id: str) -> dict[str, Any]:
             if status == "failed"
             else None
         ),
+    }
+
+
+def get_feezie_workspace_refresh_job(card_id: str) -> dict[str, Any]:
+    """Return fixed, payload-free status for one signed FEEZIE workspace refresh."""
+
+    card, _ = authorize_brain_local_action_card(card_id, "refresh_feezie_workspace")
+    payload = dict(card.payload or {})
+    execution = dict(payload.get("execution") or {})
+    latest_result = dict(payload.get("latest_execution_result") or {})
+    card_status = str(card.status or "todo").strip().lower()
+    executor_status = str(execution.get("executor_status") or "").strip().lower()
+    execution_state = str(execution.get("state") or "queued").strip().lower()
+    if card_status in {"done", "closed"} or latest_result.get("status") == "done":
+        status = "completed"
+    elif card_status in {"blocked", "failed"} or executor_status == "failed":
+        status = "failed"
+    elif executor_status == "running" or execution_state == "running":
+        status = "running"
+    else:
+        status = "queued"
+
+    completed_at_raw = execution.get("executor_finished_at")
+    if isinstance(completed_at_raw, datetime):
+        completed_at_value = completed_at_raw
+    elif isinstance(completed_at_raw, str) and 1 <= len(completed_at_raw.strip()) <= 64:
+        try:
+            completed_at_value = datetime.fromisoformat(completed_at_raw.strip().replace("Z", "+00:00"))
+        except ValueError:
+            completed_at_value = None
+    else:
+        completed_at_value = None
+    completed_at = (
+        completed_at_value.astimezone(timezone.utc).isoformat()
+        if completed_at_value is not None
+        and completed_at_value.tzinfo is not None
+        and completed_at_value.utcoffset() is not None
+        else None
+    )
+    messages = {
+        "queued": "FEEZIE workspace refresh is queued for the signed local runner.",
+        "running": "FEEZIE workspace refresh is running on the signed local runner.",
+        "completed": "FEEZIE workspace refresh completed successfully.",
+        "failed": "FEEZIE workspace refresh did not complete.",
+    }
+    return {
+        "job_id": card.id,
+        "card_id": card.id,
+        "status": status,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+        "completed_at": completed_at,
+        "message": messages[status],
+        "error_code": "feezie_workspace_refresh_failed" if status == "failed" else None,
     }
 
 

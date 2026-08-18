@@ -146,6 +146,7 @@ STALE_CLAIM_AUTO_RECOVERABLE_BRAIN_ACTIONS = frozenset(
         "signal_route",
         "signal_intake",
         "linkedin_performance_record",
+        "refresh_feezie_workspace",
         "refresh_persona_review",
     }
 )

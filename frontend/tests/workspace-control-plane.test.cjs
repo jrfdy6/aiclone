@@ -25,6 +25,7 @@ const fragmentUtilsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'work
 const localVoiceReviewSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'localVoiceReview.ts'), 'utf8');
 const controlApiSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'control-api.ts'), 'utf8');
 const feedRefreshPollingSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'feed-refresh-polling.ts'), 'utf8');
+const feezieWorkspaceSyncSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'feezie-workspace-sync.ts'), 'utf8');
 const compiledFeedRefreshPolling = ts.transpileModule(feedRefreshPollingSource, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
@@ -38,6 +39,19 @@ new Function('module', 'exports', 'require', compiledFeedRefreshPolling)(
   require,
 );
 const { waitForFeedRefreshAttempt } = loadedFeedRefreshPolling.exports;
+const compiledFeezieWorkspaceSync = ts.transpileModule(feezieWorkspaceSyncSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText;
+const loadedFeezieWorkspaceSync = { exports: {} };
+new Function('module', 'exports', 'require', compiledFeezieWorkspaceSync)(
+  loadedFeezieWorkspaceSync,
+  loadedFeezieWorkspaceSync.exports,
+  require,
+);
+const { waitForFeezieWorkspaceSync } = loadedFeezieWorkspaceSync.exports;
 
 test('FEEZIE opens with a bounded Today’s Distribution decision surface', () => {
   assert.match(workspaceSource, /Today&apos;s Distribution/);
@@ -214,6 +228,100 @@ test('feed refresh polling reports only a terminal failure bound to the current 
     },
   );
   assert.equal(reads, 3);
+});
+
+test('FEEZIE refresh waits for the exact signed Mac action before reporting completion', async () => {
+  const statuses = [
+    {
+      job_id: 'card-current',
+      card_id: 'card-current',
+      status: 'running',
+      created_at: '2026-08-17T14:00:00Z',
+    },
+    {
+      job_id: 'card-current',
+      card_id: 'card-current',
+      status: 'completed',
+      created_at: '2026-08-17T14:00:00Z',
+      completed_at: '2026-08-17T14:00:03Z',
+    },
+  ];
+  let reads = 0;
+  const result = await waitForFeezieWorkspaceSync({
+    receipt: {
+      action: 'refresh_feezie_workspace',
+      card_id: 'card-current',
+      card: { id: 'card-current', created_at: '2026-08-17T14:00:00Z' },
+    },
+    readStatus: async (cardId) => {
+      assert.equal(cardId, 'card-current');
+      return statuses[reads++];
+    },
+    sleep: async () => {},
+    pollIntervalMs: 1,
+    timeoutMs: 2,
+  });
+
+  assert.equal(reads, 2);
+  assert.equal(result.status, 'completed');
+});
+
+test('FEEZIE refresh fails closed on a mismatched or failed local action without exposing runner errors', async () => {
+  await assert.rejects(
+    waitForFeezieWorkspaceSync({
+      receipt: {
+        action: 'refresh_feezie_workspace',
+        card_id: 'card-current',
+        card: { id: 'card-current', created_at: '2026-08-17T14:00:00Z' },
+      },
+      readStatus: async () => ({
+        job_id: 'different-card',
+        card_id: 'different-card',
+        status: 'completed',
+        created_at: '2026-08-17T14:00:00Z',
+        completed_at: '2026-08-17T14:00:03Z',
+      }),
+      pollIntervalMs: 1,
+      timeoutMs: 1,
+    }),
+    /did not match the exact queued action/,
+  );
+
+  await assert.rejects(
+    waitForFeezieWorkspaceSync({
+      receipt: {
+        action: 'refresh_feezie_workspace',
+        card_id: 'card-current',
+        card: { id: 'card-current', created_at: '2026-08-17T14:00:00Z' },
+      },
+      readStatus: async () => ({
+        job_id: 'card-current',
+        card_id: 'card-current',
+        status: 'failed',
+        created_at: '2026-08-17T14:00:00Z',
+        message: 'private-canary',
+        error_code: 'bounded_local_action_failure',
+      }),
+      pollIntervalMs: 1,
+      timeoutMs: 1,
+    }),
+    (error) => {
+      assert.match(error.message, /failed on the local runner/);
+      assert.doesNotMatch(error.message, /private|secret|canary|path/);
+      return true;
+    },
+  );
+});
+
+test('the FEEZIE workspace control chains Railway feed refresh to exact Mac sync and freshness proof', () => {
+  assert.match(workspaceSource, /\/api\/brain\/refresh-feezie-workspace/);
+  assert.match(workspaceSource, /waitForFeezieWorkspaceSync\(\{/);
+  assert.match(workspaceSource, /\/api\/brain\/refresh-feezie-workspace\/\$\{encodeURIComponent\(cardId\)\}/);
+  assert.doesNotMatch(workspaceSource, /\/api\/pm\/cards\/\$\{encodeURIComponent\(cardId\)\}\/execution-source/);
+  assert.match(workspaceSource, /sections\?\.weekly_plan\?\.state !== 'fresh'/);
+  assert.match(workspaceSource, /isFeeziePrivateRuntimeContextReady\(refreshedSnapshot\.private_runtime_context_status\)/);
+  assert.match(workspaceSource, /Refresh FEEZIE workspace/);
+  assert.match(workspaceSource, /signed Mac runner/);
 });
 
 test('workspace exposes the bounded critic-guided revision receipt without copy', () => {

@@ -37,6 +37,7 @@ from app.services import persona_delta_service
 from app.services.brain_local_action_queue_service import (
     authorize_brain_local_action_card,
     enqueue_brain_local_action,
+    get_feezie_workspace_refresh_job,
     list_youtube_ingest_jobs,
 )
 from app.services.brain_response_privacy_service import sanitize_brain_payload
@@ -65,7 +66,7 @@ from app.services.workspace_snapshot_store import (
     upsert_snapshot,
     upsert_snapshot_monotonic,
 )
-from app.services.workspace_snapshot_service import workspace_snapshot_service
+from app.services.workspace_snapshot_service import SNAPSHOT_WEEKLY_PLAN, workspace_snapshot_service
 from app.services.youtube_watchlist_service import build_persisted_youtube_watchlist_payload
 
 router = APIRouter(tags=["Brain"], prefix="/api/brain")
@@ -629,6 +630,7 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
             "publication_performance_status": payload.publication_performance_status,
             "publication_performance_lifecycle": payload.publication_performance_lifecycle,
             "feezie_runtime_context": payload.feezie_runtime_context,
+            "weekly_plan": payload.weekly_plan,
         }.items()
         if isinstance(value, dict)
     }
@@ -664,6 +666,8 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
                 snapshot_type = f"publication_performance_lifecycle:{identity_token}"
             elif response_key == "feezie_runtime_context":
                 snapshot_type = FEEZIE_RUNTIME_CONTEXT_SNAPSHOT_TYPE
+            elif response_key == "weekly_plan":
+                snapshot_type = SNAPSHOT_WEEKLY_PLAN
             else:
                 snapshot_type = BRAIN_WORKSPACE_PREVIEW_TYPES[response_key]
             normalized_snapshot_payload = {**snapshot_payload, "generated_at": payload.generated_at}
@@ -723,6 +727,27 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
                 if stored and current_hash != requested_hash:
                     raise RuntimeError(
                         "feezie_runtime_context storage did not acknowledge the requested payload hash"
+                    )
+                if not stored:
+                    disposition = (
+                        "idempotent_same_hash"
+                        if current_hash == requested_hash
+                        else "retained_newer"
+                    )
+            elif response_key == "weekly_plan":
+                requested_hash = hashlib.sha256(
+                    json.dumps(
+                        normalized_snapshot_payload,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=True,
+                        allow_nan=False,
+                    ).encode("utf-8")
+                ).hexdigest()
+                current_hash = _current_snapshot_payload_sha256(stored_snapshot)
+                if stored and current_hash != requested_hash:
+                    raise RuntimeError(
+                        "weekly_plan storage did not acknowledge the requested payload hash"
                     )
                 if not stored:
                     disposition = (
@@ -925,3 +950,29 @@ def refresh_brain_persona_review():
         message="Brain persona review refresh queued for the signed local runner.",
         job_alias=True,
     )
+
+
+@router.post("/refresh-feezie-workspace")
+def refresh_feezie_workspace():
+    return _queue_local_action(
+        "refresh_feezie_workspace",
+        {},
+        message="FEEZIE workspace refresh queued for the signed local runner.",
+        job_alias=True,
+    )
+
+
+@router.get("/refresh-feezie-workspace/{card_id}")
+def get_feezie_workspace_refresh_status(card_id: str, response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    try:
+        return get_feezie_workspace_refresh_job(card_id)
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 403
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("FEEZIE workspace refresh status is unavailable for card %s", card_id)
+        raise HTTPException(
+            status_code=503,
+            detail="FEEZIE workspace refresh status is unavailable.",
+        ) from exc

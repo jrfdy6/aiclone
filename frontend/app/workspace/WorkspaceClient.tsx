@@ -11,6 +11,11 @@ import {
   waitForFeedRefreshAttempt,
 } from '@/lib/feed-refresh-polling';
 import {
+  type FeezieWorkspaceSyncQueueReceipt,
+  type FeezieWorkspaceSyncStatus,
+  waitForFeezieWorkspaceSync,
+} from '@/lib/feezie-workspace-sync';
+import {
   codexJobStatusHint,
   codexJobStatusLabel,
   codexJobStatusTone,
@@ -1796,9 +1801,11 @@ export function LinkedinWorkspaceSurface({
       setSnapshot(payload);
       setSnapshotError(null);
       setSnapshotState('live');
+      return payload;
     } catch (error) {
       setSnapshotError(error instanceof Error ? error.message : 'Unable to load workspace snapshot right now.');
       setSnapshotState((current) => (current === 'live' ? 'live' : 'error'));
+      return null;
     }
   }, []);
 
@@ -2051,7 +2058,7 @@ export function LinkedinWorkspaceSurface({
 
   const refreshSocialFeed = useCallback(async () => {
     setRefreshingFeed(true);
-    setRefreshStatus('Refreshing feed...');
+    setRefreshStatus('Refreshing public signals...');
     try {
       const data = await controlApiPost<FeedRefreshQueueReceipt>('/api/workspace/refresh-social-feed', {
         skip_fetch: false,
@@ -2060,8 +2067,34 @@ export function LinkedinWorkspaceSurface({
       const queuedAt = data.queued_at ?? data.started_at;
       setRefreshStatus(`Refresh queued${queuedAt ? ` at ${formatUiTime(queuedAt)}` : ''}`);
       const finalStatus = await waitForFeedRefresh(data);
-      await loadSnapshot();
-      setRefreshStatus(`Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`);
+      setRefreshStatus('Public signals updated. Syncing the current FEEZIE plan and private context on your Mac...');
+      const syncReceipt = await controlApiPost<FeezieWorkspaceSyncQueueReceipt>('/api/brain/refresh-feezie-workspace', {});
+      await waitForFeezieWorkspaceSync({
+        receipt: syncReceipt,
+        readStatus: (cardId) =>
+          controlApiGet<FeezieWorkspaceSyncStatus>(`/api/brain/refresh-feezie-workspace/${encodeURIComponent(cardId)}`, {
+            cache: 'no-store',
+            timeoutMs: 20_000,
+          }),
+      });
+      const refreshedSnapshot = await loadSnapshot();
+      const queuedActionAt = Date.parse(syncReceipt.card?.created_at ?? '');
+      const planGeneratedAt = Date.parse(refreshedSnapshot?.weekly_plan?.generated_at ?? '');
+      const contextGeneratedAt = Date.parse(refreshedSnapshot?.private_runtime_context_status?.context_generated_at ?? '');
+      const boundFloor = queuedActionAt - 5 * 60 * 1000;
+      if (
+        !refreshedSnapshot
+        || refreshedSnapshot.snapshot_status?.sections?.weekly_plan?.state !== 'fresh'
+        || !Number.isFinite(queuedActionAt)
+        || !Number.isFinite(planGeneratedAt)
+        || planGeneratedAt < boundFloor
+        || !Number.isFinite(contextGeneratedAt)
+        || contextGeneratedAt < boundFloor
+        || !isFeeziePrivateRuntimeContextReady(refreshedSnapshot.private_runtime_context_status)
+      ) {
+        throw new Error('The signed Mac action completed, but Railway did not return a current weekly plan and ready private context. Reload before retrying.');
+      }
+      setRefreshStatus(`FEEZIE workspace updated${finalStatus.last_run ? `; public signals refreshed at ${formatUiTime(finalStatus.last_run)}` : ''}`);
     } catch (error) {
       setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
     } finally {
@@ -3415,10 +3448,13 @@ export function LinkedinWorkspaceSurface({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
               <button onClick={() => void refreshSocialFeed()} disabled={refreshingFeed} style={primaryActionStyle('#22c55e')}>
-                {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
+                {refreshingFeed ? 'Refreshing FEEZIE…' : 'Refresh FEEZIE workspace'}
               </button>
               <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
                 Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {ownerReviewItems.length} owner review · {decisionFeedItems.length} needs decision · {workflowFeedItems.length} in workflow
+              </p>
+              <p style={{ color: '#64748b', fontSize: '11px', margin: 0, maxWidth: '420px', textAlign: 'right' }}>
+                Refreshes safe public signals, then syncs the current weekly plan and private generation context through the signed Mac runner.
               </p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <InlinePill label={`${ownerReviewItems.length} owner review`} tone="#fbbf24" />
