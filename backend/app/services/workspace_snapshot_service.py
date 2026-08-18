@@ -1966,6 +1966,12 @@ def _long_form_plan_candidate(candidate: dict[str, Any], *, source_kind: str) ->
 def _augment_weekly_plan_payload(payload: dict[str, Any] | None, long_form_routes: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return payload
+    # A signed FEEZIE weekly projection is already the complete, closed
+    # browser-safe contract.  The legacy long-form overlay adds source rows and
+    # changes generated_at, so applying it here would make a valid projection
+    # fail closed as a legacy plan at the browser boundary.
+    if payload.get("schema_version") == FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA:
+        return payload
     if not isinstance(long_form_routes, dict):
         return payload
 
@@ -4295,6 +4301,10 @@ class WorkspaceSnapshotService:
         weekly_plan = safe_load_snapshot(SNAPSHOT_WEEKLY_PLAN)
         weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
         weekly_plan = _project_weekly_plan_strategy_contract_freshness(weekly_plan)
+        # Browser-derived state must share the weekly-plan trust boundary.  If
+        # lifecycle/activity builders consume legacy rows first, those rows can
+        # survive even though the weekly-plan field is redacted at route time.
+        browser_weekly_plan = _browser_weekly_plan_projection(weekly_plan)
         persona_review_summary = safe_load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
         reaction_queue = safe_load_snapshot(SNAPSHOT_REACTION_QUEUE)
         social_feed = safe_load_snapshot(SNAPSHOT_SOCIAL_FEED)
@@ -4316,7 +4326,7 @@ class WorkspaceSnapshotService:
                 linkedin_root=_discover_linkedin_root(),
                 social_feed=social_feed if isinstance(social_feed, dict) else None,
                 reaction_queue=reaction_queue if isinstance(reaction_queue, dict) else None,
-                weekly_plan=weekly_plan if isinstance(weekly_plan, dict) else None,
+                weekly_plan=browser_weekly_plan,
                 publication_records=(
                     publication_performance.get("publication_lifecycle_index")
                     if isinstance(publication_performance, dict)
@@ -4338,7 +4348,7 @@ class WorkspaceSnapshotService:
         content_safe_operator_lessons = safe_load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
         activity_feed = _build_activity_feed_payload(
             social_feed=social_feed if isinstance(social_feed, dict) else None,
-            weekly_plan=weekly_plan if isinstance(weekly_plan, dict) else None,
+            weekly_plan=browser_weekly_plan,
             reaction_queue=reaction_queue if isinstance(reaction_queue, dict) else None,
         )
         refresh_status = social_feed_refresh_service.get_status()

@@ -864,8 +864,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/daily_brief_service.py",
-        "sha256": "f5d6768da6ab27e3b46281284c08e75149723bcc084b24da562ad5dc34fba16d",
-        "size": 18234
+        "sha256": "8095489890226a231c89cc5109f1b85800209d57680e6b92ecc01b342b26a729",
+        "size": 21821
       },
       {
         "mode": 420,
@@ -1644,8 +1644,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "cd040c5d03f7f0bfdf9c4fb6d601e3300303372cb7f0d8e9599b8cf95c5b3cdf",
-        "size": 182224
+        "sha256": "e99ea7cf72bfd7f874550b886aa5a5d1219abb6e59e8674f7df4c02b8c370be7",
+        "size": 182858
       },
       {
         "mode": 420,
@@ -1710,8 +1710,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
-        "sha256": "49c38f1e3503e4fb98323f08dedbad0aebb8bf5bf175a471195c3408c2ab1e22",
-        "size": 42182
+        "sha256": "dc996ac31177ed5758b7817fdebe7dd870f8abbf62cf40de861d018e3ab907b3",
+        "size": 51764
       },
       {
         "mode": 420,
@@ -2542,7 +2542,7 @@
         "size": 8832
       }
     ],
-    "tree_sha256": "1a39d26fdf70670d9fdbd60ef499f9da289619542c1545cc65505672ed84cbd6"
+    "tree_sha256": "9531ca8e41a4462bd228584db3b04e23f9accc817baa417e094061bf03800fd8"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

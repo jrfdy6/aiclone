@@ -26,6 +26,9 @@ _WORKSPACE_CANDIDATES = (
     Path(__file__).resolve().parents[3],
 )
 
+_FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA = "feezie_weekly_plan_projection/v1"
+_MAX_LONG_FORM_CANDIDATES_PER_LANE = 6
+
 
 def list_daily_briefs(limit: int = 50) -> List[DailyBrief]:
     rows = _load_from_db(limit)
@@ -242,6 +245,89 @@ def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, 
     return normalized
 
 
+def _long_form_candidate_lane(candidate: dict[str, Any]) -> str:
+    handoff_lane = str(candidate.get("handoff_lane") or "").strip()
+    if handoff_lane:
+        return handoff_lane
+    primary_route = str(candidate.get("primary_route") or "").strip()
+    if primary_route == "post_seed":
+        return "post_candidate"
+    if primary_route == "belief_evidence":
+        return "persona_candidate"
+    return primary_route
+
+
+def _long_form_brief_candidate(candidate: dict[str, Any], *, source_kind: str) -> dict[str, Any]:
+    lane_hint = str(candidate.get("lane_hint") or "").strip()
+    title = str(candidate.get("title") or "Long-form source").strip() or "Long-form source"
+    segment = str(candidate.get("segment") or "").strip()
+    route_reason = str(candidate.get("route_reason") or "").strip()
+    belief_summary = str(candidate.get("belief_summary") or "").strip()
+    rationale = route_reason
+    if belief_summary:
+        rationale = f"{route_reason} Belief: {belief_summary}.".strip()
+    return {
+        "source_kind": source_kind,
+        "title": title,
+        "category": "Long-form media",
+        "role_alignment": "operator clarity",
+        "risk_level": "review",
+        "publish_posture": "draft",
+        "hook": segment,
+        "rationale": rationale,
+        "source_path": str(candidate.get("source_path") or ""),
+        "score": int(candidate.get("route_score") or 0),
+        "priority_lane": lane_hint,
+        "source_url": str(candidate.get("source_url") or ""),
+        "target_file": str(candidate.get("target_file") or ""),
+        "route_reason": route_reason,
+        "response_modes": list(candidate.get("response_modes") or []),
+        "handoff_lane": str(candidate.get("handoff_lane") or ""),
+        "handoff_reason": str(candidate.get("handoff_reason") or ""),
+        "secondary_consumers": list(candidate.get("secondary_consumers") or []),
+    }
+
+
+def _source_intelligence_candidate_arrays(
+    weekly_plan: dict[str, Any],
+    long_form_routes: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    field_source_kinds = {
+        "media_post_seeds": ("post_candidate", "long_form_post_seed"),
+        "brief_awareness_candidates": ("brief_only", "long_form_brief_awareness"),
+        "belief_evidence_candidates": ("persona_candidate", "long_form_belief_evidence"),
+        "operational_route_candidates": ("route_to_pm", "long_form_route_to_pm"),
+    }
+    if weekly_plan.get("schema_version") != _FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA:
+        return {
+            field: list(value) if isinstance((value := weekly_plan.get(field)), list) else []
+            for field in field_source_kinds
+        }
+
+    candidates = long_form_routes.get("candidates")
+    if not isinstance(candidates, list):
+        candidates = []
+    arrays: dict[str, list[dict[str, Any]]] = {field: [] for field in field_source_kinds}
+    lane_fields = {
+        lane: (field, source_kind)
+        for field, (lane, source_kind) in field_source_kinds.items()
+    }
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        lane = _long_form_candidate_lane(candidate)
+        field_and_source_kind = lane_fields.get(lane)
+        if field_and_source_kind is None:
+            continue
+        field, source_kind = field_and_source_kind
+        if len(arrays[field]) >= _MAX_LONG_FORM_CANDIDATES_PER_LANE:
+            continue
+        arrays[field].append(
+            _long_form_brief_candidate(candidate, source_kind=source_kind)
+        )
+    return arrays
+
+
 def _snapshot_payloads() -> dict[str, dict[str, Any]]:
     try:
         snapshot = list_snapshot_payloads("linkedin-content-os")
@@ -270,10 +356,11 @@ def _build_source_intelligence_overlay() -> dict[str, Any] | None:
     if not isinstance(media_summary, dict):
         media_summary = {}
 
-    media_post_seeds = weekly_plan.get("media_post_seeds") if isinstance(weekly_plan, dict) else []
-    brief_awareness_candidates = weekly_plan.get("brief_awareness_candidates") if isinstance(weekly_plan, dict) else []
-    belief_evidence_candidates = weekly_plan.get("belief_evidence_candidates") if isinstance(weekly_plan, dict) else []
-    operational_route_candidates = weekly_plan.get("operational_route_candidates") if isinstance(weekly_plan, dict) else []
+    candidate_arrays = _source_intelligence_candidate_arrays(weekly_plan, long_form_routes)
+    media_post_seeds = candidate_arrays["media_post_seeds"]
+    brief_awareness_candidates = candidate_arrays["brief_awareness_candidates"]
+    belief_evidence_candidates = candidate_arrays["belief_evidence_candidates"]
+    operational_route_candidates = candidate_arrays["operational_route_candidates"]
     source_counts = weekly_plan.get("source_counts") if isinstance(weekly_plan, dict) else {}
     source_asset_counts = source_assets.get("counts") if isinstance(source_assets, dict) else {}
     belief_relation_counts = persona_review_summary.get("belief_relation_counts") if isinstance(persona_review_summary, dict) else {}

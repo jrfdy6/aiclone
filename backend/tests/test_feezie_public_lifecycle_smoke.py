@@ -27,6 +27,7 @@ from app.services import (
     neo_public_knowledge_service,
     persona_bundle_writer,
     voice_fidelity_service,
+    workspace_snapshot_service as workspace_snapshot_module,
 )
 from app.services.linkedin_performance_ledger_service import (
     LinkedinPerformanceLedgerService,
@@ -51,6 +52,228 @@ PUBLIC_OPTIONS = (
         "Verify the evidence boundary before approval."
     ),
 )
+
+
+def _synthetic_signed_weekly_plan(*, title: str) -> dict:
+    return {
+        "schema_version": workspace_snapshot_module.FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA,
+        "generated_at": "2026-08-18T01:47:00+00:00",
+        "workspace": "linkedin-content-os",
+        "strategy_contract": {
+            "schema_version": "feezie_strategy_contract/v1",
+            "contract_hash": PUBLIC_STRATEGY_HASH,
+        },
+        "positioning_model": ["Education operations leader and technology builder"],
+        "priority_lanes": ["AI implementation"],
+        "pillar_coverage": {
+            "counts": {"ai_native": 1},
+            "unmapped_count": 0,
+            "missing_pillars": [],
+            "warnings": [],
+        },
+        "development_card_count": 1,
+        "recommendations": [
+            {
+                "title": title,
+                "intent": "value",
+                "priority_lane": "AI implementation",
+                "publish_posture": "develop",
+                "canonical_pillar": "ai_native",
+                "career_signal": "tech_proof",
+                "employer_proximity": "personal_build",
+                "employer_safety": "pass",
+                "proof_posture": "verified_public",
+                "audience": "AI systems operators",
+                "audience_consequence": "Make a validation boundary reusable.",
+                "distinct_thesis": "A green state needs identity-bound evidence.",
+                "why_now": "The exact refresh path was just repaired and verified.",
+                "development_status": "ready_to_develop",
+                "source_kind": "post_seed",
+            }
+        ],
+        "publishing_board": {
+            "schema_version": "feezie_seven_day_publishing_board/v1",
+            "window_days": 7,
+            "primary": [],
+            "backup": [],
+            "developing": [],
+            "publication_authority": "owner_only",
+            "may_publish_fewer": True,
+            "exact_copy_rule": "Only the owner may approve exact copy.",
+        },
+        "portfolio_learning": {
+            "schema_version": "feezie_portfolio_learning_receipt/v1",
+            "learning_mode": "collect_only",
+            "confidence": "insufficient_sample",
+            "decision_policy": {"strategy_contract_mutation_allowed": False},
+        },
+        "source_counts": {"total": 1},
+        "data_policy": dict(workspace_snapshot_module.FEEZIE_WEEKLY_PLAN_DATA_POLICY),
+    }
+
+
+def _workspace_snapshot_for_weekly_plan(
+    *,
+    weekly_plan: dict,
+    linkedin_root: Path,
+    social_feed: dict | None = None,
+) -> tuple[dict, object, object]:
+    refresh_status = {"running": False, "last_run": None, "started_at": None, "error": None}
+
+    def load_snapshot(snapshot_type: str):
+        if snapshot_type == workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN:
+            return deepcopy(weekly_plan)
+        if snapshot_type == workspace_snapshot_module.SNAPSHOT_SOCIAL_FEED:
+            return deepcopy(social_feed)
+        return None
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(workspace_snapshot_module, "_load_snapshot", side_effect=load_snapshot)
+        )
+        stack.enter_context(
+            patch.object(workspace_snapshot_module, "_discover_linkedin_root", return_value=linkedin_root)
+        )
+        stack.enter_context(
+            patch.object(workspace_snapshot_module, "_load_current_feezie_strategy_contract", return_value=None)
+        )
+        stack.enter_context(
+            patch.object(
+                workspace_snapshot_module.social_feed_refresh_service,
+                "get_status",
+                return_value=refresh_status,
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                workspace_snapshot_module,
+                "build_feezie_private_runtime_context_status",
+                return_value={"schema_version": "feezie_private_runtime_context_status/v1", "state": "unavailable"},
+            )
+        )
+        stack.enter_context(
+            patch(
+                "app.services.linkedin_owner_review_service.list_owner_review_items",
+                return_value={"items": []},
+            )
+        )
+        lifecycle_builder = stack.enter_context(
+            patch.object(
+                workspace_snapshot_module,
+                "build_source_lifecycle",
+                wraps=workspace_snapshot_module.build_source_lifecycle,
+            )
+        )
+        activity_builder = stack.enter_context(
+            patch.object(
+                workspace_snapshot_module,
+                "_build_activity_feed_payload",
+                wraps=workspace_snapshot_module._build_activity_feed_payload,
+            )
+        )
+        snapshot = workspace_snapshot_module.workspace_snapshot_service.get_linkedin_os_snapshot(
+            include_workspace_files=False,
+            include_doc_entries=False,
+        )
+    return snapshot, lifecycle_builder, activity_builder
+
+
+def test_legacy_weekly_rows_cannot_reenter_browser_derived_lifecycle_state() -> None:
+    canary = "PUBLIC-LEGACY-WEEKLY-CANARY-8f31"
+    synthetic_home = str(Path("/").joinpath("Users", "private"))
+    private_path = str(Path(synthetic_home) / f"{canary}.md")
+    legacy_weekly_plan = {
+        "generated_at": "2026-08-18T01:47:00+00:00",
+        "workspace": "linkedin-content-os",
+        "positioning_model": ["Legacy private plan"],
+        "priority_lanes": ["Legacy lane"],
+        "recommendations": [
+            {
+                "title": canary,
+                "source_path": private_path,
+                "priority_lane": "Legacy lane",
+            }
+        ],
+    }
+    social_feed = {
+        "generated_at": "2026-08-18T01:48:00+00:00",
+        "items": [
+            {
+                "id": "public-safe-feed-item",
+                "title": "A public-safe feed item",
+                "source_url": "https://example.com/public-safe-item",
+                "ranking": {"total": 8.0},
+            }
+        ],
+    }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        linkedin_root = Path(temp_dir) / "linkedin-content-os"
+        linkedin_root.mkdir()
+        snapshot, lifecycle_builder, activity_builder = _workspace_snapshot_for_weekly_plan(
+            weekly_plan=legacy_weekly_plan,
+            linkedin_root=linkedin_root,
+            social_feed=social_feed,
+        )
+
+    lifecycle_weekly = lifecycle_builder.call_args.kwargs["weekly_plan"]
+    activity_weekly = activity_builder.call_args.kwargs["weekly_plan"]
+    for derived_input in (lifecycle_weekly, activity_weekly):
+        assert derived_input["schema_version"] == workspace_snapshot_module.FEEZIE_WEEKLY_PLAN_LEGACY_BROWSER_SCHEMA
+        assert derived_input["state"] == "legacy_redacted"
+        assert derived_input["recommendations"] == []
+        assert canary not in json.dumps(derived_input)
+        assert private_path not in json.dumps(derived_input)
+
+    browser_snapshot = workspace_snapshot_module.project_linkedin_os_snapshot_for_browser(snapshot)
+    assert browser_snapshot["weekly_plan"]["recommendation_count"] == 1
+    assert browser_snapshot["weekly_plan"]["recommendations"] == []
+    assert browser_snapshot["source_lifecycle"]["counts"]["total"] == 1
+    assert browser_snapshot["source_lifecycle"]["items"][0]["title"] == "A public-safe feed item"
+    assert browser_snapshot["activity_feed"]["total_count"] == 1
+    rendered = json.dumps(browser_snapshot)
+    assert canary not in rendered
+    assert private_path not in rendered
+    assert synthetic_home not in rendered
+
+
+def test_signed_weekly_recommendation_remains_lifecycle_visible_without_source_path() -> None:
+    title = "A signed public-safe validation recommendation"
+    signed_weekly_plan = _synthetic_signed_weekly_plan(title=title)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        linkedin_root = Path(temp_dir) / "linkedin-content-os"
+        linkedin_root.mkdir()
+        snapshot, lifecycle_builder, activity_builder = _workspace_snapshot_for_weekly_plan(
+            weekly_plan=signed_weekly_plan,
+            linkedin_root=linkedin_root,
+        )
+
+    lifecycle_weekly = lifecycle_builder.call_args.kwargs["weekly_plan"]
+    activity_weekly = activity_builder.call_args.kwargs["weekly_plan"]
+    for derived_input in (lifecycle_weekly, activity_weekly):
+        assert derived_input["schema_version"] == workspace_snapshot_module.FEEZIE_WEEKLY_PLAN_PROJECTION_SCHEMA
+        assert derived_input["recommendations"][0]["title"] == title
+        assert "source_path" not in derived_input["recommendations"][0]
+
+    lifecycle_items = snapshot["source_lifecycle"]["items"]
+    assert len(lifecycle_items) == 1
+    assert lifecycle_items[0]["title"] == title
+    assert lifecycle_items[0]["stage"] == "weekly_plan"
+    assert lifecycle_items[0]["source_path"] == ""
+    assert lifecycle_items[0]["artifact_paths"] == []
+    assert lifecycle_items[0]["evidence"] == {
+        "weekly_plan_source_kind": "post_seed",
+        "publish_posture": "develop",
+        "priority_lane": "AI implementation",
+    }
+
+    browser_snapshot = workspace_snapshot_module.project_linkedin_os_snapshot_for_browser(snapshot)
+    assert browser_snapshot["weekly_plan"]["recommendations"][0]["title"] == title
+    assert browser_snapshot["source_lifecycle"]["items"][0]["title"] == title
+    rendered = json.dumps(browser_snapshot)
+    assert "/Users/" not in rendered
+    assert "source_path" not in json.dumps(browser_snapshot["weekly_plan"]["recommendations"][0])
 
 
 def test_clean_public_backend_root_resolves_without_private_staging_markers() -> None:
