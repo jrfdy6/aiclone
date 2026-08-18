@@ -157,6 +157,7 @@ _TOPIC_STOPWORDS = {
     "it",
     "me",
     "my",
+    "not",
     "of",
     "on",
     "or",
@@ -345,10 +346,12 @@ def _record_is_topically_relevant(record: Mapping[str, Any], *, topic: str) -> b
         )
     )
     tagged_terms = _topic_terms(f"{record.get('safe_angle') or ''} {record.get('topic_tags') or ''}")
-    if requested_terms & tagged_terms:
-        return True
-    overlap = requested_terms & public_terms
-    return bool(overlap) if len(requested_terms) == 1 else len(overlap) >= 2
+    combined_overlap = requested_terms & (public_terms | tagged_terms)
+    # A broad single tag such as ``proof`` must not admit a complete but
+    # unrelated lived-evidence record for a multi-term topic. Single-term
+    # requests may still use one exact public/tag match; richer topics require
+    # two direct anchors across the public projection and its explicit tags.
+    return bool(combined_overlap) if len(requested_terms) == 1 else len(combined_overlap) >= 2
 
 
 def _public_safe_lesson_records(content_signal_chunks: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
@@ -400,17 +403,30 @@ def _best_retrieved_projection(
     *,
     topic: str,
 ) -> tuple[dict[str, str], dict[str, str], str]:
+    requested_terms = _topic_terms(topic)
     best_values: dict[str, str] = {}
     best_sources: dict[str, str] = {}
     best_record_id = ""
+    best_rank: tuple[int, int, int] = (-1, -1, -1)
     for record in _public_safe_lesson_records(content_signal_chunks):
         if not _record_is_topically_relevant(record, topic=topic):
             continue
         values, sources = _record_projection(record)
-        if len(values) > len(best_values):
+        public_terms = _topic_terms(
+            " ".join(
+                str(record.get(key) or "")
+                for key in ("public_proof", "macro_thesis", "public_takeaway")
+            )
+        )
+        tagged_terms = _topic_terms(f"{record.get('safe_angle') or ''} {record.get('topic_tags') or ''}")
+        public_overlap = len(requested_terms & public_terms)
+        combined_overlap = len(requested_terms & (public_terms | tagged_terms))
+        rank = (len(values), combined_overlap, public_overlap)
+        if rank > best_rank:
             best_values = values
             best_sources = sources
             best_record_id = str(record.get("record_id") or "")
+            best_rank = rank
     return best_values, best_sources, best_record_id
 
 
