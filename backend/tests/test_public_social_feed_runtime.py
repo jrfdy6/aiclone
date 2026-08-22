@@ -83,30 +83,37 @@ def test_privacy_reduced_checkout_uses_the_public_safe_watchlist() -> None:
 
 
 def test_snapshot_builder_reads_the_generated_feed_not_the_absent_workspace_tree() -> None:
-    source_root = Path("/public/workspaces/linkedin-content-os")
-    private_root = Path("/runtime/state")
-    generated_root = private_root / "workspaces" / "feezie-os"
-    payload = {
-        "generated_at": "2026-08-22T02:49:05+00:00",
-        "items": [
-            {
-                "lens_variants": {"current-role": {}},
-                "source_class": "short_form",
-                "unit_kind": "full_post",
-                "response_modes": ["comment"],
-            }
-        ],
-    }
-    with patch.object(snapshot_module, "_discover_linkedin_root", return_value=source_root), patch.object(
-        snapshot_module,
-        "PRIVATE_STATE_ROOT",
-        private_root,
-    ), patch.object(
-        snapshot_module,
-        "build_social_feed_runtime_payload",
-        return_value=payload,
-    ) as build_feed:
-        result = snapshot_module._build_social_feed_payload()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_root = Path(temp_dir) / "public"
+        source_root = runtime_root / "workspaces" / "linkedin-content-os"
+        private_root = Path(temp_dir) / "runtime" / "state"
+        generated_root = private_root / "workspaces" / "feezie-os"
+        generated_root.mkdir(parents=True)
+        payload = {
+            "generated_at": "2026-08-22T02:49:05+00:00",
+            "items": [
+                {
+                    "lens_variants": {"current-role": {}},
+                    "source_class": "short_form",
+                    "unit_kind": "full_post",
+                    "response_modes": ["comment"],
+                }
+            ],
+        }
+        with patch.object(snapshot_module, "ROOT", runtime_root), patch.object(
+            snapshot_module,
+            "_discover_linkedin_root",
+            return_value=source_root,
+        ), patch.object(
+            snapshot_module,
+            "PRIVATE_STATE_ROOT",
+            private_root,
+        ), patch.object(
+            snapshot_module,
+            "build_social_feed_runtime_payload",
+            return_value=payload,
+        ) as build_feed:
+            result = snapshot_module._build_social_feed_payload()
 
     assert result == payload
     build_feed.assert_called_once_with(generated_root, source_workspace_root=source_root)

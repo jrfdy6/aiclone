@@ -47,6 +47,35 @@ def _classification(row: Mapping[str, Any]) -> tuple[str, str, float] | None:
     return pillar, intent, priority
 
 
+def _automatic_draft_eligible(row: Mapping[str, Any]) -> bool:
+    """Keep unresolved exploratory judgment out of unattended drafting.
+
+    A safety-pass opportunity may enter the normal portfolio. An opportunity
+    that still requires owner review may enter automatically only when its
+    synthesis is already bound to at least one governed canonical belief and is
+    not an exploratory conflict. Unaligned or conflicting material remains
+    retrievable and owner-selectable without turning a UUID tie-break into an
+    owner-content decision.
+    """
+
+    safety_state = str(row.get("safety_state") or "").strip()
+    if safety_state == "pass":
+        return True
+    if safety_state != "owner_review_required":
+        return False
+    raw = row.get("metadata_json")
+    try:
+        metadata = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    belief_refs = metadata.get("canonical_belief_refs")
+    return bool(
+        isinstance(belief_refs, list)
+        and any(str(item or "").strip() for item in belief_refs)
+        and metadata.get("exploratory_conflict") is not True
+    )
+
+
 def rank_portfolio_candidates(
     candidates: list[Mapping[str, Any]],
     *,
@@ -211,6 +240,7 @@ class ContentPortfolioSelectionService:
             and item["truth_state"] == "pass"
             and item["safety_state"] in {"pass", "owner_review_required"}
             and item["attribution_state"] in {"pass", "required"}
+            and _automatic_draft_eligible(item)
         ]
         selected_ids = set(
             rank_portfolio_candidates(
@@ -241,6 +271,13 @@ class ContentPortfolioSelectionService:
                     disposition = "selected" if selected else "held"
                     if bool(item["owner_requested"]):
                         reason = "owner_requested_fast_path"
+                    elif (
+                        item["truth_state"] == "pass"
+                        and item["safety_state"] == "owner_review_required"
+                        and item["attribution_state"] in {"pass", "required"}
+                        and not _automatic_draft_eligible(item)
+                    ):
+                        reason = "owner_review_required_before_automatic_drafting"
                     elif item not in gate_eligible:
                         reason = "eligibility_gate_failed"
                     elif classification is None:

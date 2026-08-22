@@ -876,8 +876,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/content_portfolio_selection_service.py",
-        "sha256": "6f90fcf084933ce34b9fc1b3e937b8750dccfffa99928a2fdb4bfe1c7910d734",
-        "size": 14596
+        "sha256": "b13a3cae6e053b60cd08a56e858c1d8fd7cfe290ed37e4ced55cbf9a85dbdfd3",
+        "size": 16237
       },
       {
         "mode": 420,
@@ -1638,8 +1638,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_builder_service.py",
-        "sha256": "fe6664af8dde22b3789372c4c97857ba7b74ff4bfbb3ead844c062e8326c343f",
-        "size": 31344
+        "sha256": "a7614c8d72624c2d7be6df69109b1ad97c252bafda0162703b50c1985fd663bd",
+        "size": 31431
       },
       {
         "mode": 420,
@@ -1698,8 +1698,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_signal_archive_service.py",
-        "sha256": "c6e1316926c34898488a9bd654f7f90aacc52531e8ce0435a4fe69ee6bd3d726",
-        "size": 13492
+        "sha256": "b20afc03b7d49eacb960b2834850c7ae53d31f05f161b67541216db6bce47cb6",
+        "size": 14080
       },
       {
         "mode": 420,
@@ -1722,8 +1722,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_source_fetch_service.py",
-        "sha256": "be3b8c62560666611dc4bc4e84bb19c109be083f5490573d7ba5ae702e0169e7",
-        "size": 47249
+        "sha256": "9b121c4d8eae2d6c4b8630f5cae6be7399863d6a401724568328b42fc9f9c3e9",
+        "size": 48107
       },
       {
         "mode": 420,
@@ -1890,8 +1890,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "75bc948d35c04071091b5b1418f75aaeba2e85daa8b0786283650d0199a9bf47",
-        "size": 184140
+        "sha256": "37489beb42fb41c0d8243a9221730a53c56abf43d50b865e9555065207cea5ad",
+        "size": 187131
       },
       {
         "mode": 420,
@@ -2034,8 +2034,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_social_feed_runtime.py",
-        "sha256": "a710ff4439dac064e649813f93fbff5c41bfe7685fa590acdef83423bf6305e1",
-        "size": 10558
+        "sha256": "be721224808cd1702abc9da30c96e3e070d8668beb399b1d57db635eb31e22f5",
+        "size": 10917
       },
       {
         "mode": 420,
@@ -3052,7 +3052,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "c19f99fa47736a51b84d4dc5dc7d36b3afb822b9dd6cd14484c5ef53978d006f"
+    "tree_sha256": "fa954cb7f458744f7181d5eba2efb0fc72d0d5f3e2c3e616503e160517800415"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

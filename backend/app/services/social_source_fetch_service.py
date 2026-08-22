@@ -275,18 +275,40 @@ def _parse_datetime(value: str | None) -> str:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
+def _split_markdown_frontmatter(text: str) -> tuple[str | None, str]:
+    """Split frontmatter only at exact, unindented delimiter lines.
+
+    Source excerpts can legitimately contain ``---`` inside quoted YAML
+    scalars. A bare substring split truncates those valid scalars and makes a
+    verified compatibility projection unreadable on its next refresh.
+    """
+
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        return None, text
+    closing_index = next(
+        (
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.rstrip("\r\n") == "---"
+        ),
+        None,
+    )
+    if closing_index is None:
+        raise ValueError("unterminated Markdown frontmatter")
+    return "".join(lines[1:closing_index]), "".join(lines[closing_index + 1 :])
+
+
 def _load_existing_frontmatter(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     text = path.read_text(encoding="utf-8")
-    if not text.startswith("---"):
-        return {}
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return {}
     try:
-        payload = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
+        frontmatter, _ = _split_markdown_frontmatter(text)
+        if frontmatter is None:
+            return {}
+        payload = yaml.safe_load(frontmatter) or {}
+    except (ValueError, yaml.YAMLError):
         LOGGER.warning(
             "Ignoring malformed historical market-signal frontmatter for %s; the next verified write will repair it.",
             path.name,

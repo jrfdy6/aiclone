@@ -105,16 +105,33 @@ def _list_text(value: Any) -> list[str]:
     return cleaned
 
 
+def _split_markdown_frontmatter(text: str) -> tuple[str | None, str]:
+    """Split only on exact Markdown frontmatter delimiter lines."""
+
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        return None, text
+    closing_index = next(
+        (
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.rstrip("\r\n") == "---"
+        ),
+        None,
+    )
+    if closing_index is None:
+        raise ValueError("unterminated Markdown frontmatter")
+    return "".join(lines[1:closing_index]), "".join(lines[closing_index + 1 :])
+
+
 def _parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
-    if not text.startswith("---"):
+    frontmatter, body = _split_markdown_frontmatter(text)
+    if frontmatter is None:
         return {}, text.strip()
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return {}, text.strip()
-    meta = yaml.safe_load(parts[1]) or {}
+    meta = yaml.safe_load(frontmatter) or {}
     if not isinstance(meta, dict):
         meta = {}
-    return meta, parts[2].strip()
+    return meta, body.strip()
 
 
 def _relative_path(path: Path, workspace_root: Path) -> str:

@@ -118,14 +118,18 @@ def _split_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     """
 
     lines = content.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
+    if not lines or lines[0].rstrip("\r\n") != "---":
         return {}, content.strip()
     closing_index = next(
-        (index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
+        (
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.rstrip("\r\n") == "---"
+        ),
         None,
     )
     if closing_index is None:
-        return {}, content.strip()
+        raise ValueError("unterminated Markdown frontmatter")
     parsed = yaml.safe_load("".join(lines[1:closing_index])) or {}
     if not isinstance(parsed, dict):
         raise ValueError("market signal frontmatter must be a mapping")

@@ -2198,15 +2198,86 @@ def _build_reaction_queue_payload() -> dict[str, Any] | None:
 
 def _build_social_feed_payload() -> dict[str, Any] | None:
     linkedin_root = _discover_linkedin_root()
-    generated_root = PRIVATE_STATE_ROOT / "workspaces" / CANONICAL_FEEZIE_WORKSPACE_KEY
+    private_generated_root = PRIVATE_STATE_ROOT / "workspaces" / CANONICAL_FEEZIE_WORKSPACE_KEY
+    governed_source_root = _governed_social_feed_source_root(linkedin_root)
+    private_path_chain = (
+        PRIVATE_STATE_ROOT,
+        private_generated_root.parent,
+        private_generated_root,
+    )
+    try:
+        if any(path.is_symlink() and not path.exists() for path in private_path_chain):
+            return None
+        resolved_private_root = PRIVATE_STATE_ROOT.resolve()
+        resolved_generated_root = private_generated_root.resolve()
+        resolved_generated_root.relative_to(resolved_private_root)
+        private_generated_exists = private_generated_root.exists()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if private_generated_exists:
+        # Once private generated state exists it is the sole production data
+        # authority. A corrupt non-directory path must fail closed instead of
+        # silently reviving a legacy workspace writer.
+        if not private_generated_root.is_dir():
+            return None
+        generated_root = private_generated_root
+    elif governed_source_root == linkedin_root:
+        # Compatibility fallback for a pre-migration checkout that has not yet
+        # materialized private generated state. This path is read-only input;
+        # subsequent refreshes persist through the governed snapshot store.
+        generated_root = linkedin_root
+    else:
+        return None
     try:
         payload = build_social_feed_runtime_payload(
             generated_root,
-            source_workspace_root=linkedin_root,
+            source_workspace_root=governed_source_root,
         )
     except Exception:
         return None
     return payload if _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, payload) else None
+
+
+def _is_governed_social_feed_source_root(path: Path) -> bool:
+    """Allow only supported checkout layouts as legacy feed input.
+
+    ``discover_linkedin_workspace_root`` resolves candidates. Comparing the
+    absolute result with the three supported layouts also rejects a checkout
+    symlink that escapes the repository root.
+    """
+
+    if not path.exists() or not path.is_dir():
+        return False
+    candidate = Path(os.path.abspath(path))
+    allowed = {
+        Path(os.path.abspath(ROOT / "workspaces" / "linkedin-content-os")),
+        Path(os.path.abspath(ROOT / "backend" / "workspaces" / "linkedin-content-os")),
+        Path(os.path.abspath(ROOT / "linkedin-content-os")),
+    }
+    if candidate not in allowed:
+        return False
+    try:
+        path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _governed_social_feed_source_root(discovered_root: Path) -> Path:
+    """Return reviewed source config or a known-missing contained path.
+
+    Railway's privacy-reduced checkout may intentionally omit the reviewed
+    workspace tree. In that case the feed builder receives a contained missing
+    path and therefore an empty watchlist, never an arbitrary cwd-discovered
+    directory.
+    """
+
+    if _is_governed_social_feed_source_root(discovered_root):
+        return discovered_root
+    default_root = ROOT / "workspaces" / "linkedin-content-os"
+    if not default_root.exists() or _is_governed_social_feed_source_root(default_root):
+        return default_root
+    return ROOT / ".unavailable-social-feed-source-config"
 
 
 def _build_source_assets_payload() -> dict[str, Any] | None:
