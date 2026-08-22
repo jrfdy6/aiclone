@@ -278,6 +278,245 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
         return self
 
 
+class IntegratedContentProjectionSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["integrated_content_projection_sync/v1"] = "integrated_content_projection_sync/v1"
+    generated_at: str = Field(min_length=1, max_length=64)
+    projection: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "IntegratedContentProjectionSyncRequest":
+        _validate_generated_at(self.generated_at)
+        from app.services.integrated_content_projection_service import validate_integrated_content_projection
+
+        self.projection = validate_integrated_content_projection(self.projection)
+        if self.projection.get("generated_at") != self.generated_at:
+            raise ValueError("projection generated_at must match the sync envelope")
+        return self
+
+
+class OpsStandupProjectionSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["ops_standup_projection_sync/v1"] = "ops_standup_projection_sync/v1"
+    generated_at: str = Field(min_length=1, max_length=64)
+    projection: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "OpsStandupProjectionSyncRequest":
+        _validate_generated_at(self.generated_at)
+        from app.services.ops_standup_projection_service import validate_ops_standup_projection
+
+        self.projection = validate_ops_standup_projection(self.projection)
+        if self.projection.get("generated_at") != self.generated_at:
+            raise ValueError("projection generated_at must match the sync envelope")
+        return self
+
+
+class IntegratedContentVariantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    post_id: str = Field(min_length=1, max_length=128)
+    parent_revision_id: str = Field(min_length=1, max_length=128)
+    platform: Literal["linkedin", "instagram"]
+    controls: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_controls(self) -> "IntegratedContentVariantRequest":
+        from app.services.integrated_variant_generation_service import validate_variant_controls
+
+        self.controls = validate_variant_controls(self.platform, self.controls)
+        return self
+
+
+class IntegratedOwnerPostRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(min_length=1, max_length=128)
+    thesis: str = Field(min_length=1, max_length=1000)
+    controls: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("thesis")
+    @classmethod
+    def clean_thesis(cls, value: str) -> str:
+        cleaned = " ".join(value.split()).strip()
+        if not cleaned:
+            raise ValueError("thesis is required")
+        return cleaned
+
+
+class IntegratedContentManualEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    post_id: str = Field(min_length=1, max_length=128)
+    parent_revision_id: str = Field(min_length=1, max_length=128)
+    body: str = Field(min_length=1, max_length=30_000)
+    edit_classification: Literal[
+        "factual",
+        "voice",
+        "audience",
+        "strategy",
+        "evidence_attribution",
+        "safety_privacy",
+        "platform",
+        "worldview",
+        "one_off",
+    ]
+
+    @field_validator("body")
+    @classmethod
+    def clean_body(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("edited body is required")
+        return cleaned
+
+
+class IntegratedContentLearningRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    post_id: str = Field(min_length=1, max_length=128)
+    revision_id: str = Field(min_length=1, max_length=128)
+    event_kind: Literal[
+        "variant_selected",
+        "variant_rejected",
+        "owner_approved",
+        "publication_confirmed",
+    ]
+    revision_sha256: str = Field(min_length=64, max_length=64)
+    owner_confirmed: bool
+    event_at: str | None = Field(default=None, max_length=64)
+    integrity_confirmation: dict[str, bool] | None = None
+    platform: Literal["linkedin", "instagram"] | None = None
+    public_url: str | None = Field(default=None, max_length=2_048)
+
+    @field_validator("revision_sha256")
+    @classmethod
+    def validate_revision_sha256(cls, value: str) -> str:
+        cleaned = value.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", cleaned):
+            raise ValueError("revision_sha256 must be a lowercase SHA-256 digest")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_event_contract(self) -> "IntegratedContentLearningRequest":
+        if self.owner_confirmed is not True:
+            raise ValueError("owner content action requires explicit owner confirmation")
+        if self.event_kind == "owner_approved":
+            if not self.event_at:
+                raise ValueError("owner approval requires event_at")
+            _validate_generated_at(self.event_at)
+            if self.integrity_confirmation != {
+                "truth": True,
+                "safety": True,
+                "privacy": True,
+                "attribution": True,
+            }:
+                raise ValueError(
+                    "owner approval requires explicit truth, safety, privacy, and attribution confirmation"
+                )
+            if self.platform is not None or self.public_url is not None:
+                raise ValueError("owner approval cannot include publication fields")
+        elif self.event_kind == "publication_confirmed":
+            if not self.event_at or not self.platform or not self.public_url:
+                raise ValueError("publication confirmation requires event_at, platform, and public_url")
+            _validate_generated_at(self.event_at)
+            if self.integrity_confirmation is not None:
+                raise ValueError("publication confirmation cannot include approval confirmation fields")
+        elif any(
+            value is not None
+            for value in (
+                self.event_at,
+                self.integrity_confirmation,
+                self.platform,
+                self.public_url,
+            )
+        ):
+            raise ValueError("variant selection decisions cannot include approval or publication fields")
+        return self
+
+
+class IntegratedPersonaReversalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    promotion_id: str = Field(min_length=1, max_length=128)
+    persona_candidate_id: str = Field(min_length=1, max_length=128)
+    canon_version: str = Field(min_length=1, max_length=256)
+    reason: str = Field(min_length=1, max_length=1_000)
+    owner_confirmed: bool
+
+    @field_validator("reason")
+    @classmethod
+    def clean_reason(cls, value: str) -> str:
+        cleaned = " ".join(value.split()).strip()
+        if not cleaned:
+            raise ValueError("persona reversal requires a reason")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_owner_confirmation(self) -> "IntegratedPersonaReversalRequest":
+        if self.owner_confirmed is not True:
+            raise ValueError("persona reversal requires explicit owner confirmation")
+        return self
+
+
+class CanonicalDecisionCreateRequest(BaseModel):
+    """Compact owner/control-plane request for one canonical local decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision_type: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=300)
+    interaction_mode: Literal["simple", "complex"] = "simple"
+    route: str | None = Field(default=None, max_length=120)
+    surface: Literal["ops", "workspace", "content"] = "ops"
+    external_ref: str | None = Field(default=None, max_length=300)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+    @field_validator("decision_type", "title", "route", "external_ref", "idempotency_key")
+    @classmethod
+    def clean_decision_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split()).strip()
+        if not cleaned:
+            return None
+        return cleaned
+
+    @model_validator(mode="after")
+    def require_identity_fields(self) -> "CanonicalDecisionCreateRequest":
+        if not self.decision_type or not self.title or not self.idempotency_key:
+            raise ValueError("decision_type, title, and idempotency_key are required")
+        return self
+
+
+class CanonicalDecisionActionRequest(BaseModel):
+    """Optimistic, replay-safe lifecycle action for one canonical decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    action: Literal["begin_session", "resolve", "block", "reopen", "cancel"]
+    resolution: dict[str, str | int | float | bool | None] | None = None
+
+    @model_validator(mode="after")
+    def validate_resolution_contract(self) -> "CanonicalDecisionActionRequest":
+        if self.action == "resolve":
+            if not self.resolution:
+                raise ValueError("resolve requires a canonical resolution")
+            if len(self.resolution) > 12:
+                raise ValueError("resolution exceeds the bounded field limit")
+            for key, value in self.resolution.items():
+                if not str(key).strip() or len(str(key)) > 120:
+                    raise ValueError("resolution keys must be bounded")
+                if isinstance(value, str) and len(value) > 2_000:
+                    raise ValueError("resolution values must be bounded")
+        elif self.resolution is not None:
+            raise ValueError("resolution is valid only for resolve")
+        return self
+
+
 BrainSignalReviewStatus = Literal["new", "in_review", "reviewed", "routed", "ignored"]
 BrainSignalRouteTarget = Literal["source_only", "canonical_memory", "persona_canon", "standup", "pm", "workspace_local", "ignore"]
 

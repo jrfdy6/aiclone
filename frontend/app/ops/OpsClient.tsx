@@ -2,12 +2,22 @@
 
 import Link from 'next/link';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import OpsStandupSummary from '@/app/workspace/OpsStandupSummary';
 import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { ExecutiveDecisionQueue } from '@/app/ops/ExecutiveDecisionQueue';
+import RailwayRetentionHealthPanel, {
+  normalizeRailwayRetentionStatus,
+  type RailwayRetentionStatus,
+} from '@/app/ops/RailwayRetentionHealthPanel';
 import RequestWorkForm, { type RequestWorkInput, type RequestWorkResult } from '@/app/ops/RequestWorkForm';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { legacyTwoOptionCompatibilityRequested } from '@/lib/content-generation-topology';
 import { normalizeDisplayText } from '@/lib/display-privacy';
+import {
+  normalizeFirestoreReadinessReceipt,
+  type FirestoreReadinessReceipt,
+} from '@/lib/firestore-readiness';
 import {
   type FeedRefreshQueueReceipt,
   type FeedRefreshStatus,
@@ -1433,6 +1443,8 @@ type TelemetryErrors = {
   metrics: string | null;
   logs: string | null;
   health: string | null;
+  firestore: string | null;
+  retention: string | null;
   automations: string | null;
   brain: string | null;
   brainHealth: string | null;
@@ -1453,6 +1465,8 @@ const TELEMETRY_LABELS: Record<keyof TelemetryErrors, string> = {
   metrics: 'Compliance metrics',
   logs: 'System logs',
   health: 'Service health',
+  firestore: 'Firestore retained-role readiness',
+  retention: 'Railway retention and cost readiness',
   automations: 'Automations suite',
   brain: 'Open Brain telemetry',
   brainHealth: 'Open Brain health',
@@ -2277,6 +2291,8 @@ export default function OpsClient({
   const [metrics, setMetrics] = useState<ComplianceMetrics | null>(null);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [health, setHealth] = useState<HealthPayload | null>(null);
+  const [firestoreReadiness, setFirestoreReadiness] = useState<FirestoreReadinessReceipt | null>(null);
+  const [railwayRetention, setRailwayRetention] = useState<RailwayRetentionStatus | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
@@ -2307,6 +2323,7 @@ export default function OpsClient({
   const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [feezieOwnerReviewItems, setFeezieOwnerReviewItems] = useState<unknown[] | null>(null);
   const [feezieOwnerReviewError, setFeezieOwnerReviewError] = useState<string | null>(null);
+  const [legacyOwnerReviewCompatibilityEnabled, setLegacyOwnerReviewCompatibilityEnabled] = useState(false);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
   const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -2334,6 +2351,8 @@ export default function OpsClient({
     metrics: null,
     logs: null,
     health: null,
+    firestore: null,
+    retention: null,
     automations: null,
     brain: null,
     brainHealth: null,
@@ -2354,6 +2373,7 @@ export default function OpsClient({
     const syncPanelFromLocation = () => {
       const hash = window.location.hash;
       const searchParams = new URLSearchParams(window.location.search);
+      setLegacyOwnerReviewCompatibilityEnabled(legacyTwoOptionCompatibilityRequested(searchParams));
       const focus = searchParams.get('focus');
       const workspaceKey = searchParams.get('workspace')?.trim();
       const focusedPanel: Panel | null =
@@ -2469,6 +2489,11 @@ export default function OpsClient({
   }, []);
 
   const loadFeezieOwnerReview = useCallback(async () => {
+    if (!legacyOwnerReviewCompatibilityEnabled) {
+      setFeezieOwnerReviewItems([]);
+      setFeezieOwnerReviewError(null);
+      return;
+    }
     try {
       const payload = await controlApiGet<WorkspaceOwnerReviewPayload>('/api/workspace/linkedin-os-owner-review', {
         cache: API_NO_STORE,
@@ -2479,7 +2504,7 @@ export default function OpsClient({
     } catch (error) {
       setFeezieOwnerReviewError(toErrorMessage(error));
     }
-  }, []);
+  }, [legacyOwnerReviewCompatibilityEnabled]);
 
   useEffect(() => {
     const selectedFile = effectiveWorkspaceFiles.find((file) => file.path === selectedWorkspacePath);
@@ -2525,15 +2550,29 @@ export default function OpsClient({
     pmMaintenanceInFlightRef.current = true;
     try {
       const [autoResolveResp, ownerReviewSyncResp, autoProgressResp] = await Promise.allSettled([
-        controlApiPost<PMReviewHygieneResult>('/api/pm/review-hygiene/auto-resolve', undefined, {
+        controlApiPost<PMReviewHygieneResult>(
+          legacyOwnerReviewCompatibilityEnabled
+            ? '/api/pm/review-hygiene/auto-resolve?legacy_compatibility=true'
+            : '/api/pm/review-hygiene/auto-resolve',
+          undefined,
+          {
           timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
-        }),
-        controlApiPost<Record<string, unknown>>('/api/pm/owner-review/sync', undefined, {
+          },
+        ),
+        legacyOwnerReviewCompatibilityEnabled
+          ? controlApiPost<Record<string, unknown>>('/api/pm/owner-review/sync?legacy_compatibility=true', undefined, {
+              timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
+            })
+          : Promise.resolve({ skipped: true, reason: 'legacy_owner_review_disabled' }),
+        controlApiPost<PMAutoProgressResult>(
+          legacyOwnerReviewCompatibilityEnabled
+            ? '/api/pm/review-hygiene/auto-progress?legacy_compatibility=true'
+            : '/api/pm/review-hygiene/auto-progress',
+          undefined,
+          {
           timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
-        }),
-        controlApiPost<PMAutoProgressResult>('/api/pm/review-hygiene/auto-progress', undefined, {
-          timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
-        }),
+          },
+        ),
       ]);
 
       if (autoProgressResp.status === 'fulfilled') {
@@ -2549,7 +2588,7 @@ export default function OpsClient({
     } finally {
       pmMaintenanceInFlightRef.current = false;
     }
-  }, []);
+  }, [legacyOwnerReviewCompatibilityEnabled]);
 
   const loadTelemetry = useCallback(async () => {
     setIsRefreshing(true);
@@ -2599,6 +2638,30 @@ export default function OpsClient({
         (error) => updateSectionError('health', toErrorMessage(error)),
       ),
       trackRequest(
+        controlApiGet<unknown>('/api/system/firestore-readiness', { cache: API_NO_STORE, timeoutMs: 15_000 }),
+        (value) => {
+          setFirestoreReadiness(normalizeFirestoreReadinessReceipt(value));
+          updateSectionError('firestore', null);
+        },
+        (error) => {
+          setFirestoreReadiness(null);
+          updateSectionError('firestore', toErrorMessage(error));
+        },
+      ),
+      trackRequest(
+        controlApiGet<unknown>('/api/system/railway-retention', { cache: API_NO_STORE, timeoutMs: 15_000 }),
+        (value) => {
+          const normalized = normalizeRailwayRetentionStatus(value);
+          if (!normalized) throw new Error('Railway retention returned an unsupported projection.');
+          setRailwayRetention(normalized);
+          updateSectionError('retention', null);
+        },
+        (error) => {
+          setRailwayRetention(null);
+          updateSectionError('retention', toErrorMessage(error));
+        },
+      ),
+      trackRequest(
         controlApiGet<AutomationsResponse>('/api/automations/', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setAutomations(normalizeAutomations(value));
@@ -2634,7 +2697,12 @@ export default function OpsClient({
         },
       ),
       trackRequest(
-        controlApiGet<ExecutionQueueEntry[]>('/api/pm/execution-queue?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<ExecutionQueueEntry[]>(
+          legacyOwnerReviewCompatibilityEnabled
+            ? '/api/pm/execution-queue?limit=200&legacy_compatibility=true'
+            : '/api/pm/execution-queue?limit=200',
+          { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS },
+        ),
         (value) => {
           setExecutionQueue(Array.isArray(value) ? value : []);
           updateSectionError('executionQueue', null);
@@ -2681,7 +2749,7 @@ export default function OpsClient({
     setLoading(false);
     setIsRefreshing(false);
     void runPmMaintenance();
-  }, [runPmMaintenance, updateSectionError]);
+  }, [legacyOwnerReviewCompatibilityEnabled, runPmMaintenance, updateSectionError]);
 
   const promoteStandup = useCallback(
     async (prep: StandupPrepPacket, recommendationPacket: PMRecommendationPacket | null, chronicleEntry: ChronicleEntry | null) => {
@@ -2703,7 +2771,8 @@ export default function OpsClient({
 
   const dispatchPmCard = useCallback(
     async (cardId: string, targetAgent = 'Jean-Claude', approvalConfirmed = false) => {
-      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/dispatch`, {
+      const compatibilityQuery = legacyOwnerReviewCompatibilityEnabled ? '?legacy_compatibility=true' : '';
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/dispatch${compatibilityQuery}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2723,12 +2792,13 @@ export default function OpsClient({
       await loadTelemetry();
       return result;
     },
-    [loadTelemetry],
+    [legacyOwnerReviewCompatibilityEnabled, loadTelemetry],
   );
 
   const updatePmCard = useCallback(
     async (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => {
-      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}`, {
+      const compatibilityQuery = legacyOwnerReviewCompatibilityEnabled ? '?legacy_compatibility=true' : '';
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}${compatibilityQuery}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
@@ -2741,12 +2811,13 @@ export default function OpsClient({
       await loadTelemetry();
       return result;
     },
-    [loadTelemetry],
+    [legacyOwnerReviewCompatibilityEnabled, loadTelemetry],
   );
 
   const actOnPmCard = useCallback(
     async (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => {
-      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/actions`, {
+      const compatibilityQuery = legacyOwnerReviewCompatibilityEnabled ? '?legacy_compatibility=true' : '';
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/actions${compatibilityQuery}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2768,12 +2839,13 @@ export default function OpsClient({
       await loadTelemetry();
       return result;
     },
-    [loadTelemetry],
+    [legacyOwnerReviewCompatibilityEnabled, loadTelemetry],
   );
 
   const runHostActionAutomation = useCallback(
     async (cardId: string, reason?: string, options?: HostActionAutomationRunOptions) => {
-      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/host-action/run`, {
+      const compatibilityQuery = legacyOwnerReviewCompatibilityEnabled ? '?legacy_compatibility=true' : '';
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/host-action/run${compatibilityQuery}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2795,7 +2867,7 @@ export default function OpsClient({
       await loadTelemetry();
       return result;
     },
-    [loadTelemetry],
+    [legacyOwnerReviewCompatibilityEnabled, loadTelemetry],
   );
 
   const uploadWorkspaceImageArtifact = useCallback(
@@ -2821,7 +2893,12 @@ export default function OpsClient({
 
   const actOnOwnerReviewCard = useCallback(
     async (cardId: string, decision: OwnerReviewDecision, notes: string) => {
-      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/owner-review`, {
+      if (!legacyOwnerReviewCompatibilityEnabled) {
+        throw new Error(
+          'The historical owner-review decision writer is available only in rollback compatibility mode.',
+        );
+      }
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/owner-review?legacy_compatibility=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2837,7 +2914,7 @@ export default function OpsClient({
       await loadTelemetry();
       return result;
     },
-    [loadTelemetry],
+    [legacyOwnerReviewCompatibilityEnabled, loadTelemetry],
   );
 
   const requestWork = useCallback(async (request: RequestWorkInput): Promise<RequestWorkResult> => {
@@ -2874,15 +2951,18 @@ export default function OpsClient({
 
   const modelRows = useMemo(() => {
     if (!health) return [];
+    const datastore = firestoreReadiness
+      ? `Firestore ${firestoreReadiness.state} (${firestoreReadiness.passedCheckCount}/${firestoreReadiness.requiredCheckCount} retained reads)`
+      : `Firestore client ${health.firestore ?? 'unverified'}; live reads unverified`;
     return [
       {
         name: health.service ?? 'aiclone-backend',
         status: health.status ?? 'unknown',
         version: health.version ?? 'n/a',
-        datastore: health.firestore ?? 'n/a',
+        datastore,
       },
     ];
-  }, [health]);
+  }, [firestoreReadiness, health]);
 
   const sessionRows = useMemo(() => {
     const map = new Map<string, { component: string; lastMessage: string; lastTimestamp?: Date }>();
@@ -2905,15 +2985,34 @@ export default function OpsClient({
     });
   }, [logs]);
 
+  const legacyOwnerReviewCardIds = useMemo(
+    () => new Set(pmCards.filter((card) => pmCardIsOwnerReview(card)).map((card) => card.id)),
+    [pmCards],
+  );
+  const visiblePmCards = useMemo(
+    () =>
+      legacyOwnerReviewCompatibilityEnabled
+        ? pmCards
+        : pmCards.filter((card) => !legacyOwnerReviewCardIds.has(card.id)),
+    [legacyOwnerReviewCardIds, legacyOwnerReviewCompatibilityEnabled, pmCards],
+  );
+  const visibleExecutionQueue = useMemo(
+    () =>
+      legacyOwnerReviewCompatibilityEnabled
+        ? executionQueue
+        : executionQueue.filter((entry) => !legacyOwnerReviewCardIds.has(entry.card_id)),
+    [executionQueue, legacyOwnerReviewCardIds, legacyOwnerReviewCompatibilityEnabled],
+  );
+
   const activityRows = useMemo(
     () =>
       buildMissionActivityRows({
-        executionQueue,
+        executionQueue: visibleExecutionQueue,
         automations,
         automationRuns,
         sessions: sessionRows,
       }),
-    [executionQueue, automations, automationRuns, sessionRows],
+    [visibleExecutionQueue, automations, automationRuns, sessionRows],
   );
 
   const selectedWorkspace = useMemo(
@@ -3121,11 +3220,15 @@ export default function OpsClient({
           metricsError={sectionErrors.metrics}
           models={modelRows}
           modelsError={sectionErrors.health}
+          firestoreReadiness={firestoreReadiness}
+          firestoreReadinessError={sectionErrors.firestore}
+          railwayRetention={railwayRetention}
+          railwayRetentionError={sectionErrors.retention}
           activityRows={activityRows}
           sessionsError={sectionErrors.logs}
           automationJobs={automations}
           automationError={sectionErrors.automations}
-          executionQueue={executionQueue}
+          executionQueue={visibleExecutionQueue}
           queueError={sectionErrors.executionQueue}
           automations={automations}
           automationRuns={automationRuns}
@@ -3143,17 +3246,18 @@ export default function OpsClient({
           onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
           onOpenExecution={() => selectPanel('execution')}
           onOpenWorkspace={openWorkspaceFromPulse}
+          legacyOwnerReviewCompatibilityEnabled={legacyOwnerReviewCompatibilityEnabled}
         />
       )}
       {activePanel === 'execution' && (
         <PMBoardPanel
-          cards={pmCards}
+          cards={visiblePmCards}
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryState={workspaceRegistryState}
           workspaceRegistryError={workspaceRegistryError}
           reviewProgressSummary={reviewProgressSummary}
           reviewProgressAudit={reviewProgressAudit}
-          executionQueue={executionQueue}
+          executionQueue={visibleExecutionQueue}
           standups={standups}
           automations={automations}
           executiveFeed={executiveFeed}
@@ -3174,8 +3278,8 @@ export default function OpsClient({
       {activePanel === 'standups' && (
         <StandupsPanel
           entries={standups}
-          pmCards={pmCards}
-          executionQueue={executionQueue}
+          pmCards={visiblePmCards}
+          executionQueue={visibleExecutionQueue}
           automations={automations}
           executiveFeed={executiveFeed}
           error={sectionErrors.standups}
@@ -3195,8 +3299,8 @@ export default function OpsClient({
           files={effectiveWorkspaceFiles}
           selected={selectedWorkspace}
           onSelect={setSelectedWorkspacePath}
-          cards={pmCards}
-          executionQueue={executionQueue}
+          cards={visiblePmCards}
+          executionQueue={visibleExecutionQueue}
           standups={standups}
           executiveFeed={executiveFeed}
           plan={effectiveWeeklyPlan}
@@ -3237,6 +3341,10 @@ function MissionControlView({
   metricsError,
   models,
   modelsError,
+  firestoreReadiness,
+  firestoreReadinessError,
+  railwayRetention,
+  railwayRetentionError,
   activityRows,
   sessionsError,
   automationJobs,
@@ -3255,6 +3363,10 @@ function MissionControlView({
   metricsError: string | null;
   models: { name: string; status: string; version: string; datastore: string }[];
   modelsError: string | null;
+  firestoreReadiness: FirestoreReadinessReceipt | null;
+  firestoreReadinessError: string | null;
+  railwayRetention: RailwayRetentionStatus | null;
+  railwayRetentionError: string | null;
   activityRows: MissionActivityRow[];
   sessionsError: string | null;
   automationJobs: Automation[];
@@ -3284,6 +3396,8 @@ function MissionControlView({
         rows={models.map((model) => [model.name, statusBadge(model.status), model.version, model.datastore])}
       />
       {modelsError && <SectionAlert message={`${TELEMETRY_LABELS.health}: ${modelsError}`} />}
+      <FirestoreReadinessPanel receipt={firestoreReadiness} error={firestoreReadinessError} />
+      <RailwayRetentionHealthPanel receipt={railwayRetention} error={railwayRetentionError} />
       <OpenBrainPanel metrics={brainMetrics} health={brainHealth} />
       {brainError && <SectionAlert message={`${TELEMETRY_LABELS.brain}: ${brainError}`} />}
       {brainHealthError && <SectionAlert message={`${TELEMETRY_LABELS.brainHealth}: ${brainHealthError}`} />}
@@ -3298,6 +3412,84 @@ function MissionControlView({
       <AutomationTable jobs={automationJobs} />
       {automationError && <SectionAlert message={`${TELEMETRY_LABELS.automations}: ${automationError}`} />}
     </div>
+  );
+}
+
+function FirestoreReadinessPanel({
+  receipt,
+  error,
+}: {
+  receipt: FirestoreReadinessReceipt | null;
+  error: string | null;
+}) {
+  const state = receipt?.state ?? 'degraded';
+  const stateColor = state === 'ready' ? '#4ade80' : '#fbbf24';
+  const checkedAt = receipt?.checkedAt ? formatUiTimestamp(receipt.checkedAt) : 'Not verified';
+  const checks = receipt?.checks ?? [];
+
+  return (
+    <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div>
+          <p style={{ color: '#94a3b8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Firestore retained role</p>
+          <h3 style={{ color: 'white', fontSize: '20px', margin: '5px 0' }}>Read-only live readiness</h3>
+          <p style={{ color: '#64748b', fontSize: '13px', maxWidth: '720px', lineHeight: 1.5 }}>
+            Bounded aggregate probes cover the retained product and compatibility collections. No document bodies or identifiers are returned to this view.
+          </p>
+        </div>
+        <div role="status" style={{ textAlign: 'right' }}>
+          <p style={{ color: stateColor, fontSize: '18px', fontWeight: 700, textTransform: 'capitalize' }}>{state}</p>
+          <p style={{ color: '#64748b', fontSize: '12px' }}>{checkedAt}</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginBottom: '14px' }}>
+        <MiniMeta
+          label="Retained reads"
+          value={receipt ? `${receipt.passedCheckCount}/${receipt.requiredCheckCount}` : '—'}
+          detail="ready / required"
+        />
+        <MiniMeta
+          label="Degraded reads"
+          value={receipt ? String(receipt.failedCheckCount) : '—'}
+          detail={receipt?.reasonCodes.join(', ') || 'none'}
+        />
+        <MiniMeta
+          label="Probe duration"
+          value={receipt ? `${receipt.durationMs} ms` : '—'}
+          detail="bounded end-to-end receipt"
+        />
+      </div>
+
+      {error ? <SectionAlert message={`Firestore retained-role readiness: ${error}`} /> : null}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Collection', 'Scope', 'Consumer', 'State'].map((header) => (
+                <th key={header} style={opsHealthHeaderStyle}>{header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {checks.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ padding: '12px 0', color: '#fbbf24', fontSize: '13px' }}>
+                  Live Firestore readiness has not been verified.
+                </td>
+              </tr>
+            ) : checks.map((check) => (
+              <tr key={check.key}>
+                <td style={opsHealthCellStyle}>{check.collection}</td>
+                <td style={opsHealthCellStyle}>{check.scope === 'collection_group' ? 'Nested collection group' : 'Top level'}</td>
+                <td style={opsHealthCellStyle}>{check.consumerRole.replaceAll('_', ' ')}</td>
+                <td style={opsHealthCellStyle}>{statusBadge(check.state)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -3690,18 +3882,24 @@ function TodayOpsPanel({
   onExecutiveDecisionMutation,
   onOpenExecution,
   onOpenWorkspace,
+  legacyOwnerReviewCompatibilityEnabled,
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
   portfolioPulseError: string | null;
   onExecutiveDecisionMutation: () => Promise<void>;
   onOpenExecution: () => void;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
+  legacyOwnerReviewCompatibilityEnabled: boolean;
 }) {
   const counts = portfolioPulse?.counts;
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} onOpenWorkspace={onOpenWorkspace} />
-      <ExecutiveDecisionQueue onActionComplete={onExecutiveDecisionMutation} />
+      <OpsStandupSummary />
+      <ExecutiveDecisionQueue
+        onActionComplete={onExecutiveDecisionMutation}
+        legacyOwnerReviewCompatibilityEnabled={legacyOwnerReviewCompatibilityEnabled}
+      />
       <section style={{ borderRadius: '16px', border: '1px solid #1e293b', backgroundColor: '#020617', padding: '15px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div>

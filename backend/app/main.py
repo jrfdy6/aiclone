@@ -29,6 +29,7 @@ from app.routes import (
     content_generation,
     email_ops,
     executive,
+    firestore_readiness,
     ingest_drive,
     knowledge,
     lab,
@@ -38,8 +39,11 @@ from app.routes import (
     persona,
     playbook,
     pm_board,
+    prospect_discovery,
     prospects,
     prospects_manual,
+    railway_retention,
+    social_assist,
     social_feedback,
     standups,
     system_logs,
@@ -205,11 +209,14 @@ app.include_router(capture.router, prefix="/api/capture")
 app.include_router(content_generation.router, prefix="/api/content-generation")
 app.include_router(email_ops.router)
 app.include_router(executive.router)
+app.include_router(firestore_readiness.router)
+app.include_router(railway_retention.router)
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(automations.router, prefix="/api/automations")
 app.include_router(briefs.router)
 app.include_router(brief_reactions.router)
 app.include_router(playbook.router, prefix="/api/playbooks")
+app.include_router(prospect_discovery.router, prefix="/api/prospect-discovery")
 app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
 app.include_router(calendar.router, prefix="/api/calendar")
@@ -223,6 +230,7 @@ app.include_router(build_reviews.router)
 app.include_router(open_brain.router)
 app.include_router(persona.router)
 app.include_router(pm_board.router)
+app.include_router(social_assist.router)
 app.include_router(social_feedback.router)
 app.include_router(workspace.router)
 app.include_router(standups.router)

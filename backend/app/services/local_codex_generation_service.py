@@ -24,10 +24,12 @@ except Exception:  # pragma: no cover
 _LOCK = Lock()
 _NONTERMINAL_STATUSES = {"pending", "claimed", "running"}
 _TERMINAL_STATUSES = {"completed", "failed", "canceled"}
+_RETAINED_JOB_CONTRACT = "railway_retained_job_receipt/v1"
 _JOB_SELECT_COLUMNS = (
     "id, workspace_slug, requested_by, job_kind, status, request_payload, context_packet, "
     "claimed_by, claimed_at, started_at, completed_at, failed_at, canceled_at, error_message, "
-    "result_payload, artifacts, idempotency_key, created_at, updated_at"
+    "result_payload, artifacts, idempotency_key, retention_contract_version, retention_resolved_at, "
+    "retention_local_receipt_sha256, created_at, updated_at"
 )
 
 
@@ -204,6 +206,8 @@ def _upsert_jobs_to_db(pool, jobs: list[dict[str, Any]]) -> None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
             for job in jobs:
+                if str(job.get("retention_contract_version") or "") == _RETAINED_JOB_CONTRACT:
+                    continue
                 cur.execute(
                     """
                     INSERT INTO local_codex_jobs (
@@ -229,17 +233,41 @@ def _upsert_jobs_to_db(pool, jobs: list[dict[str, Any]]) -> None:
                         result_payload = EXCLUDED.result_payload,
                         artifacts = EXCLUDED.artifacts,
                         idempotency_key = EXCLUDED.idempotency_key,
+                        retention_contract_version = NULL,
+                        retention_resolved_at = NULL,
+                        retention_local_receipt_sha256 = NULL,
                         created_at = COALESCE(local_codex_jobs.created_at, EXCLUDED.created_at, NOW()),
                         updated_at = COALESCE(EXCLUDED.updated_at, NOW())
+                    WHERE local_codex_jobs.retention_contract_version IS DISTINCT FROM %s
                     """,
-                    _job_db_params(job),
+                    (*_job_db_params(job), _RETAINED_JOB_CONTRACT),
                 )
+                if int(cur.rowcount or 0) != 1:
+                    raise ValueError("Archived Codex job is immutable; restore it before writing new payloads.")
         conn.commit()
 
 
 def _write_artifact_content_to_db(pool, *, artifact: dict[str, Any], content: str) -> None:
     with pool.connection() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                """SELECT retention_contract_version FROM local_codex_jobs
+                WHERE id=%s FOR UPDATE""",
+                (str(artifact.get("job_id") or ""),),
+            )
+            parent = cur.fetchone()
+            if not parent:
+                raise ValueError("Codex job not found.")
+            if str(parent[0] or "") == _RETAINED_JOB_CONTRACT:
+                raise ValueError("Archived Codex job is immutable; restore it before adding artifacts.")
+            cur.execute(
+                """UPDATE local_codex_jobs SET retention_contract_version=NULL,
+                retention_resolved_at=NULL,retention_local_receipt_sha256=NULL,updated_at=NOW()
+                WHERE id=%s AND retention_contract_version IS DISTINCT FROM %s""",
+                (str(artifact.get("job_id") or ""), _RETAINED_JOB_CONTRACT),
+            )
+            if int(cur.rowcount or 0) != 1:
+                raise ValueError("Archived Codex job is immutable; restore it before adding artifacts.")
             cur.execute(
                 """
                 INSERT INTO local_codex_job_artifacts (
@@ -500,6 +528,8 @@ def append_job_artifacts(*, job_id: str, artifacts: list[dict[str, Any]]) -> dic
         job = _find_job(jobs, job_id)
         if not job:
             raise ValueError("Codex job not found.")
+        if str(job.get("retention_contract_version") or "") == _RETAINED_JOB_CONTRACT:
+            raise ValueError("Archived Codex job is immutable; restore it before adding artifacts.")
         stored = job.get("artifacts")
         job["artifacts"] = [item for item in stored if isinstance(item, dict)] if isinstance(stored, list) else []
         for artifact in artifacts:

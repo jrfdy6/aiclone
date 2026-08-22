@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import os
 import re
 from typing import Any
@@ -25,6 +26,10 @@ from app.services.persona_bundle_context_service import (
     retrieve_bundle_persona_chunks,
 )
 from app.services.retrieval import retrieve_similar, retrieve_weighted
+from app.services.source_sharing_policy_service import validate_remote_source_sharing
+from app.services.integrated_production_generator_service import (
+    CONTENT_POST_GENERATION_CONTEXT_SCHEMA,
+)
 from app.services.workspace_snapshot_store import get_snapshot_payload
 
 
@@ -171,6 +176,70 @@ class ContentGenerationContext:
             self.content_signal_chunks = list(self.content_reservoir_chunks)
         if not self.content_reservoir_chunks and self.content_signal_chunks:
             self.content_reservoir_chunks = list(self.content_signal_chunks)
+
+
+def _selected_source_request_chunk(context: str | None) -> dict[str, Any] | None:
+    """Admit only the canonical evidence-bound owner-post context as source proof."""
+
+    try:
+        payload = json.loads(context or "")
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != CONTENT_POST_GENERATION_CONTEXT_SCHEMA
+    ):
+        return None
+    excerpt = " ".join(str(payload.get("source_excerpt") or "").split()).strip()
+    source_id = " ".join(str(payload.get("source_id") or "").split()).strip()
+    evidence_id = " ".join(str(payload.get("evidence_id") or "").split()).strip()
+    artifact_sha256 = str(payload.get("artifact_sha256") or "").strip().lower()
+    sharing = payload.get("source_sharing")
+    try:
+        validate_remote_source_sharing(sharing)
+    except ValueError:
+        return None
+    if (
+        str(payload.get("draft_authority") or "")
+        not in {"owner_requested", "portfolio_selected"}
+        or not excerpt
+        or not source_id
+        or not evidence_id
+        or len(artifact_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in artifact_sha256)
+    ):
+        return None
+    author = " ".join(str(payload.get("source_author") or "").split()).strip()
+    title = " ".join(str(payload.get("source_title") or "").split()).strip()
+    label = author or title or "Original source"
+    source_url = " ".join(str(payload.get("source_url") or "").split()).strip()
+    return {
+        "source_id": source_id,
+        "source_file_id": evidence_id,
+        "chunk_index": None,
+        "chunk": f"{label}. Evidence: {excerpt}",
+        "similarity_score": 1.0,
+        "weighted_score": 1.0,
+        "persona_tag": "SELECTED_EXTERNAL_SOURCE",
+        "metadata": {
+            "source_kind": "selected_external_source",
+            "source_lane": "canonical_selected_source",
+            "source": source_id,
+            "file_name": title or label,
+            "source_url": source_url,
+            "memory_role": "proof",
+            "domain_tags": _content_safe_operator_lesson_domain_tags(excerpt),
+            "audience_tags": [],
+            "proof_strength": "strong",
+            "artifact_backed": True,
+            "claim_type": "external_source",
+            "usage_modes": ["proof_anchor", "topic_anchor"],
+            "visibility": "public_safe",
+            "evidence_id": evidence_id,
+            "artifact_sha256": artifact_sha256,
+            "attribution_required": bool(author or title),
+        },
+    }
 
 
 def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
@@ -1881,6 +1950,11 @@ def build_content_generation_context(
     }:
         normalized_source_mode = "persona_only"
     retrieval_priority_mode = normalized_source_mode in {"reservoir_ranked", "selected_source", "recent_signals"}
+    selected_source_chunk = (
+        _selected_source_request_chunk(context)
+        if normalized_source_mode == "selected_source"
+        else None
+    )
     context_text = " ".join((context or "").split()).strip()
     context_for_query = context_text[:280]
 
@@ -2016,6 +2090,21 @@ def build_content_generation_context(
         proof_anchor_chunks = _merge_unique_chunks(canonical_proof_anchor_chunks, proof_anchor_chunks, limit=4)
     else:
         proof_anchor_chunks = _merge_unique_chunks(proof_anchor_chunks, canonical_proof_anchor_chunks, limit=4)
+    if selected_source_chunk is not None:
+        topic_anchor_chunks = _merge_unique_chunks(
+            [selected_source_chunk], topic_anchor_chunks, limit=4
+        )
+        proof_anchor_chunks = _merge_unique_chunks(
+            [selected_source_chunk], proof_anchor_chunks, limit=4
+        )
+        content_signal_chunks = _merge_unique_chunks(
+            [selected_source_chunk], content_signal_chunks, limit=8
+        )
+        retrieval_source = (
+            "canonical_selected_source"
+            if retrieval_source == "persona_only"
+            else f"canonical_selected_source+{retrieval_source}"
+        )
     print(
         "[content_context] "
         f"bundle={len(bundle_persona_chunks)} "

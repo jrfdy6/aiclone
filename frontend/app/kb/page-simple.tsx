@@ -19,7 +19,7 @@ export default async function KbLandingPage() {
             the owner - Digital Knowledge Base
           </h1>
           <p style={{ fontSize: "18px", color: "#666" }}>
-            This is a crawl-friendly interface to the owner's professional knowledge,
+            This is a crawl-friendly interface to the owner&apos;s professional knowledge,
             voice patterns, and research insights.
           </p>
         </header>

@@ -1,14 +1,16 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
+
+import { fetchResearchLibrary } from "@/lib/research-backend";
+import { safeJsonLd } from "@/lib/safe-json-ld";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: "Research Library - the owner",
-  description: "Browse topic intelligence and prospect discovery research. All content is PII-filtered for public crawling.",
-  robots: { index: true, follow: true },
+  description: "Review topic intelligence and prospect discovery research in the authenticated owner workspace.",
+  robots: { index: false, follow: false },
   openGraph: {
     title: "Research Library - the owner",
     description: "Topic intelligence and prospect discovery research",
@@ -16,96 +18,18 @@ export const metadata: Metadata = {
   },
 };
 
-function generateSlug(title: string, timestamp: number): string {
-  const date = new Date(timestamp * 1000);
-  const month = date.toLocaleString("en", { month: "short" }).toLowerCase();
-  const year = date.getFullYear();
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return `${slug}-${month}-${year}`;
-}
-
 function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength).trim() + "...";
 }
 
 export default async function ResearchIndexPage() {
-  const userId = process.env.DEFAULT_USER_ID || "default-user";
-
-  let topics: any[] = [];
-  let discoveries: any[] = [];
-
-  // Check if Firebase is configured
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-    console.log("⚠️ FIREBASE_SERVICE_ACCOUNT not set - showing empty research");
-    // Return page with empty lists
-    return renderPage(topics, discoveries);
-  }
-
-  try {
-    const { db } = await import("@/lib/firestore-server");
-
-    // Fetch topic intelligence
-    const topicDocs = await db
-      .collection("users")
-      .doc(userId)
-      .collection("topic_intelligence")
-      .orderBy("created_at", "desc")
-      .limit(20)
-      .get();
-
-    topics = topicDocs.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        slug: generateSlug(data.theme_display || data.theme, data.created_at),
-        title: data.theme_display || data.theme,
-        date: new Date(data.created_at * 1000).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-        summary: truncate(data.summary || "", 150),
-      };
-    });
-
-    // Fetch prospect discoveries
-    const discoveryDocs = await db
-      .collection("users")
-      .doc(userId)
-      .collection("prospect_discoveries")
-      .orderBy("created_at", "desc")
-      .limit(20)
-      .get();
-
-    discoveries = discoveryDocs.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        slug: generateSlug(
-          `${data.source || "prospects"}-${data.location || "discovery"}`,
-          data.created_at
-        ),
-        title: `${data.source || "Prospect"} Discovery - ${data.location || "Unknown"}`,
-        date: new Date(data.created_at * 1000).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-        count: data.prospects?.length || 0,
-      };
-    });
-  } catch (error) {
-    console.error("Error fetching research:", error);
-  }
-
-  return renderPage(topics, discoveries);
+  const library = await fetchResearchLibrary();
+  const topics = library.topics.map((item) => ({ ...item, summary: truncate(item.summary, 150) }));
+  return renderPage(topics, library.discoveries, library.state, library.reasonCodes);
 }
 
-function renderPage(topics: any[], discoveries: any[]) {
+function renderPage(topics: any[], discoveries: any[], firestoreState: "ready" | "degraded", reasonCodes: string[]) {
   // Schema.org structured data for CollectionPage
   const schemaData = {
     "@context": "https://schema.org",
@@ -122,7 +46,7 @@ function renderPage(topics: any[], discoveries: any[]) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(schemaData) }}
       />
       <main style={{ maxWidth: "800px", margin: "0 auto", padding: "40px 24px", fontFamily: "system-ui, sans-serif", lineHeight: 1.6 }}>
         <article>
@@ -131,10 +55,19 @@ function renderPage(topics: any[], discoveries: any[]) {
               Research Library
             </h1>
             <p style={{ fontSize: "18px", color: "#666" }}>
-              Browse topic intelligence and prospect discovery research. All
-              content is PII-filtered for public crawling.
+              Review topic intelligence and prospect discovery research through the authenticated backend control plane.
             </p>
           </header>
+
+          {firestoreState === "degraded" && (
+            <aside
+              role="status"
+              style={{ marginBottom: "32px", padding: "16px", border: "1px solid #f59e0b", background: "#fffbeb", color: "#92400e" }}
+            >
+              Live research data is temporarily unavailable. The knowledge base remains available, but this page is not claiming that the research library is empty.
+              {reasonCodes.length > 0 && <small style={{ display: "block", marginTop: "6px" }}>Reason codes: {reasonCodes.join(", ")}</small>}
+            </aside>
+          )}
 
           <section style={{ marginBottom: "40px" }}>
             <h2 style={{ fontSize: "24px", fontWeight: "600", marginBottom: "16px" }}>
@@ -163,7 +96,7 @@ function renderPage(topics: any[], discoveries: any[]) {
                 ))}
               </ul>
             ) : (
-              <p style={{ color: "#666" }}>No topic intelligence research available.</p>
+              <p style={{ color: "#666" }}>{firestoreState === "degraded" ? "No verified topic-intelligence rows loaded." : "No topic intelligence research available."}</p>
             )}
           </section>
 
@@ -188,7 +121,7 @@ function renderPage(topics: any[], discoveries: any[]) {
                 ))}
               </ul>
             ) : (
-              <p style={{ color: "#666" }}>No prospect discoveries available.</p>
+              <p style={{ color: "#666" }}>{firestoreState === "degraded" ? "No verified prospect-discovery rows loaded." : "No prospect discoveries available."}</p>
             )}
           </section>
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile
@@ -10,11 +11,23 @@ from app.models import (
     IngestSignalRequest,
     LinkedinOwnerReviewDecisionRequest,
     LinkedinPerformanceLocalActionRequest,
+    CanonicalDecisionActionRequest,
+    CanonicalDecisionCreateRequest,
+    IntegratedContentVariantRequest,
+    IntegratedOwnerPostRequest,
+    IntegratedContentManualEditRequest,
+    IntegratedContentLearningRequest,
+    IntegratedPersonaReversalRequest,
     RefreshSocialFeedRequest,
 )
 from app.services.brain_local_action_queue_service import (
     enqueue_brain_local_action,
     get_linkedin_performance_record_job,
+    get_integrated_content_variant_job,
+    get_integrated_owner_post_job,
+    get_integrated_content_owner_action_job,
+    get_integrated_persona_action_job,
+    get_canonical_decision_job,
 )
 from app.services import social_feed_refresh_service
 from app.services.linkedin_owner_review_service import (
@@ -42,11 +55,171 @@ from app.services.workspace_snapshot_service import (
     workspace_snapshot_service,
 )
 from app.services.workspace_snapshot_store import get_snapshot_payload
+from app.services.integrated_content_projection_service import (
+    SNAPSHOT_TYPE as INTEGRATED_CONTENT_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as INTEGRATED_CONTENT_WORKSPACE_KEY,
+    apply_current_controller_readiness,
+    build_integrated_content_projection,
+    unavailable_integrated_content_projection,
+    validate_integrated_content_projection,
+)
+from app.services.integrated_controller_readiness_service import (
+    CONTROLLER_DATABASE_UNAVAILABLE,
+    CONTROLLER_QUEUE_UNAVAILABLE,
+    READINESS_MESSAGES as CONTROLLER_READINESS_MESSAGES,
+    integrated_controller_queue_readiness,
+)
+from app.services.integrated_variant_generation_service import (
+    VARIANT_POST_ALREADY_PUBLISHED,
+    VARIANT_GENERATION_MESSAGES,
+)
+from app.services.ops_standup_projection_service import (
+    SNAPSHOT_TYPE as OPS_STANDUP_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as OPS_STANDUP_WORKSPACE_KEY,
+    build_ops_standup_projection,
+    unavailable_ops_standup_projection,
+    validate_ops_standup_projection,
+)
 router = APIRouter(tags=["Workspace"], prefix="/api/workspace")
 
 WORKSPACE_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 WORKSPACE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 WORKSPACE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+INTEGRATED_OWNER_ACTION_ERROR_SCHEMA = "integrated_owner_action_error/v1"
+_OWNER_ACTION_ERROR_MESSAGES = {
+    **CONTROLLER_READINESS_MESSAGES,
+    **VARIANT_GENERATION_MESSAGES,
+    "invalid_owner_action_request": "The owner action request is invalid.",
+    "variant_parent_not_found": "The requested parent revision is not available.",
+    "variant_parent_readiness_unavailable": (
+        "Variant generation is unavailable until current revision safety can be verified."
+    ),
+}
+
+
+def _owner_action_http_error(reason_code: str, *, status_code: int) -> HTTPException:
+    message = _OWNER_ACTION_ERROR_MESSAGES.get(
+        reason_code,
+        CONTROLLER_READINESS_MESSAGES[CONTROLLER_QUEUE_UNAVAILABLE],
+    )
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "schema_version": INTEGRATED_OWNER_ACTION_ERROR_SCHEMA,
+            "reason_code": reason_code,
+            "message": message,
+        },
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+def _enqueue_integrated_owner_action(action: str, parameters: dict):
+    try:
+        readiness = integrated_controller_queue_readiness(action)
+        reason_code = str(readiness.get("reason_code") or "")
+    except Exception:
+        readiness = {"ready": False}
+        reason_code = CONTROLLER_QUEUE_UNAVAILABLE
+    if readiness.get("ready") is not True:
+        if reason_code not in CONTROLLER_READINESS_MESSAGES:
+            reason_code = CONTROLLER_QUEUE_UNAVAILABLE
+        raise _owner_action_http_error(reason_code, status_code=503)
+    try:
+        return enqueue_brain_local_action(action, parameters)
+    except ValueError as exc:
+        raise _owner_action_http_error(
+            "invalid_owner_action_request",
+            status_code=400,
+        ) from exc
+    except Exception as exc:
+        try:
+            readiness = integrated_controller_queue_readiness(action)
+            reason_code = str(readiness.get("reason_code") or "")
+        except Exception:
+            reason_code = CONTROLLER_QUEUE_UNAVAILABLE
+        if reason_code not in CONTROLLER_READINESS_MESSAGES:
+            reason_code = CONTROLLER_QUEUE_UNAVAILABLE
+        raise _owner_action_http_error(reason_code, status_code=503) from exc
+
+
+def _projected_variant_parent_eligibility(
+    *, post_id: str, parent_revision_id: str
+) -> dict:
+    try:
+        projection = get_snapshot_payload(
+            INTEGRATED_CONTENT_WORKSPACE_KEY,
+            INTEGRATED_CONTENT_SNAPSHOT_TYPE,
+        )
+    except Exception as exc:
+        raise _owner_action_http_error(
+            CONTROLLER_DATABASE_UNAVAILABLE,
+            status_code=503,
+        ) from exc
+    if projection is None and _local_canonical_projection_enabled():
+        try:
+            projection = build_integrated_content_projection()
+        except Exception as exc:
+            raise _owner_action_http_error(
+                "variant_parent_readiness_unavailable",
+                status_code=503,
+            ) from exc
+    if projection is None:
+        raise _owner_action_http_error(
+            "variant_parent_readiness_unavailable",
+            status_code=503,
+        )
+    try:
+        projection = validate_integrated_content_projection(projection)
+    except Exception as exc:
+        if not _local_canonical_projection_enabled():
+            raise _owner_action_http_error(
+                "variant_parent_readiness_unavailable",
+                status_code=503,
+            ) from exc
+        try:
+            projection = build_integrated_content_projection()
+        except Exception as fallback_exc:
+            raise _owner_action_http_error(
+                "variant_parent_readiness_unavailable",
+                status_code=503,
+            ) from fallback_exc
+    post = next(
+        (item for item in projection["posts"] if item.get("post_id") == post_id),
+        None,
+    )
+    revision = next(
+        (
+            item
+            for item in (post or {}).get("revisions", [])
+            if item.get("revision_id") == parent_revision_id
+        ),
+        None,
+    )
+    if revision is None:
+        raise _owner_action_http_error("variant_parent_not_found", status_code=404)
+    if post.get("status") == "published":
+        raise _owner_action_http_error(
+            VARIANT_POST_ALREADY_PUBLISHED,
+            status_code=409,
+        )
+    eligibility = revision["variant_generation"]
+    if eligibility.get("eligible") is not True:
+        raise _owner_action_http_error(
+            str(eligibility["reason_code"]),
+            status_code=409,
+        )
+    return eligibility
+
+
+def _local_canonical_projection_enabled() -> bool:
+    """Permit direct canonical reads only in an explicitly enabled local runtime."""
+
+    return str(os.getenv("AI_CLONE_LOCAL_CANONICAL_PROJECTION") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _browser_refresh_status(status: dict) -> dict:
@@ -272,6 +445,216 @@ async def get_linkedin_source_grounding_status(response: Response):
         raise HTTPException(status_code=500, detail=type(exc).__name__) from exc
 
 
+@router.get("/integrated-content")
+def get_integrated_content_projection(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    try:
+        payload = get_snapshot_payload(INTEGRATED_CONTENT_WORKSPACE_KEY, INTEGRATED_CONTENT_SNAPSHOT_TYPE)
+    except Exception:
+        if _local_canonical_projection_enabled():
+            return build_integrated_content_projection()
+        return unavailable_integrated_content_projection("projection_storage_unavailable")
+    if payload is None:
+        if _local_canonical_projection_enabled():
+            return build_integrated_content_projection()
+        return unavailable_integrated_content_projection("projection_not_synced")
+    try:
+        validated = validate_integrated_content_projection(payload)
+        return apply_current_controller_readiness(validated)
+    except Exception:
+        if _local_canonical_projection_enabled():
+            try:
+                return build_integrated_content_projection()
+            except Exception:
+                pass
+        return unavailable_integrated_content_projection("projection_invalid")
+
+
+@router.get("/ops-standup")
+def get_ops_standup_projection(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    try:
+        payload = get_snapshot_payload(OPS_STANDUP_WORKSPACE_KEY, OPS_STANDUP_SNAPSHOT_TYPE)
+    except Exception:
+        if _local_canonical_projection_enabled():
+            return build_ops_standup_projection()
+        return unavailable_ops_standup_projection("projection_storage_unavailable")
+    if payload is None:
+        if _local_canonical_projection_enabled():
+            return build_ops_standup_projection()
+        return unavailable_ops_standup_projection("projection_not_synced")
+    try:
+        return validate_ops_standup_projection(payload)
+    except Exception:
+        return unavailable_ops_standup_projection("projection_invalid")
+
+
+@router.post("/integrated-content/variants")
+def request_integrated_content_variant(payload: IntegratedContentVariantRequest):
+    _projected_variant_parent_eligibility(
+        post_id=payload.post_id,
+        parent_revision_id=payload.parent_revision_id,
+    )
+    card, disposition = _enqueue_integrated_owner_action(
+        "integrated_content_variant",
+        {"request": payload.model_dump(mode="json")},
+    )
+    return {
+        "queued": True, "status": "queued", "disposition": disposition,
+        "job_id": card.id, "card_id": card.id,
+        "created_at": card.created_at, "updated_at": card.updated_at,
+    }
+
+
+@router.get("/integrated-content/variants/{card_id}")
+def get_integrated_content_variant_status(card_id: str):
+    try:
+        return get_integrated_content_variant_job(card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/integrated-content/owner-posts")
+def request_integrated_owner_post(payload: IntegratedOwnerPostRequest):
+    card, disposition = _enqueue_integrated_owner_action(
+        "integrated_owner_post",
+        {"request": payload.model_dump(mode="json")},
+    )
+    return {"queued": True, "status": "queued", "disposition": disposition, "job_id": card.id, "card_id": card.id, "created_at": card.created_at, "updated_at": card.updated_at}
+
+
+@router.get("/integrated-content/owner-posts/{card_id}")
+def get_integrated_owner_post_status(card_id: str):
+    try:
+        return get_integrated_owner_post_job(card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/integrated-content/manual-edits")
+def request_integrated_content_manual_edit(payload: IntegratedContentManualEditRequest):
+    card, disposition = _enqueue_integrated_owner_action(
+        "integrated_content_manual_edit",
+        {"request": payload.model_dump(mode="json")},
+    )
+    return {
+        "queued": True,
+        "status": "queued",
+        "disposition": disposition,
+        "job_id": card.id,
+        "card_id": card.id,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+    }
+
+
+@router.post("/integrated-content/learning-actions")
+def request_integrated_content_learning_action(payload: IntegratedContentLearningRequest):
+    card, disposition = _enqueue_integrated_owner_action(
+        "integrated_content_learning",
+        {"request": payload.model_dump(mode="json", exclude_none=True)},
+    )
+    return {
+        "queued": True,
+        "status": "queued",
+        "disposition": disposition,
+        "job_id": card.id,
+        "card_id": card.id,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+    }
+
+
+@router.get("/integrated-content/owner-actions/{card_id}")
+def get_integrated_content_owner_action_status(card_id: str):
+    try:
+        return get_integrated_content_owner_action_job(card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/integrated-content/persona-reversals")
+def request_integrated_persona_reversal(payload: IntegratedPersonaReversalRequest):
+    card, disposition = _enqueue_integrated_owner_action(
+        "integrated_persona_reversal",
+        {"request": payload.model_dump(mode="json")},
+    )
+    return {
+        "queued": True,
+        "status": "queued",
+        "disposition": disposition,
+        "job_id": card.id,
+        "card_id": card.id,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+    }
+
+
+@router.get("/integrated-content/persona-actions/{card_id}")
+def get_integrated_persona_action_status(card_id: str):
+    try:
+        return get_integrated_persona_action_job(card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/decisions")
+def request_canonical_decision(payload: CanonicalDecisionCreateRequest):
+    """Queue one compact, signed mutation for the canonical local decision store."""
+
+    card, disposition = _enqueue_integrated_owner_action(
+        "canonical_decision_create",
+        {"request": payload.model_dump(mode="json", exclude_none=True)},
+    )
+    return {
+        "queued": True,
+        "status": "queued",
+        "disposition": disposition,
+        "job_id": card.id,
+        "card_id": card.id,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+    }
+
+
+@router.post("/decisions/{decision_id}/actions")
+def request_canonical_decision_action(
+    decision_id: str,
+    payload: CanonicalDecisionActionRequest,
+):
+    """Queue an optimistic transition; the local runner revalidates before write."""
+
+    if not decision_id.strip() or len(decision_id) > 128:
+        raise _owner_action_http_error(
+            "invalid_owner_action_request",
+            status_code=400,
+        )
+    card, disposition = _enqueue_integrated_owner_action(
+        "canonical_decision_transition",
+        {
+            "decision_id": decision_id.strip(),
+            "request": payload.model_dump(mode="json", exclude_none=True),
+        },
+    )
+    return {
+        "queued": True,
+        "status": "queued",
+        "disposition": disposition,
+        "job_id": card.id,
+        "card_id": card.id,
+        "created_at": card.created_at,
+        "updated_at": card.updated_at,
+    }
+
+
+@router.get("/decisions/jobs/{card_id}")
+def get_canonical_decision_status(card_id: str):
+    try:
+        return get_canonical_decision_job(card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/linkedin-os-owner-review")
 async def get_linkedin_os_owner_review(include_resolved: bool = False):
     try:
@@ -281,9 +664,18 @@ async def get_linkedin_os_owner_review(include_resolved: bool = False):
 
 
 @router.post("/linkedin-os-owner-review/{queue_id}")
-async def post_linkedin_os_owner_review(queue_id: str, payload: LinkedinOwnerReviewDecisionRequest):
+async def post_linkedin_os_owner_review(
+    queue_id: str,
+    payload: LinkedinOwnerReviewDecisionRequest,
+    legacy_compatibility: bool = False,
+):
     try:
-        return record_owner_decision(queue_id, payload.decision, payload.notes)
+        return record_owner_decision(
+            queue_id,
+            payload.decision,
+            payload.notes,
+            legacy_compatibility=legacy_compatibility,
+        )
     except LinkedinOwnerReviewNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except LinkedinOwnerReviewConflictError as exc:
@@ -295,13 +687,34 @@ async def post_linkedin_os_owner_review(queue_id: str, payload: LinkedinOwnerRev
 
 
 @router.post("/linkedin-performance/events")
-def post_linkedin_performance_event(payload: LinkedinPerformanceLocalActionRequest):
-    """Queue privacy-minimized evidence for the canonical local FEEZIE ledger."""
+def post_linkedin_performance_event(
+    payload: LinkedinPerformanceLocalActionRequest,
+    legacy_compatibility: bool = False,
+):
+    """Queue a rollback-only write to the historical private JSONL ledger.
+
+    Canonical posts use ``/integrated-content/learning-actions``.  Requiring an
+    explicit query switch keeps old banked-post tooling recoverable without
+    leaving its JSONL ledger as a second default writable authority.
+    """
+
+    if not legacy_compatibility:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The legacy LinkedIn performance writer is disabled by default; "
+                "use canonical integrated-content learning actions or explicitly "
+                "enable the rollback-only compatibility path."
+            ),
+        )
 
     try:
         card, disposition = enqueue_brain_local_action(
             "linkedin_performance_record",
-            {"request": payload.model_dump(mode="json", exclude_none=True)},
+            {
+                "legacy_compatibility": True,
+                "request": payload.model_dump(mode="json", exclude_none=True),
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -316,7 +729,9 @@ def post_linkedin_performance_event(payload: LinkedinPerformanceLocalActionReque
         "created_at": card.created_at,
         "updated_at": card.updated_at,
         "data_policy": {
-            "canonical_writer": "private feezie-os append-only ledger",
+            "writer": "private feezie-os JSONL compatibility ledger",
+            "authority": "rollback_only",
+            "canonical_writer": "integrated local SQL learning events",
             "railway_role": "signed transport and privacy-minimized projection only",
             "raw_copy_accepted": False,
             "private_notes_accepted": False,

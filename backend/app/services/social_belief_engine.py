@@ -53,6 +53,7 @@ _CAREER_DIRECTION_REVIEW_PATTERNS = (
     re.compile(r"\btechnology opportunities\b", re.IGNORECASE),
 )
 _EMPLOYER_REFERENCE_PATTERNS = (
+    re.compile(r"\b[\w&.'’-]+(?:\s+[\w&.'’-]+){0,3}\s+academy\b", re.IGNORECASE),
     re.compile(r"\bcurrent employer\b", re.IGNORECASE),
     re.compile(r"\bmy employer\b", re.IGNORECASE),
     re.compile(r"\bmy current (?:job|role)\b", re.IGNORECASE),

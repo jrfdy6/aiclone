@@ -25,6 +25,20 @@ APPLICATION_GATE_RELATION_RE = re.compile(
     r"\b(?:only\s+(?:if|when)|before|until|unless|without|when)\b",
     flags=re.IGNORECASE,
 )
+APPLICATION_BOUNDED_OBSERVATION_RE = re.compile(
+    r"\b(?:in|from)\s+(?:this|the)\s+(?:test|run|build|review|walkthrough|cycle|exercise|scenario|comparison|replay)\b|"
+    r"\b(?:this|the)\s+(?:test|run|build|review|walkthrough|cycle|exercise|scenario|comparison|replay)\b",
+    flags=re.IGNORECASE,
+)
+APPLICATION_UNSUPPORTED_OBSERVATION_ACTION_RE = re.compile(
+    r"\b(?:"
+    r"i\s+(?:checks?|checked|verif(?:y|ies|ied)|validat(?:e|es|ed))"
+    r"|i\s+(?:decided|chose|tried|set\s+out)\s+to\s+(?:check|verify|validate)"
+    r"|(?:my|the)\s+decision\s+(?:is|was|became)\s+to\s+(?:check|verify|validate)"
+    r"|became\s+(?:a|the)\s+(?:check|verification|validation)"
+    r")\b",
+    flags=re.IGNORECASE,
+)
 APPLICATION_DERIVED_RULE_ACTIONS = frozenset(
     {
         "accept",
@@ -133,6 +147,71 @@ APPLICATION_RULE_LEAD_PATTERNS = (
 )
 
 ROLE_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)?")
+SOURCE_QUANTITY_SENSITIVE_FORMS = {
+    "component": "components",
+    "prompt": "prompts",
+    "stage": "stages",
+    "test": "tests",
+}
+DECISION_MOMENT_DERIVATIONAL_FAMILIES = (
+    frozenset({"act", "acts", "acted", "acting", "action", "actions"}),
+    frozenset(
+        {
+            "permit",
+            "permits",
+            "permitted",
+            "permitting",
+            "permission",
+            "permissions",
+        }
+    ),
+)
+CONSEQUENCE_DERIVATIONAL_FAMILIES = (
+    frozenset({"ready", "readiness"}),
+)
+ACTION_RESTATEMENT_DERIVATIONAL_FAMILIES = (
+    frozenset(
+        {
+            "divide",
+            "divided",
+            "dividing",
+            "separate",
+            "separated",
+            "separating",
+            "split",
+            "splits",
+            "splitting",
+        }
+    ),
+    frozenset(
+        {
+            "capture",
+            "captured",
+            "capturing",
+            "log",
+            "logged",
+            "logging",
+            "record",
+            "recorded",
+            "recording",
+        }
+    ),
+    frozenset(
+        {
+            "keep",
+            "kept",
+            "preserve",
+            "preserved",
+            "preserving",
+            "retain",
+            "retained",
+            "retaining",
+        }
+    ),
+    frozenset(
+        {"change", "changed", "changing", "modify", "modified", "modifying"}
+    ),
+)
 
 
 def _clean_text(value: Any) -> str:
@@ -394,6 +473,39 @@ def _normalized_role_text(value: Any) -> str:
     return " ".join(token.lower().replace("’", "'") for token in ROLE_WORD_RE.findall(str(value or "")))
 
 
+def _source_quantity_drift_is_present(
+    option: str,
+    evidence_contract: dict[str, Any] | None,
+) -> bool:
+    """Reject plural expansion of a source-owned singular experiment noun.
+
+    The check is deliberately narrow.  These four nouns are also named in the
+    writer contract because changing one prompt/test/stage/component into a
+    class of them materially overstates a bounded experiment.  If the approved
+    evidence itself contains the plural, the plural remains allowed.
+    """
+
+    if not isinstance(evidence_contract, dict):
+        return False
+    source_text = " ".join(
+        _clean_text(evidence_contract.get(field))
+        for field in (
+            "concrete_action",
+            "exact_problem",
+            "observable_lesson",
+            "audience_consequence",
+        )
+    )
+    source_tokens = set(ROLE_WORD_RE.findall(source_text.lower()))
+    option_tokens = set(ROLE_WORD_RE.findall(str(option or "").lower()))
+    return any(
+        singular in source_tokens
+        and plural not in source_tokens
+        and plural in option_tokens
+        for singular, plural in SOURCE_QUANTITY_SENSITIVE_FORMS.items()
+    )
+
+
 def _significant_role_terms(value: Any) -> list[str]:
     return [
         token
@@ -476,6 +588,19 @@ def _structured_application_rule_parts(value: Any) -> dict[str, str]:
     return parts
 
 
+def _structured_required_context_parts(value: Any) -> dict[str, str]:
+    parts: dict[str, str] = {}
+    for segment in str(value or "").split("|"):
+        if ":" not in segment:
+            continue
+        label, raw_value = segment.split(":", 1)
+        normalized_label = " ".join(label.lower().replace("_", " ").replace("-", " ").split())
+        cleaned_value = _clean_text(raw_value)
+        if normalized_label in {"paragraph two action", "concrete action", "exact problem"} and cleaned_value:
+            parts[normalized_label] = cleaned_value
+    return parts
+
+
 def _application_gate_relation_is_present(value: Any) -> bool:
     return bool(APPLICATION_GATE_RELATION_RE.search(_clean_text(value)))
 
@@ -528,6 +653,75 @@ def _role_terms_overlap(left: set[str], right: set[str]) -> bool:
     return bool(_role_term_families(left).intersection(_role_term_families(right)))
 
 
+def _decision_moment_term_is_present(term: str, rendered_terms: set[str]) -> bool:
+    """Match a decision condition through only approved direct derivations.
+
+    The general role matcher intentionally stays conservative. Decision-moment
+    prose may, however, render a source verb as its direct noun form (or vice
+    versa) without changing the condition: ``act``/``action`` and
+    ``permit``/``permission`` are the two currently approved families. This
+    does not admit arbitrary synonyms, and the two bound anchors remain exact.
+    """
+
+    source_families = _role_term_families({term})
+    rendered_families = _role_term_families(rendered_terms)
+    if source_families.intersection(rendered_families):
+        return True
+    return any(
+        bool(source_families.intersection(family))
+        and bool(rendered_families.intersection(family))
+        for family in DECISION_MOMENT_DERIVATIONAL_FAMILIES
+    )
+
+
+def _all_role_terms_are_present(required_terms: set[str], rendered_terms: set[str]) -> bool:
+    """Require every assigned object term while allowing ordinary inflection."""
+
+    rendered_families = _role_term_families(rendered_terms)
+    return bool(required_terms) and all(
+        bool(_role_term_families({term}).intersection(rendered_families))
+        for term in required_terms
+    )
+
+
+def _application_boundary_clauses_are_present(opening: str, boundary: str) -> bool:
+    """Require each source clause in a compound application boundary.
+
+    A single generic word such as ``role`` previously satisfied a boundary like
+    ``when context had a type and critique had a separate role``.  That let a
+    grammatical hook omit half of the source condition while still passing the
+    deterministic gate.  Compound boundaries now retain at least one concrete
+    term from every source clause; simple boundaries retain one concrete term.
+    """
+
+    rendered_terms = set(_significant_role_terms(opening))
+    rendered_families = _role_term_families(rendered_terms)
+    boundary_without_relation = APPLICATION_GATE_RELATION_RE.sub(" ", boundary, count=1)
+    generic_boundary_terms = {
+        "became",
+        "become",
+        "before",
+        "had",
+        "has",
+        "have",
+        "if",
+        "independently",
+        "made",
+        "only",
+        "when",
+        "without",
+    }
+    clause_terms = [
+        set(_significant_role_terms(clause)) - generic_boundary_terms
+        for clause in re.split(r"\band\b", boundary_without_relation, flags=re.IGNORECASE)
+    ]
+    clause_terms = [terms for terms in clause_terms if terms]
+    return bool(clause_terms) and all(
+        bool(_role_term_families(terms).intersection(rendered_families))
+        for terms in clause_terms
+    )
+
+
 def _assigned_application_rule_is_present(opening: str, basis: str) -> bool:
     parts = _structured_application_rule_parts(basis)
     required_parts = {"decision action", "decision object", "boundary"}
@@ -536,24 +730,139 @@ def _assigned_application_rule_is_present(opening: str, basis: str) -> bool:
     opening_terms = set(_significant_role_terms(opening))
     action_terms = set(_significant_role_terms(parts["decision action"]))
     object_terms = set(_significant_role_terms(parts["decision object"]))
-    boundary_terms = set(_significant_role_terms(parts["boundary"])) - {
-        "before",
-        "if",
-        "only",
-        "reliance",
-        "unless",
-        "until",
-        "visible",
-        "when",
-        "without",
-    }
     relation_present = _application_gate_relation_is_present(opening)
+    posture = _normalized_role_text(parts.get("rule posture", "")).rstrip(" .!?")
+    action_present = _role_terms_overlap(action_terms, opening_terms)
+    if posture == "owner confirmed observation":
+        # A bounded learning-in-public opener may express the observed gate as
+        # "In this test ... until ..." without forcing a stiff imperative or a
+        # fabricated permanent habit.  It still has to carry the exact object,
+        # boundary, and relation, so this does not weaken the evidence binding.
+        action_present = action_present or bool(APPLICATION_BOUNDED_OBSERVATION_RE.search(opening))
     return bool(
-        _role_terms_overlap(action_terms, opening_terms)
-        and _role_terms_overlap(object_terms, opening_terms)
-        and (not boundary_terms or _role_terms_overlap(boundary_terms, opening_terms))
+        action_present
+        and _all_role_terms_are_present(object_terms, opening_terms)
+        and _application_boundary_clauses_are_present(opening, parts["boundary"])
         and relation_present
     )
+
+
+def _assigned_decision_moment_is_present(
+    opening: str,
+    basis: str,
+    bound_anchor_terms: Any,
+) -> bool:
+    anchors = _bound_role_anchor_terms(bound_anchor_terms)
+    basis_terms = set(_significant_role_terms(basis))
+    opening_terms = set(_significant_role_terms(opening))
+    overlap_count = sum(
+        1
+        for term in basis_terms
+        if _decision_moment_term_is_present(term, opening_terms)
+    )
+    required_overlap = min(
+        5,
+        max(3, (len(basis_terms) * 3 + 4) // 5),
+    )
+    return bool(
+        _clean_text(basis)
+        and anchors
+        and _bound_role_anchors_are_present(opening, anchors)
+        and _application_gate_relation_is_present(opening)
+        and overlap_count >= required_overlap
+    )
+
+
+def _source_modal_drift_is_present(rendered: str, source_consequence: str) -> bool:
+    """Reject omission or substitution of a source consequence capability modal."""
+
+    source = _clean_text(source_consequence)
+    modal_match = re.search(
+        r"\b(?P<modal>can|could|may|might)\s+(?:(?:[a-z]+ly)\s+)?(?:be\s+)?(?P<verb>[a-z][a-z'-]*)\b",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if modal_match is None:
+        return False
+    source_modal = modal_match.group("modal").lower()
+    source_verb = modal_match.group("verb").lower()
+    source_context_terms = set(_significant_role_terms(source)) - {
+        "can",
+        "could",
+        "may",
+        "might",
+        source_verb,
+    }
+    modal_terms = {"can", "could", "may", "might"}
+    for sentence in content_generation_module._split_sentences(rendered):
+        sentence_terms = set(_significant_role_terms(sentence))
+        if len(source_context_terms.intersection(sentence_terms)) < 2:
+            continue
+        tokens = [token.lower() for token in ROLE_WORD_RE.findall(sentence)]
+        for index, token in enumerate(tokens):
+            if not _role_terms_overlap({source_verb}, {token}):
+                continue
+            if modal_terms.intersection(tokens[max(0, index - 3) : index]) == {
+                source_modal
+            }:
+                continue
+            return True
+    return False
+
+
+def _supported_consequence_is_present(rendered: str, source_consequence: str) -> bool:
+    """Require the compact payoff to retain the consequence actor and predicate.
+
+    Generic anchor overlap previously allowed ``identify missing evidence`` to
+    stand in for the narrower supplied claim ``identify which context is
+    missing``.  The closer is intentionally short, but it must still retain an
+    allowed actor, the source capability predicate, and enough of the source
+    object to preserve the factual proposition.
+    """
+
+    source = _clean_text(source_consequence)
+    if not source:
+        return False
+    modal_match = re.search(
+        r"\b(?P<modal>can|could|may|might)\s+(?:(?:[a-z]+ly)\s+)?(?:be\s+)?(?P<verb>[a-z][a-z'-]*)\b",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if modal_match is None:
+        return _assigned_anchor_is_present(rendered, source)
+
+    source_terms = set(_significant_role_terms(source)) - {
+        modal_match.group("modal").lower(),
+    }
+    rendered_terms = set(_significant_role_terms(rendered))
+    def consequence_term_is_present(term: str) -> bool:
+        if _role_terms_overlap({term}, rendered_terms):
+            return True
+        source_families = _role_term_families({term})
+        rendered_families = _role_term_families(rendered_terms)
+        return any(
+            bool(source_families.intersection(family))
+            and bool(rendered_families.intersection(family))
+            for family in CONSEQUENCE_DERIVATIONAL_FAMILIES
+        )
+
+    overlap_count = sum(1 for term in source_terms if consequence_term_is_present(term))
+    actor_terms = set(
+        _significant_role_terms(source[: modal_match.start()])
+    )
+    actor_present = bool(
+        actor_terms
+        and any(
+            _role_terms_overlap({term}, rendered_terms)
+            for term in actor_terms
+        )
+    )
+    predicate_present = _role_terms_overlap(
+        {modal_match.group("verb").lower()},
+        rendered_terms,
+    )
+    required_overlap = min(4, max(3, (len(source_terms) + 1) // 2))
+    return bool(actor_present and predicate_present and overlap_count >= required_overlap)
 
 
 def _assigned_application_boundary_is_present(closing: str, basis: str) -> bool:
@@ -615,6 +924,38 @@ def _substantial_role_restatement(left: str, right: str) -> bool:
     return bool(shorter_count and shared_count >= 3 and shared_count / shorter_count >= 0.80)
 
 
+def _substantial_action_restatement(source_action: str, rendered: str) -> bool:
+    """Catch a later replay through only narrow action derivations.
+
+    The general role comparator catches exact, passive, and third-person
+    restatements. This application-only layer also recognizes a small set of
+    direct action equivalents while still requiring at least 80% of the source
+    action's substantive proposition, so shared workflow nouns alone do not
+    become a duplicate-action false positive.
+    """
+
+    if _substantial_role_restatement(source_action, rendered):
+        return True
+    source_terms = set(_significant_role_terms(source_action))
+    rendered_terms = set(_significant_role_terms(rendered))
+    if len(source_terms) < 3 or not rendered_terms:
+        return False
+
+    def source_term_is_present(term: str) -> bool:
+        source_families = _role_term_families({term})
+        rendered_families = _role_term_families(rendered_terms)
+        if source_families.intersection(rendered_families):
+            return True
+        return any(
+            bool(source_families.intersection(family))
+            and bool(rendered_families.intersection(family))
+            for family in ACTION_RESTATEMENT_DERIVATIONAL_FAMILIES
+        )
+
+    matched = sum(source_term_is_present(term) for term in source_terms)
+    return matched >= 3 and matched / len(source_terms) >= 0.80
+
+
 def _brief_has_approved_proof(brief: content_generation_module.ContentOptionBrief) -> bool:
     proof_packet = _clean_text(getattr(brief, "proof_packet", ""))
     if not proof_packet:
@@ -656,6 +997,8 @@ def _current_structured_role(
 def _assigned_role_failure_codes(
     option: str,
     brief: content_generation_module.ContentOptionBrief | None,
+    *,
+    evidence_contract: dict[str, Any] | None = None,
 ) -> list[str]:
     """Fail closed when a draft crosses its deterministic argument-role boundary."""
 
@@ -675,7 +1018,8 @@ def _assigned_role_failure_codes(
     )
     role_payload_v2 = role_payload_version == "feezie_role_payload/v2"
     role_payload_v3 = role_payload_version == "feezie_role_payload/v3"
-    current_role_payload = role_payload_v2 or role_payload_v3
+    role_payload_v4 = role_payload_version == "feezie_role_payload/v4"
+    current_role_payload = role_payload_v2 or role_payload_v3 or role_payload_v4
     option_word_count = len(ROLE_WORD_RE.findall(option or ""))
     failures: list[str] = []
     if current_role_payload:
@@ -688,8 +1032,10 @@ def _assigned_role_failure_codes(
         # Legacy/unversioned briefs retain the original broad text matching.
         diagnosis_role = "diagnos" in treatment
         application_role = "application" in treatment
-    if current_role_payload and not 70 <= option_word_count <= 150:
+    if current_role_payload and not 60 <= option_word_count <= 150:
         failures.append("role_word_count_out_of_contract")
+    if current_role_payload and _source_quantity_drift_is_present(option, evidence_contract):
+        failures.append("role_source_quantity_drift")
     if _opening_restates_primary_claim(opening, _clean_text(getattr(brief, "primary_claim", ""))):
         failures.append("role_opening_restates_primary_claim")
     if diagnosis_role:
@@ -702,6 +1048,23 @@ def _assigned_role_failure_codes(
         recognition_anchors = _assigned_anchor_values(getattr(brief, "recognition_basis", ""))
         diagnosis_body = "\n\n".join(paragraphs[1:-1]) if len(paragraphs) >= 3 else ""
         diagnosis_body_sentences = content_generation_module._split_sentences(diagnosis_body)
+        publish_ready_diagnosis = bool(
+            (role_payload_v3 or role_payload_v4)
+            and isinstance(evidence_contract, dict)
+            and str(evidence_contract.get("schema_version") or "")
+            == "feezie_publish_ready_evidence/v1"
+        )
+        if publish_ready_diagnosis and len(paragraphs) != 3:
+            failures.append("role_d1_paragraph_count_out_of_contract")
+        if (
+            publish_ready_diagnosis
+            and diagnosis_body_sentences
+            and any(
+                _substantial_role_restatement(opening, sentence)
+                for sentence in diagnosis_body_sentences
+            )
+        ):
+            failures.append("role_d1_opening_repeated_in_body")
         if current_role_payload and sum(
             len(ROLE_WORD_RE.findall(sentence)) >= 6
             for sentence in diagnosis_body_sentences
@@ -713,9 +1076,14 @@ def _assigned_role_failure_codes(
         bound_recognition_anchors = _bound_role_anchor_terms(
             getattr(brief, "recognition_anchor_terms", ())
         )
+        if role_payload_v4 and publish_ready_diagnosis and any(
+            re.search(rf"\b{re.escape(anchor)}\b", opening, flags=re.IGNORECASE)
+            for anchor in bound_mechanism_anchors
+        ):
+            failures.append("role_d1_opening_consumes_problem_anchor")
         mechanism_anchor_missing = (
             not _bound_role_anchors_are_present(diagnosis_body, bound_mechanism_anchors)
-            if role_payload_v3
+            if role_payload_v3 or role_payload_v4
             else bool(
                 mechanism_anchors
                 and not all(
@@ -728,7 +1096,7 @@ def _assigned_role_failure_codes(
             failures.append("role_d1_mechanism_anchor_missing")
         recognition_anchor_missing = (
             not _bound_role_anchors_are_present(closing, bound_recognition_anchors)
-            if role_payload_v3
+            if role_payload_v3 or role_payload_v4
             else bool(
                 recognition_anchors
                 and not all(
@@ -757,7 +1125,40 @@ def _assigned_role_failure_codes(
             and structured_rule_parts.get("rule posture", "").lower().rstrip(".!?")
             == "owner-confirmed implemented gate"
         )
-        if structured_v2_rule:
+        observation_rule = bool(
+            structured_v2_rule
+            and structured_rule_parts.get("rule posture", "").lower().rstrip(".!?")
+            == "owner-confirmed observation"
+        )
+        decision_moment_rule = bool(
+            structured_v2_rule
+            and structured_rule_parts.get("rule posture", "").lower().rstrip(".!?")
+            == "owner-approved decision moment"
+        )
+        if (
+            observation_rule or decision_moment_rule
+        ) and APPLICATION_UNSUPPORTED_OBSERVATION_ACTION_RE.search(opening):
+            supported_action = (
+                _clean_text(evidence_contract.get("concrete_action"))
+                if isinstance(evidence_contract, dict)
+                else ""
+            )
+            supported_predicate_present = any(
+                pattern.search(opening)
+                for pattern in _source_first_person_action_res(supported_action)
+            )
+            if not (
+                supported_predicate_present
+                and _assigned_anchor_is_present(opening, supported_action)
+            ):
+                failures.append("role_a1_observation_action_unsupported")
+        if role_payload_v4 and decision_moment_rule:
+            rule_is_leading = _assigned_decision_moment_is_present(
+                opening,
+                getattr(brief, "decision_moment_basis", ""),
+                getattr(brief, "decision_moment_anchor_terms", ()),
+            )
+        elif structured_v2_rule:
             # V2 leads are semantic, not a forced literal template: the first
             # sentence must carry its assigned action, object, usable boundary,
             # and boundary relation together.
@@ -769,8 +1170,14 @@ def _assigned_role_failure_codes(
             rule_is_leading = any(pattern.search(opening) for pattern in APPLICATION_RULE_LEAD_PATTERNS)
         if not rule_is_leading:
             failures.append("role_a1_application_rule_not_leading")
-        if implemented_gate_rule and not STUDENT_SCIENTIST_ACTION_RE.search(opening or ""):
-            failures.append("role_a1_implemented_action_not_leading")
+        publish_ready_application = bool(
+            (role_payload_v3 or role_payload_v4)
+            and isinstance(evidence_contract, dict)
+            and str(evidence_contract.get("schema_version") or "")
+            == "feezie_publish_ready_evidence/v1"
+        )
+        if role_payload_v4 and publish_ready_application and len(paragraphs) != 4:
+            failures.append("role_a1_paragraph_count_out_of_contract")
 
         proof_facet_id = _clean_text(getattr(brief, "proof_facet_id", ""))
         proof_ready = bool(proof_facet_id) or _brief_has_approved_proof(brief)
@@ -799,7 +1206,7 @@ def _assigned_role_failure_codes(
         # required context as a reconstructed thesis makes a valid implemented-gate
         # draft impossible.  The causal-pattern and gate checks above still keep the
         # application role from collapsing back into diagnosis.
-        if not role_payload_v3 and primary_claim and any(
+        if not (role_payload_v3 or role_payload_v4) and primary_claim and any(
             _opening_restates_primary_claim(sentence, primary_claim)
             for sentence in content_generation_module._split_sentences(application_argument)
         ):
@@ -816,28 +1223,116 @@ def _assigned_role_failure_codes(
 
         application_body = "\n\n".join(application_body_paragraphs)
         body_sentences = content_generation_module._split_sentences(application_body)
-        post_opening_sentences = content_generation_module._split_sentences(
-            "\n\n".join(paragraphs[1:-1])
+        opening_paragraph_sentences = content_generation_module._split_sentences(
+            paragraphs[0] if paragraphs else ""
         )
-        if implemented_gate_rule and any(
-            STUDENT_SCIENTIST_ACTION_RE.search(sentence or "")
-            for sentence in post_opening_sentences
-        ):
-            failures.append("role_a1_action_restated_after_opening")
+        assigned_action_paragraph_sentences = content_generation_module._split_sentences(
+            paragraphs[1] if len(paragraphs) >= 2 else ""
+        )
+        later_evidence_sentences = content_generation_module._split_sentences(
+            "\n\n".join(paragraphs[2:-1])
+        )
+        later_role_sentences = content_generation_module._split_sentences(
+            "\n\n".join(paragraphs[2:])
+        )
+        if implemented_gate_rule or (role_payload_v4 and publish_ready_application):
+            concrete_action = (
+                _clean_text(evidence_contract.get("concrete_action"))
+                if isinstance(evidence_contract, dict)
+                else ""
+            )
+            required_context_parts = _structured_required_context_parts(
+                getattr(brief, "required_context_concepts", "")
+            )
+            paragraph_two_action_basis = _clean_text(
+                required_context_parts.get("paragraph two action")
+                or required_context_parts.get("concrete action")
+                or concrete_action
+            )
+            opening_action_sentences = [
+                sentence
+                for sentence in opening_paragraph_sentences
+                if _supported_first_person_action_is_present(sentence, concrete_action)
+            ]
+            assigned_action_sentences = [
+                sentence
+                for sentence in assigned_action_paragraph_sentences
+                if _supported_first_person_action_is_present(sentence, concrete_action)
+            ]
+            later_action_sentences = [
+                sentence
+                for sentence in later_evidence_sentences
+                if _supported_first_person_action_is_present(sentence, concrete_action)
+            ]
+            semantic_action_restatements = [
+                sentence
+                for sentence in (
+                    assigned_action_paragraph_sentences[1:] + later_role_sentences
+                )
+                if _substantial_action_restatement(paragraph_two_action_basis, sentence)
+            ]
+            assigned_action_is_first = bool(
+                assigned_action_paragraph_sentences
+                and _supported_first_person_action_is_present(
+                    assigned_action_paragraph_sentences[0],
+                    paragraph_two_action_basis,
+                )
+            )
+            if not assigned_action_is_first:
+                failures.append("role_a1_implemented_action_not_leading")
+            if (
+                opening_action_sentences
+                or len(assigned_action_sentences) > 1
+                or (assigned_action_sentences and not assigned_action_is_first)
+                or later_action_sentences
+                or semantic_action_restatements
+            ):
+                failures.append("role_a1_action_restated_after_opening")
+            if (
+                implemented_gate_rule
+                and assigned_action_paragraph_sentences
+                and _assigned_application_rule_is_present(
+                    assigned_action_paragraph_sentences[0],
+                    decision_rule_anchors[0],
+                )
+                and "role_a1_action_restated_after_opening" not in failures
+            ):
+                failures.append("role_a1_action_restated_after_opening")
         substantive_body_sentence_count = sum(
             len(ROLE_WORD_RE.findall(sentence)) >= 6
             for sentence in body_sentences
         )
         consequence_anchors = _assigned_anchor_values(getattr(brief, "consequence_basis", ""))
-        consequence_missing = bool(
-            consequence_anchors
-            and not all(
-                _assigned_anchor_is_present(application_body, anchor)
-                for anchor in consequence_anchors
-            )
-        )
-        if substantive_body_sentence_count < 2 or consequence_missing:
+        if substantive_body_sentence_count < 2:
             failures.append("role_a1_application_body_underdeveloped")
+        if role_payload_v4 and publish_ready_application:
+            consequence_missing = not _supported_consequence_is_present(
+                closing,
+                _clean_text(getattr(brief, "consequence_basis", "")),
+            )
+            closing_anchors = _bound_role_anchor_terms(
+                getattr(brief, "application_closing_anchor_terms", ())
+            )
+            if consequence_missing or not _bound_role_anchors_are_present(
+                closing,
+                closing_anchors,
+            ):
+                failures.append("role_a1_payoff_missing")
+            if _source_modal_drift_is_present(
+                closing,
+                _clean_text(getattr(brief, "consequence_basis", "")),
+            ):
+                failures.append("role_a1_consequence_modal_drift")
+        else:
+            consequence_missing = bool(
+                consequence_anchors
+                and not all(
+                    _assigned_anchor_is_present(application_body, anchor)
+                    for anchor in consequence_anchors
+                )
+            )
+            if consequence_missing:
+                failures.append("role_a1_application_body_underdeveloped")
 
         context_anchors = _assigned_anchor_values(getattr(brief, "required_context_concepts", ()))
         if context_anchors and not all(
@@ -849,15 +1344,35 @@ def _assigned_role_failure_codes(
         if proof_ready:
             proof_packet = _clean_text(getattr(brief, "proof_packet", ""))
             penultimate = paragraphs[-2] if len(paragraphs) >= 4 else ""
-            proof_is_separate = bool(
-                penultimate
-                and content_generation_module.option_mentions_approved_proof(
-                    penultimate,
-                    [proof_packet],
+            if publish_ready_application:
+                observable_lesson = _clean_text(evidence_contract.get("observable_lesson"))
+                lesson_is_separate = bool(
+                    penultimate
+                    and _supported_observation_is_present(penultimate, observable_lesson)
                 )
-            )
-            if not proof_is_separate:
-                failures.append("role_a1_proof_validation_not_separate")
+                if not lesson_is_separate:
+                    failures.append("role_a1_observable_lesson_not_separate")
+                if role_payload_v4:
+                    lesson_anchors = _bound_role_anchor_terms(
+                        getattr(brief, "application_closing_anchor_terms", ())
+                    )
+                    if (
+                        _bound_role_anchors_are_present(opening, lesson_anchors)
+                        or _substantial_role_restatement(opening, penultimate)
+                    ):
+                        failures.append("role_a1_opening_consumes_observable_lesson")
+                    if _substantial_role_restatement(penultimate, closing):
+                        failures.append("role_a1_closer_restates_lesson")
+            else:
+                proof_is_separate = bool(
+                    penultimate
+                    and content_generation_module.option_mentions_approved_proof(
+                        penultimate,
+                        [proof_packet],
+                    )
+                )
+                if not proof_is_separate:
+                    failures.append("role_a1_proof_validation_not_separate")
 
         if _substantial_role_restatement(opening, closing):
             failures.append("role_a1_closer_restates_opening")
@@ -967,6 +1482,12 @@ def evaluate_draft_distinctness(context_packet: dict[str, Any], options: list[st
                     0: ("mechanism_focus", "recognition_basis"),
                     1: ("decision_rule_basis", "required_context_concepts", "consequence_basis"),
                 }
+                if _clean_text(briefs[1].get("semantic_payload_version")) == "feezie_role_payload/v4":
+                    required_role_fields[1] = required_role_fields[1] + (
+                        "decision_moment_basis",
+                        "decision_moment_anchor_terms",
+                        "application_closing_anchor_terms",
+                    )
                 for brief_index, fields in required_role_fields.items():
                     for field in fields:
                         if not _clean_text(briefs[brief_index].get(field)):
@@ -1094,8 +1615,8 @@ STUDENT_SCIENTIST_PROBLEM_RE = re.compile(
 )
 STUDENT_SCIENTIST_OBSERVATION_RE = re.compile(
     r"\b(?:i\s+(?:confirmed|discovered|found|learned|noticed|observed|realized)|became\s+clear|what\s+changed|next\s+test|"
-    r"(?:the\s+)?(?:build|draft|output|result|test|checks?|gates?|workflow|system)\s+"
-    r"(?:revealed|showed|taught)(?:\s+me)?)\b",
+    r"(?:exposed|revealed|showed|taught)(?:\s+me)?|"
+    r"made(?:\s+(?:the|a|an))?(?:\s+[a-z][a-z0-9'-]*){0,8}\s+visible)\b",
     flags=re.IGNORECASE,
 )
 STUDENT_SCIENTIST_COMMAND_RE = re.compile(
@@ -1127,6 +1648,151 @@ STUDENT_SCIENTIST_INTERNAL_RUBRIC_RE = re.compile(
 )
 
 
+def _source_first_person_action_res(concrete_action: Any) -> list[re.Pattern[str]]:
+    """Bind public action markers to every action predicate the owner supplied."""
+
+    action = _clean_text(concrete_action)
+    predicates: list[str] = []
+    for match in re.finditer(
+        r"\bi\s+(?P<verb>[a-z][a-z'-]*)(?P<particle>\s+up\b)?",
+        action,
+        flags=re.IGNORECASE,
+    ):
+        predicate = " ".join(
+            part
+            for part in (
+                str(match.group("verb") or "").strip(),
+                str(match.group("particle") or "").strip(),
+            )
+            if part
+        )
+        if predicate:
+            predicates.append(predicate)
+
+    # A first-person source clause can own coordinated actions without
+    # repeating the pronoun: "I separated ..., required ...". Accept those
+    # exact source verbs too, while keeping the public rendering in first
+    # person and retaining the same-sentence source-anchor check below.
+    coordinated_base_verbs = {
+        "built",
+        "checked",
+        "cut",
+        "kept",
+        "made",
+        "mapped",
+        "ran",
+        "read",
+        "recorded",
+        "set",
+        "split",
+        "tested",
+        "wrote",
+    }
+    for match in re.finditer(
+        r"(?:,\s*|\band\s+)(?P<verb>[a-z][a-z'-]*)(?P<particle>\s+up\b)?",
+        action,
+        flags=re.IGNORECASE,
+    ):
+        verb = str(match.group("verb") or "").strip().lower()
+        if not (verb.endswith("ed") or verb in coordinated_base_verbs):
+            continue
+        predicate = " ".join(
+            part
+            for part in (verb, str(match.group("particle") or "").strip())
+            if part
+        )
+        if predicate:
+            predicates.append(predicate)
+
+    return [
+        re.compile(
+            rf"\bi\s+{re.escape(predicate).replace(r'\ ', r'\s+')}\b",
+            flags=re.IGNORECASE,
+        )
+        for predicate in dict.fromkeys(predicates)
+    ]
+
+
+def _supported_first_person_action_is_present(text: Any, concrete_action: Any) -> bool:
+    """Require a first-person action predicate and evidence-bound anchor overlap."""
+
+    rendered = str(text or "")
+    action = _clean_text(concrete_action)
+    source_predicates = _source_first_person_action_res(action)
+    sentences = content_generation_module._split_sentences(rendered) or [rendered]
+    for sentence in sentences:
+        predicate_present = bool(
+            any(pattern.search(sentence) for pattern in source_predicates)
+            or STUDENT_SCIENTIST_ACTION_RE.search(sentence)
+        )
+        if not predicate_present:
+            continue
+        # Legacy/unstructured role checks have no evidence contract. Preserve
+        # their generic first-person allowlist behavior. Current publish-ready
+        # jobs bind predicate and anchors in the same sentence so an unrelated
+        # "I built" elsewhere in the assigned region cannot satisfy the action.
+        if not action or _assigned_anchor_is_present(sentence, action):
+            return True
+    return False
+
+
+def _supported_problem_is_present(text: Any, exact_problem: Any) -> bool:
+    """Bind the problem to source anchors without inventing a negativity quota."""
+
+    rendered = str(text or "")
+    problem = _clean_text(exact_problem)
+    if not problem or not _assigned_anchor_is_present(rendered, problem):
+        return False
+    source_has_problem_marker = bool(STUDENT_SCIENTIST_PROBLEM_RE.search(problem))
+    return not source_has_problem_marker or bool(STUDENT_SCIENTIST_PROBLEM_RE.search(rendered))
+
+
+def _supported_observation_is_present(text: Any, observable_lesson: Any) -> bool:
+    """Accept a natural, source-bound observation without forcing rubric prose.
+
+    An explicit observation verb remains the preferred shape.  A high-fidelity
+    paraphrase is also valid when it preserves most of the substantive lesson
+    terms; this keeps a public-facing sentence such as ``Visible uncertainty
+    made the handoff clearer`` from failing only because it omits internal
+    scaffolding such as ``the synthetic review showed``.  Short thematic
+    allusions still fail closed.
+    """
+
+    rendered = str(text or "")
+    lesson = _clean_text(observable_lesson)
+    if not lesson or not _assigned_anchor_is_present(rendered, lesson):
+        return False
+    if STUDENT_SCIENTIST_OBSERVATION_RE.search(rendered):
+        return True
+
+    observation_scaffold = {
+        "comparison",
+        "exercise",
+        "found",
+        "learned",
+        "observed",
+        "replay",
+        "revealed",
+        "review",
+        "scenario",
+        "showed",
+        "synthetic",
+        "test",
+        "that",
+        "walkthrough",
+        "was",
+        "were",
+    }
+    lesson_terms = set(_significant_role_terms(lesson)) - observation_scaffold
+    rendered_terms = set(_significant_role_terms(rendered))
+    shared_terms = lesson_terms.intersection(rendered_terms)
+    return bool(
+        len(lesson_terms) >= 5
+        and len(shared_terms) >= 6
+        and len(shared_terms) / len(lesson_terms) >= 0.75
+    )
+
+
 def _student_scientist_evidence_failures(option: str, evidence_contract: dict[str, Any] | None) -> list[str]:
     if not isinstance(evidence_contract, dict):
         return []
@@ -1148,18 +1814,14 @@ def _student_scientist_evidence_failures(option: str, evidence_contract: dict[st
 
     if len(paragraphs) not in {3, 4}:
         failures.append("student_scientist_paragraph_count_out_of_contract")
-    if not 85 <= word_count <= 150:
-        failures.append("student_scientist_word_count_underdeveloped" if word_count < 85 else "student_scientist_word_count_overdeveloped")
+    if not 60 <= word_count <= 150:
+        failures.append("student_scientist_word_count_underdeveloped" if word_count < 60 else "student_scientist_word_count_overdeveloped")
+    if _source_quantity_drift_is_present(option, evidence_contract):
+        failures.append("student_scientist_source_quantity_drift")
 
-    if not (
-        STUDENT_SCIENTIST_ACTION_RE.search(opening_half)
-        and _assigned_anchor_is_present(option, concrete_action)
-    ):
+    if not _supported_first_person_action_is_present(opening_half, concrete_action):
         failures.append("student_scientist_action_missing")
-    if not (
-        _assigned_anchor_is_present(option, exact_problem)
-        and STUDENT_SCIENTIST_PROBLEM_RE.search(option or "")
-    ):
+    if not _supported_problem_is_present(option, exact_problem):
         failures.append("student_scientist_problem_missing")
     normalized_lesson = _normalized_role_text(observable_lesson)
     normalized_closing_half = _normalized_role_text(closing_half)
@@ -1168,8 +1830,7 @@ def _student_scientist_evidence_failures(option: str, evidence_contract: dict[st
         and re.search(rf"(?<![a-z0-9]){re.escape(normalized_lesson)}(?![a-z0-9])", normalized_closing_half)
     )
     supported_lesson_paraphrase = bool(
-        _assigned_anchor_is_present(closing_half, observable_lesson)
-        and STUDENT_SCIENTIST_OBSERVATION_RE.search(closing_half)
+        _supported_observation_is_present(closing_half, observable_lesson)
     )
     if not (exact_lesson_present or supported_lesson_paraphrase):
         failures.append("student_scientist_lesson_missing")
@@ -1199,9 +1860,14 @@ def _student_scientist_evidence_failures(option: str, evidence_contract: dict[st
     if unsupported_success_signal and not evidence_supports_success_signal:
         failures.append("student_scientist_unsupported_success_signal")
 
+    audience_consequence = _clean_text(evidence_contract.get("audience_consequence"))
     closing_bound = bool(
         _assigned_anchor_is_present(closing, observable_lesson)
         or _assigned_anchor_is_present(closing, exact_problem)
+        or (
+            audience_consequence
+            and _assigned_anchor_is_present(closing, audience_consequence)
+        )
     )
     if not closing_bound or content_generation_module._genericity_score(closing) > 0:
         failures.append("student_scientist_abstract_payoff")
@@ -1227,7 +1893,13 @@ def _local_publishability_failures(
         publishability = content_generation_module._publishability_score(option, brief)
         if publishability < 10:
             failures.append(f"publishability_low:{publishability}")
-        failures.extend(_assigned_role_failure_codes(option, brief))
+        failures.extend(
+            _assigned_role_failure_codes(
+                option,
+                brief,
+                evidence_contract=evidence_contract,
+            )
+        )
     failures.extend(_student_scientist_evidence_failures(option, evidence_contract))
     return failures
 

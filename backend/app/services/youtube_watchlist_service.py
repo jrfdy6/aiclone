@@ -22,6 +22,11 @@ from urllib.request import Request, urlopen
 import yaml
 
 from app.services.brain_long_form_ingest_service import brain_long_form_ingest_service
+from app.services.content_lifecycle_service import PrivateContentArtifactStore
+from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.source_intake_adapter_service import SourceIntakeAdapterService, youtube_discovery_envelope
+from app.services.source_intake_execution_service import SourceIntakeExecutionService
+from app.services.source_processing_service import SourceProcessingService
 from app.services.social_feed_builder_service import discover_linkedin_workspace_root
 from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
@@ -292,6 +297,14 @@ def _extract_channel_id(url: str) -> str:
     return ""
 
 
+def _extract_playlist_id(url: str) -> str:
+    parsed = urlparse(url)
+    query_playlist = parse_qs(parsed.query).get("playlist_id") or parse_qs(parsed.query).get("list") or []
+    if query_playlist:
+        return _clean_text(query_playlist[0])
+    return ""
+
+
 def _resolve_channel_feed_url(url: str) -> tuple[str | None, str | None]:
     channel_id = _extract_channel_id(url)
     if channel_id:
@@ -314,6 +327,13 @@ def _resolve_channel_feed_url(url: str) -> tuple[str | None, str | None]:
         channel_id = id_match.group(1)
         return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}", channel_id
     return None, None
+
+
+def _resolve_playlist_feed_url(url: str) -> tuple[str | None, str | None]:
+    playlist_id = _extract_playlist_id(url)
+    if not playlist_id:
+        return None, None
+    return f"https://www.youtube.com/feeds/videos.xml?playlist_id={playlist_id}", playlist_id
 
 
 def _parse_published(value: str | None) -> str | None:
@@ -362,23 +382,95 @@ def _channel_auto_ingest_enabled(channel: dict[str, Any]) -> bool:
     return True
 
 
-def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls: set[str]) -> dict[str, Any]:
-    channel_name = _clean_text(channel.get("name")) or "YouTube channel"
-    channel_url = _clean_text(channel.get("url"))
-    purpose = _clean_text(channel.get("purpose"))
-    priority_lane = _clean_text(channel.get("priority_lane")) or "ai"
-    feed_url, channel_id = _resolve_channel_feed_url(channel_url)
+def _designated_playlist(watchlist: dict[str, Any]) -> dict[str, Any] | None:
+    playlist = watchlist.get("youtube_designated_playlist")
+    if not isinstance(playlist, dict) or not _clean_text(playlist.get("url")):
+        return None
+    return playlist
+
+
+def _canonical_intake_services(
+    store: IntegratedSystemStore | None = None,
+) -> tuple[IntegratedSystemStore, SourceIntakeAdapterService, SourceProcessingService]:
+    resolved_store = store or IntegratedSystemStore(_state_root() / "system" / "ai-clone.sqlite3")
+    artifact_store = PrivateContentArtifactStore(resolved_store.database_path.parent / "artifacts")
+    return (
+        resolved_store,
+        SourceIntakeAdapterService(resolved_store),
+        SourceProcessingService(resolved_store, artifact_store),
+    )
+
+
+def _register_youtube_discovery(
+    *,
+    adapter: SourceIntakeAdapterService,
+    processing: SourceProcessingService,
+    item: dict[str, Any],
+    origin: str,
+    discovery_route: str,
+    relevance_state: str,
+    reason: str,
+) -> dict[str, Any]:
+    registration = adapter.register(
+        youtube_discovery_envelope(
+            origin=origin,
+            url=_clean_text(item.get("url")),
+            video_id=_clean_text(item.get("video_id")) or None,
+            discovery_route=discovery_route,
+            title=_clean_text(item.get("title")) or None,
+            author=_clean_text(item.get("author")) or _clean_text(item.get("channel_name")) or None,
+            published_at=_clean_text(item.get("published_at")) or None,
+            priority_lane=_clean_text(item.get("priority_lane")) or None,
+            # This adapter receives the captured item from the public YouTube
+            # surface. The envelope still revalidates the URL before stamping.
+            share_public_content=True,
+        )
+    )
+    current_relevance = _clean_text(registration["discovery"].get("relevance_state"))
+    effective_relevance = relevance_state
+    if relevance_state == "backlog" and current_relevance in {"qualified", "rejected"}:
+        effective_relevance = current_relevance
+    gate = processing.qualify(
+        discovery_id=registration["discovery"]["discovery_id"],
+        relevance_state=effective_relevance,
+        admissibility_state="admissible",
+        reason="scheduled_replay_preserved_prior_gate" if effective_relevance != relevance_state else reason,
+        policy_name="youtube_scheduled_intake_gate",
+        policy_version="1.0.0",
+    )
+    decision = processing.processing_decision(
+        source_id=registration["source"]["source_id"],
+        discovery_id=registration["discovery"]["discovery_id"],
+        capture_kind="transcript",
+    )
+    return {"registration": registration, "gate": gate, "decision": decision}
+
+
+def _fetch_youtube_feed_entries(
+    source: dict[str, Any],
+    *,
+    limit: int,
+    existing_urls: set[str],
+    feed_url: str | None,
+    source_id: str | None,
+    source_id_key: str,
+    fallback_name: str,
+) -> dict[str, Any]:
+    source_name = _clean_text(source.get("name")) or fallback_name
+    source_url = _clean_text(source.get("url"))
+    purpose = _clean_text(source.get("purpose"))
+    priority_lane = _clean_text(source.get("priority_lane")) or "ai"
     payload = {
-        "name": channel_name,
-        "url": channel_url,
+        "name": source_name,
+        "url": source_url,
         "purpose": purpose,
         "priority_lane": priority_lane,
-        "channel_id": channel_id,
+        source_id_key: source_id,
         "feed_url": feed_url,
         "videos": [],
     }
     if not feed_url:
-        payload["error"] = "Unable to resolve YouTube channel feed."
+        payload["error"] = f"Unable to resolve {fallback_name.lower()} feed."
         return payload
 
     try:
@@ -397,7 +489,7 @@ def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls
             video_url = f"https://www.youtube.com/watch?v={video_id}"
         if not video_url or not title:
             continue
-        author_name = _clean_text(entry.findtext("atom:author/atom:name", default="", namespaces=ATOM_NS)) or channel_name
+        author_name = _clean_text(entry.findtext("atom:author/atom:name", default="", namespaces=ATOM_NS)) or source_name
         published_at = _parse_published(entry.findtext("atom:published", default="", namespaces=ATOM_NS))
         summary = _truncate(
             _clean_text(entry.findtext("media:group/media:description", default="", namespaces=ATOM_NS))
@@ -417,13 +509,41 @@ def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls
                 "summary": summary,
                 "thumbnail_url": thumbnail_url,
                 "priority_lane": priority_lane,
-                "channel_name": channel_name,
-                "channel_url": channel_url,
+                "channel_name": source_name,
+                "channel_url": source_url,
                 "already_ingested": video_url in existing_urls,
             }
         )
     payload["videos"] = videos
     return payload
+
+
+def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls: set[str]) -> dict[str, Any]:
+    channel_url = _clean_text(channel.get("url"))
+    feed_url, channel_id = _resolve_channel_feed_url(channel_url)
+    return _fetch_youtube_feed_entries(
+        channel,
+        limit=limit,
+        existing_urls=existing_urls,
+        feed_url=feed_url,
+        source_id=channel_id,
+        source_id_key="channel_id",
+        fallback_name="YouTube channel",
+    )
+
+
+def _fetch_playlist_entries(playlist: dict[str, Any], *, limit: int, existing_urls: set[str]) -> dict[str, Any]:
+    playlist_url = _clean_text(playlist.get("url"))
+    feed_url, playlist_id = _resolve_playlist_feed_url(playlist_url)
+    return _fetch_youtube_feed_entries(
+        playlist,
+        limit=limit,
+        existing_urls=existing_urls,
+        feed_url=feed_url,
+        source_id=playlist_id,
+        source_id_key="playlist_id",
+        fallback_name="YouTube playlist",
+    )
 
 
 def _transcription_runtime() -> dict[str, Any]:
@@ -807,56 +927,105 @@ def _write_backfilled_transcript(asset: dict[str, Any], transcript_text: str, me
     }
 
 
-def backfill_pending_youtube_transcripts(*, limit: int | None = None, run_refresh: bool = False) -> dict[str, Any]:
+def backfill_pending_youtube_transcripts(
+    *,
+    limit: int | None = None,
+    run_refresh: bool = False,
+    canonical_store: IntegratedSystemStore | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
     repo_root = _repo_root()
     pending_assets = _pending_youtube_transcript_assets(repo_root=repo_root)
     selected_limit = AUTO_PENDING_TRANSCRIPT_BACKFILL_PER_RUN if limit is None else max(0, int(limit))
     selected = pending_assets[:selected_limit] if selected_limit > 0 else []
 
+    resolved_store, adapter, processing = _canonical_intake_services(canonical_store)
+    execution = SourceIntakeExecutionService(resolved_store, processing.artifacts)
+
     backfilled: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
 
-    if not _can_attempt_youtube_transcript():
-        for asset in selected:
-            skipped.append(
-                {
-                    "asset_id": _clean_text(asset.get("asset_id")),
-                    "title": _clean_text(asset.get("title")),
-                    "reason": "transcription_runtime_unavailable",
-                }
-            )
-        return {
-            "runtime": _transcription_runtime(),
-            "pending_total": len(pending_assets),
-            "selected_count": len(selected),
-            "backfilled": backfilled,
-            "skipped": skipped,
-            "errors": errors,
-            "counts": {
-                "pending_total": len(pending_assets),
-                "selected": len(selected),
-                "backfilled": 0,
-                "skipped": len(skipped),
-                "errors": 0,
-            },
-        }
-
+    prepared_assets: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for asset in selected:
         url = _clean_text(asset.get("source_url"))
         try:
-            transcript_text, metadata = _transcribe_youtube_url(url)
-            if not transcript_text:
-                skipped.append(
-                    {
-                        "asset_id": _clean_text(asset.get("asset_id")),
-                        "title": _clean_text(asset.get("title")),
-                        "reason": "empty_transcript",
-                    }
+            prepared = _register_youtube_discovery(
+                adapter=adapter,
+                processing=processing,
+                item={
+                    "url": url,
+                    "title": _clean_text(asset.get("title")),
+                    "author": _clean_text(asset.get("author")),
+                },
+                origin="youtube_watchlist",
+                discovery_route="youtube:legacy_pending_transcript_backfill",
+                relevance_state="qualified",
+                reason="previously_selected_pending_transcript_backfill",
+            )
+            prepared_assets.append((asset, prepared))
+        except Exception as exc:
+            LOGGER.exception("Canonical registration failed for pending YouTube transcript %s", url)
+            errors.append(
+                {
+                    "asset_id": _clean_text(asset.get("asset_id")),
+                    "title": _clean_text(asset.get("title")),
+                    "url": url,
+                    "stage": "canonical_registration_or_gate",
+                    "reason": type(exc).__name__,
+                }
+            )
+
+    runtime_available = _can_attempt_youtube_transcript()
+    for asset, prepared in prepared_assets:
+        url = _clean_text(asset.get("source_url"))
+        try:
+            decision = prepared["decision"]
+            existing_artifact_id = _clean_text(decision.get("existing_artifact_id"))
+            if existing_artifact_id:
+                transcript_text = execution.captured_text(existing_artifact_id)
+                metadata = {}
+                capture_reused = True
+            else:
+                if not decision.get("capture_required"):
+                    skipped.append(
+                        {
+                            "asset_id": _clean_text(asset.get("asset_id")),
+                            "title": _clean_text(asset.get("title")),
+                            "reason": "expensive_processing_not_authorized",
+                        }
+                    )
+                    continue
+                if not runtime_available:
+                    skipped.append(
+                        {
+                            "asset_id": _clean_text(asset.get("asset_id")),
+                            "title": _clean_text(asset.get("title")),
+                            "reason": "transcription_runtime_unavailable",
+                        }
+                    )
+                    continue
+                transcript_text, metadata = _transcribe_youtube_url(url)
+                if not transcript_text:
+                    skipped.append(
+                        {
+                            "asset_id": _clean_text(asset.get("asset_id")),
+                            "title": _clean_text(asset.get("title")),
+                            "reason": "empty_transcript",
+                        }
+                    )
+                    continue
+                capture = processing.attach_captured_text(
+                    source_id=decision["source_id"],
+                    text=transcript_text,
+                    capture_kind="transcript",
+                    metadata={"capture_adapter": "youtube_legacy_backfill", "capture_version": "1.0.0"},
                 )
-                continue
+                capture_reused = bool(capture["reused"])
             updated = _write_backfilled_transcript(asset, transcript_text, metadata)
             updated["transcript_word_count"] = len(transcript_text.split())
+            updated["canonical_source_id"] = decision["source_id"]
+            updated["canonical_capture_reused"] = capture_reused
             backfilled.append(updated)
         except Exception as exc:  # pragma: no cover - runtime dependent
             LOGGER.exception("Pending YouTube transcript backfill failed for %s", url)
@@ -865,6 +1034,7 @@ def backfill_pending_youtube_transcripts(*, limit: int | None = None, run_refres
                     "asset_id": _clean_text(asset.get("asset_id")),
                     "title": _clean_text(asset.get("title")),
                     "url": url,
+                    "stage": "canonical_capture_or_projection",
                     "reason": str(exc),
                 }
             )
@@ -874,6 +1044,29 @@ def backfill_pending_youtube_transcripts(*, limit: int | None = None, run_refres
 
         workspace_snapshot_service.refresh_persisted_linkedin_os_state()
 
+    counts = {
+        "pending_total": len(pending_assets),
+        "selected": len(selected),
+        "registered": len(prepared_assets),
+        "backfilled": len(backfilled),
+        "skipped": len(skipped),
+        "errors": len(errors),
+    }
+    disposition = (
+        "degraded"
+        if errors or skipped
+        else "complete"
+        if selected
+        else "no_change"
+    )
+    receipt = execution.record_run_receipt(
+        run_kind="youtube_transcript_backfill",
+        disposition=disposition,
+        counts=counts,
+        errors=errors,
+        run_id=run_id,
+        provenance={"trigger": "local_scheduler", "runtime_available": runtime_available},
+    )
     return {
         "runtime": _transcription_runtime(),
         "pending_total": len(pending_assets),
@@ -881,13 +1074,8 @@ def backfill_pending_youtube_transcripts(*, limit: int | None = None, run_refres
         "backfilled": backfilled,
         "skipped": skipped,
         "errors": errors,
-        "counts": {
-            "pending_total": len(pending_assets),
-            "selected": len(selected),
-            "backfilled": len(backfilled),
-            "skipped": len(skipped),
-            "errors": len(errors),
-        },
+        "counts": counts,
+        "receipt": {"event_id": receipt["event_id"], "disposition": disposition},
     }
 
 
@@ -1060,46 +1248,152 @@ def _ingest_watchlist_video(
     channel_name: str | None = None,
     priority_lane: str | None = None,
     run_refresh: bool = True,
+    canonical_processing: SourceProcessingService | None = None,
+    canonical_source_id: str | None = None,
+    captured_transcript_text: str | None = None,
+    captured_metadata: dict[str, Any] | None = None,
+    include_legacy_projection: bool = False,
 ) -> dict[str, Any]:
-    metadata: dict[str, Any] = {}
-    transcript_text = ""
-    ingestion_mode = "url_only"
-    if _can_attempt_youtube_transcript():
+    metadata: dict[str, Any] = dict(captured_metadata or {})
+    transcript_text = captured_transcript_text or ""
+    ingestion_mode = "canonical_reuse" if captured_transcript_text is not None else "url_only"
+    if captured_transcript_text is None and _can_attempt_youtube_transcript():
         transcript_text, metadata = _transcribe_youtube_url(url)
         ingestion_mode = "transcribed" if transcript_text else "url_only"
-    else:
+    elif captured_transcript_text is None:
         try:
             metadata = _yt_dlp_json(url) if shutil.which("yt-dlp") else {}
         except Exception:
             metadata = {}
 
-    resolved_title = _clean_text(title) or _clean_text(metadata.get("title")) or "YouTube source"
+    resolved_title = (
+        _clean_text(title)
+        or _clean_text(metadata.get("title"))
+        or _clean_text(metadata.get("source_title"))
+        or "YouTube source"
+    )
     resolved_summary = _clean_text(summary) or _first_line(_clean_text(metadata.get("description")))
-    resolved_author = _clean_text(author) or _clean_text(metadata.get("channel")) or _clean_text(channel_name) or "unknown"
-    notes = "\n".join(
-        part
-        for part in [
-            f"Selected from YouTube watchlist: {channel_name}." if _clean_text(channel_name) else "Selected from YouTube watchlist.",
-            f"Priority lane: {priority_lane}." if _clean_text(priority_lane) else "",
-            "Transcript captured automatically via local media runtime." if ingestion_mode == "transcribed" else "Registered from link. Transcript capture still pending.",
-        ]
-        if part
+    resolved_author = (
+        _clean_text(author)
+        or _clean_text(metadata.get("channel"))
+        or _clean_text(metadata.get("source_author"))
+        or _clean_text(channel_name)
+        or "unknown"
     )
-    result = brain_long_form_ingest_service.register_source(
-        url=url,
-        title=resolved_title,
-        summary=resolved_summary or None,
-        notes=notes,
-        transcript_text=transcript_text or None,
-        source_type="youtube_transcript",
-        author=resolved_author or None,
-        run_refresh=run_refresh,
-        ingestions_root=_ingestions_root(),
-        reference_root=_state_root(),
-    )
+
+    canonical_capture: dict[str, Any] | None = None
+    if transcript_text and canonical_processing is not None and canonical_source_id:
+        canonical_capture = canonical_processing.attach_captured_text(
+            source_id=canonical_source_id,
+            text=transcript_text,
+            capture_kind="transcript",
+            metadata={
+                "capture_adapter": "youtube_local_media",
+                "capture_version": "1.0.0",
+                "source_title": resolved_title,
+                "source_author": resolved_author,
+            },
+        )
+    result: dict[str, Any] = {
+        "asset_id": str(
+            canonical_capture["artifact"]["artifact_id"]
+            if canonical_capture
+            else canonical_source_id or ""
+        ),
+        "title": resolved_title,
+        "source_url": url,
+        "source_type": "youtube_transcript",
+        "source_channel": "youtube",
+        "source_path": None,
+        "routing_status_path": None,
+        "has_transcript": bool(transcript_text),
+        "refreshed_snapshots": [],
+        "compatibility_projection": "not_requested",
+    }
+    if include_legacy_projection:
+        notes = "\n".join(
+            part
+            for part in [
+                f"Selected from YouTube watchlist: {channel_name}." if _clean_text(channel_name) else "Selected from YouTube watchlist.",
+                f"Priority lane: {priority_lane}." if _clean_text(priority_lane) else "",
+                "Transcript captured automatically via local media runtime." if ingestion_mode == "transcribed" else "Registered from link. Transcript capture still pending.",
+            ]
+            if part
+        )
+        result = brain_long_form_ingest_service.register_source(
+            url=url,
+            title=resolved_title,
+            summary=resolved_summary or None,
+            notes=notes,
+            transcript_text=transcript_text or None,
+            source_type="youtube_transcript",
+            author=resolved_author or None,
+            run_refresh=run_refresh,
+            ingestions_root=_ingestions_root(),
+            reference_root=_state_root(),
+            compatibility_projection=True,
+        )
+        result["compatibility_projection"] = "written"
     result["ingestion_mode"] = ingestion_mode
     result["transcript_word_count"] = len((transcript_text or "").split()) if transcript_text else 0
+    result["canonical_source_id"] = canonical_source_id
+    result["canonical_capture"] = (
+        {
+            "artifact_id": canonical_capture["artifact"]["artifact_id"],
+            "content_sha256": canonical_capture["artifact"]["content_sha256"],
+            "reused": canonical_capture["reused"],
+        }
+        if canonical_capture
+        else None
+    )
+    if include_legacy_projection and canonical_processing is not None and canonical_source_id:
+        projection_event = canonical_processing.store.append_event(
+            event_type="source.compatibility_projection_completed",
+            aggregate_type="source",
+            aggregate_id=canonical_source_id,
+            actor_type="youtube_watchlist_intake",
+            payload={
+                "projection_kind": "brain_long_form_markdown",
+                "asset_id": _clean_text(result.get("asset_id")),
+                "source_path": _clean_text(result.get("source_path")),
+            },
+            provenance={"role": "restart_safe_compatibility_projection", "version": "1.0.0"},
+            artifact_refs=(
+                [canonical_capture["artifact"]["artifact_id"]]
+                if canonical_capture
+                else []
+            ),
+            idempotency_key=f"source-projection:youtube-brain-long-form:{canonical_source_id}",
+        )
+        result["canonical_projection_event_id"] = projection_event["event_id"]
     return result
+
+
+def _completed_youtube_projection(store: IntegratedSystemStore, source_id: str) -> dict[str, Any] | None:
+    with store.connection() as connection:
+        event = connection.execute(
+            """SELECT * FROM system_events
+               WHERE event_type='source.compatibility_projection_completed'
+                 AND aggregate_type='source' AND aggregate_id=?
+               ORDER BY occurred_at DESC LIMIT 1""",
+            (source_id,),
+        ).fetchone()
+    return dict(event) if event else None
+
+
+def _canonical_artifact_metadata(store: IntegratedSystemStore, artifact_id: str) -> dict[str, Any]:
+    with store.connection() as connection:
+        artifact = connection.execute(
+            "SELECT metadata_json FROM artifacts WHERE artifact_id=?",
+            (artifact_id,),
+        ).fetchone()
+    if not artifact:
+        raise ValueError("canonical transcript artifact is missing")
+    try:
+        metadata = json.loads(artifact["metadata_json"] or "{}")
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("canonical transcript artifact metadata is invalid") from exc
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def ingest_youtube_watchlist_video(
@@ -1111,8 +1405,77 @@ def ingest_youtube_watchlist_video(
     channel_name: str | None = None,
     priority_lane: str | None = None,
     run_refresh: bool = True,
+    canonical_store: IntegratedSystemStore | None = None,
+    include_legacy_projection: bool = False,
 ) -> dict[str, Any]:
     """Deterministic local-runner entrypoint for one signed YouTube ingest action."""
+    store, adapter, processing = _canonical_intake_services(canonical_store)
+    item = {
+        "url": url,
+        "title": title,
+        "summary": summary,
+        "author": author,
+        "channel_name": channel_name,
+        "priority_lane": priority_lane,
+    }
+    prepared = _register_youtube_discovery(
+        adapter=adapter,
+        processing=processing,
+        item=item,
+        origin="youtube_watchlist",
+        discovery_route="youtube:owner_requested_ingest",
+        relevance_state="qualified",
+        reason="owner_requested_ingest",
+    )
+    decision = prepared["decision"]
+    if decision["state"] == "reuse_existing_capture":
+        if not include_legacy_projection:
+            return {
+                "asset_id": decision["existing_artifact_id"],
+                "source_path": None,
+                "canonical_source_id": decision["source_id"],
+                "canonical_capture": {
+                    "artifact_id": decision["existing_artifact_id"],
+                    "reused": True,
+                },
+                "compatibility_projection": "not_requested",
+                "ingestion_mode": "canonical_reuse",
+                "transcript_word_count": 0,
+            }
+        completed_projection = _completed_youtube_projection(store, decision["source_id"])
+        if completed_projection:
+            projection_payload = json.loads(completed_projection["payload_json"])
+            return {
+                "asset_id": projection_payload.get("asset_id"),
+                "source_path": projection_payload.get("source_path"),
+                "canonical_source_id": decision["source_id"],
+                "canonical_capture": {
+                    "artifact_id": decision["existing_artifact_id"],
+                    "reused": True,
+                },
+                "canonical_projection_event_id": completed_projection["event_id"],
+                "compatibility_projection": "reused",
+                "ingestion_mode": "canonical_reuse",
+                "transcript_word_count": 0,
+            }
+        execution = SourceIntakeExecutionService(store, processing.artifacts)
+        transcript_text = execution.captured_text(decision["existing_artifact_id"])
+        return _ingest_watchlist_video(
+            url=url,
+            title=title,
+            summary=summary,
+            author=author,
+            channel_name=channel_name,
+            priority_lane=priority_lane,
+            run_refresh=run_refresh,
+            canonical_processing=processing,
+            canonical_source_id=decision["source_id"],
+            captured_transcript_text=transcript_text,
+            captured_metadata=_canonical_artifact_metadata(store, decision["existing_artifact_id"]),
+            include_legacy_projection=True,
+        )
+    if not decision["capture_required"]:
+        raise ValueError("YouTube source has not passed canonical expensive-processing gates")
     return _ingest_watchlist_video(
         url=url,
         title=title,
@@ -1121,6 +1484,9 @@ def ingest_youtube_watchlist_video(
         channel_name=channel_name,
         priority_lane=priority_lane,
         run_refresh=run_refresh,
+        canonical_processing=processing,
+        canonical_source_id=prepared["registration"]["source"]["source_id"],
+        include_legacy_projection=include_legacy_projection,
     )
 
 
@@ -1129,21 +1495,35 @@ def build_youtube_watchlist_payload(workspace_root: Path | None = None) -> dict[
     channels = watchlist.get("youtube_channels") if isinstance(watchlist.get("youtube_channels"), list) else []
     existing_urls = _extract_existing_source_urls()
     channel_payloads = [_fetch_channel_entries(channel, limit=WATCHLIST_LIMIT_PER_CHANNEL, existing_urls=existing_urls) for channel in channels if isinstance(channel, dict)]
-    return _assemble_youtube_watchlist_payload(watchlist, channel_payloads, data_mode="live_refresh")
+    playlist = _designated_playlist(watchlist)
+    playlist_payloads = (
+        [_fetch_playlist_entries(playlist, limit=WATCHLIST_LIMIT_PER_CHANNEL, existing_urls=existing_urls)]
+        if playlist
+        else []
+    )
+    return _assemble_youtube_watchlist_payload(
+        watchlist,
+        channel_payloads,
+        playlist_payloads=playlist_payloads,
+        data_mode="live_refresh",
+    )
 
 
 def _assemble_youtube_watchlist_payload(
     watchlist: dict[str, Any],
     channel_payloads: list[dict[str, Any]],
     *,
+    playlist_payloads: list[dict[str, Any]] | None = None,
     data_mode: str,
 ) -> dict[str, Any]:
+    playlist_payloads = playlist_payloads or []
     auto_ingest = _auto_ingest_config(watchlist)
-    total_videos = sum(len(channel.get("videos") or []) for channel in channel_payloads)
+    source_payloads = [*channel_payloads, *playlist_payloads]
+    total_videos = sum(len(source.get("videos") or []) for source in source_payloads)
     already_ingested = sum(
         1
-        for channel in channel_payloads
-        for video in channel.get("videos") or []
+        for source in source_payloads
+        for video in source.get("videos") or []
         if isinstance(video, dict) and bool(video.get("already_ingested"))
     )
     pending_transcript_assets = _pending_youtube_transcript_assets(repo_root=_repo_root())
@@ -1161,8 +1541,10 @@ def _assemble_youtube_watchlist_payload(
         },
         "auto_ingest": auto_ingest,
         "channels": channel_payloads,
+        "designated_playlists": playlist_payloads,
         "counts": {
             "channels": len(channel_payloads),
+            "designated_playlists": len(playlist_payloads),
             "videos": total_videos,
             "already_ingested": already_ingested,
             "pending_transcript_backfill": len(pending_transcript_assets),
@@ -1207,6 +1589,21 @@ def build_persisted_youtube_watchlist_payload(workspace_root: Path | None = None
     watchlist = _load_watchlist(workspace_root)
     channels = watchlist.get("youtube_channels") if isinstance(watchlist.get("youtube_channels"), list) else []
     channel_payloads = [_configured_channel_payload(channel) for channel in channels if isinstance(channel, dict)]
+    playlist = _designated_playlist(watchlist)
+    playlist_payloads = []
+    if playlist:
+        feed_url, playlist_id = _resolve_playlist_feed_url(_clean_text(playlist.get("url")))
+        playlist_payloads.append(
+            {
+                "name": _clean_text(playlist.get("name")) or "YouTube playlist",
+                "url": _clean_text(playlist.get("url")),
+                "purpose": _clean_text(playlist.get("purpose")),
+                "priority_lane": _clean_text(playlist.get("priority_lane")) or "ai",
+                "playlist_id": playlist_id,
+                "feed_url": feed_url,
+                "videos": [],
+            }
+        )
     return {
         "schema_version": "youtube_watchlist/v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1225,8 +1622,10 @@ def build_persisted_youtube_watchlist_payload(workspace_root: Path | None = None
         },
         "auto_ingest": _auto_ingest_config(watchlist),
         "channels": channel_payloads,
+        "designated_playlists": playlist_payloads,
         "counts": {
             "channels": len(channel_payloads),
+            "designated_playlists": len(playlist_payloads),
             "videos": 0,
             "already_ingested": 0,
             "pending_transcript_backfill": 0,
@@ -1336,16 +1735,29 @@ def sync_watchlist_auto_ingest(
     max_videos_per_run: int | None = None,
     per_channel_limit: int | None = None,
     run_refresh: bool = False,
+    canonical_store: IntegratedSystemStore | None = None,
+    include_legacy_projection: bool = False,
+    include_legacy_pending_backfill: bool = False,
 ) -> dict[str, Any]:
     watchlist = _load_watchlist(workspace_root)
     config = _auto_ingest_config(watchlist)
+    resolved_store, adapter, processing = _canonical_intake_services(canonical_store)
+    execution = SourceIntakeExecutionService(resolved_store, processing.artifacts)
     if not config["enabled"]:
+        counts = {"discovered": 0, "registered": 0, "ingested": 0, "skipped": 0, "warnings": 0, "errors": 0}
+        receipt = execution.record_run_receipt(
+            run_kind="youtube_watchlist",
+            disposition="no_change",
+            counts=counts,
+            provenance={"trigger": "local_scheduler", "reason": "auto_ingest_disabled"},
+        )
         return {
             "enabled": False,
             "ingested": [],
             "skipped": [],
             "errors": [],
-            "counts": {"discovered": 0, "ingested": 0, "skipped": 0, "errors": 0},
+            "counts": counts,
+            "receipt": {"event_id": receipt["event_id"], "disposition": "no_change"},
         }
 
     total_limit = max_videos_per_run or config["max_videos_per_run"]
@@ -1354,12 +1766,35 @@ def sync_watchlist_auto_ingest(
     channels = watchlist.get("youtube_channels") if isinstance(watchlist.get("youtube_channels"), list) else []
 
     discovered: list[dict[str, Any]] = []
+    canonical_candidates: list[dict[str, Any]] = []
+    registered: list[dict[str, Any]] = []
     channel_payloads: list[dict[str, Any]] = []
+    playlist_payloads: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     ingested: list[dict[str, Any]] = []
-    backfill_result = backfill_pending_youtube_transcripts(run_refresh=False)
+    backfill_result: dict[str, Any] = {
+        "status": "not_requested",
+        "backfilled": [],
+        "skipped": [],
+        "errors": [],
+        "counts": {
+            "pending_total": 0,
+            "selected": 0,
+            "backfilled": 0,
+            "skipped": 0,
+            "errors": 0,
+        },
+    }
+    if include_legacy_pending_backfill:
+        backfill_result = backfill_pending_youtube_transcripts(
+            run_refresh=False,
+            canonical_store=resolved_store,
+        )
+    for error in backfill_result.get("errors") or []:
+        detail = error if isinstance(error, dict) else {"reason": str(error)}
+        errors.append({"stage": "transcript_backfill", **detail})
 
     for channel in channels:
         if not isinstance(channel, dict):
@@ -1388,20 +1823,146 @@ def sync_watchlist_auto_ingest(
             continue
         fresh_videos = [video for video in payload.get("videos") or [] if isinstance(video, dict) and not bool(video.get("already_ingested"))]
         fresh_videos.sort(key=lambda item: _clean_text(item.get("published_at")), reverse=True)
+        discovery_route = f"youtube:watchlist:{_clean_text(channel.get('url'))}"
+        for video in payload.get("videos") or []:
+            if not isinstance(video, dict):
+                continue
+            video_copy = dict(video)
+            video_copy["channel_name"] = channel_name
+            video_copy["_intake_origin"] = "youtube_watchlist"
+            video_copy["_discovery_route"] = discovery_route
+            canonical_candidates.append(video_copy)
         for video in fresh_videos[:channel_limit]:
             video_copy = dict(video)
             video_copy["channel_name"] = channel_name
+            video_copy["_intake_origin"] = "youtube_watchlist"
+            video_copy["_discovery_route"] = discovery_route
             discovered.append(video_copy)
+
+    playlist = _designated_playlist(watchlist)
+    if playlist:
+        playlist_payload = _fetch_playlist_entries(
+            playlist,
+            limit=WATCHLIST_LIMIT_PER_CHANNEL,
+            existing_urls=existing_urls,
+        )
+        playlist_payloads.append(playlist_payload)
+        playlist_name = _clean_text(playlist_payload.get("name")) or "YouTube playlist"
+        if playlist_payload.get("error"):
+            warnings.append(
+                {
+                    "kind": "playlist_fetch_failed",
+                    "playlist_name": playlist_name,
+                    "url": _clean_text(playlist.get("url")),
+                    "reason": _clean_text(playlist_payload.get("error")),
+                }
+            )
+        else:
+            discovery_route = f"youtube:playlist:{_clean_text(playlist.get('url'))}"
+            playlist_fresh: list[dict[str, Any]] = []
+            for video in playlist_payload.get("videos") or []:
+                if not isinstance(video, dict):
+                    continue
+                video_copy = dict(video)
+                video_copy["channel_name"] = playlist_name
+                video_copy["_intake_origin"] = "youtube_playlist"
+                video_copy["_discovery_route"] = discovery_route
+                canonical_candidates.append(video_copy)
+                if not bool(video.get("already_ingested")):
+                    playlist_fresh.append(video_copy)
+            playlist_fresh.sort(key=lambda item: _clean_text(item.get("published_at")), reverse=True)
+            if _channel_auto_ingest_enabled(playlist):
+                discovered.extend(playlist_fresh[:channel_limit])
+            elif playlist_fresh:
+                skipped.append({"playlist_name": playlist_name, "reason": "auto_ingest_disabled"})
 
     discovered.sort(key=lambda item: _clean_text(item.get("published_at")), reverse=True)
     selected = discovered[:total_limit]
+    selected_keys = {
+        (
+            _clean_text(item.get("_intake_origin")),
+            _clean_text(item.get("_discovery_route")),
+            _clean_text(item.get("video_id")) or _clean_text(item.get("url")),
+        )
+        for item in selected
+    }
     selected_urls = {_clean_text(item.get("url")) for item in selected if _clean_text(item.get("url"))}
 
     for item in discovered[total_limit:]:
         skipped.append({"url": item.get("url"), "title": item.get("title"), "channel_name": item.get("channel_name"), "reason": "run_limit"})
 
+    prepared_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in canonical_candidates:
+        candidate_key = (
+            _clean_text(item.get("_intake_origin")),
+            _clean_text(item.get("_discovery_route")),
+            _clean_text(item.get("video_id")) or _clean_text(item.get("url")),
+        )
+        is_selected = candidate_key in selected_keys
+        try:
+            prepared = _register_youtube_discovery(
+                adapter=adapter,
+                processing=processing,
+                item=item,
+                origin=candidate_key[0],
+                discovery_route=candidate_key[1],
+                relevance_state="qualified" if is_selected else "backlog",
+                reason="scheduled_capture_selected" if is_selected else "not_selected_for_expensive_processing",
+            )
+            prepared_by_key[candidate_key] = prepared
+            registered.append(
+                {
+                    "source_id": prepared["registration"]["source"]["source_id"],
+                    "discovery_id": prepared["registration"]["discovery"]["discovery_id"],
+                    "origin": candidate_key[0],
+                    "selected": is_selected,
+                    "duplicate_source": prepared["registration"]["gate"]["duplicate_source"],
+                }
+            )
+        except Exception as exc:
+            LOGGER.exception("Canonical YouTube discovery registration failed")
+            errors.append(
+                {
+                    "url": _clean_text(item.get("url")),
+                    "title": _clean_text(item.get("title")),
+                    "stage": "canonical_registration_or_gate",
+                    "reason": type(exc).__name__,
+                }
+            )
+
+    processed_source_ids: set[str] = set()
     for item in selected:
         url = _clean_text(item.get("url"))
+        candidate_key = (
+            _clean_text(item.get("_intake_origin")),
+            _clean_text(item.get("_discovery_route")),
+            _clean_text(item.get("video_id")) or url,
+        )
+        prepared = prepared_by_key.get(candidate_key)
+        if not prepared:
+            skipped.append({"url": url, "title": item.get("title"), "reason": "canonical_gate_unavailable"})
+            continue
+        decision = prepared["decision"]
+        source_id = decision["source_id"]
+        if source_id in processed_source_ids:
+            skipped.append({"url": url, "title": item.get("title"), "reason": "duplicate_canonical_source_in_run"})
+            continue
+        processed_source_ids.add(source_id)
+        if decision["state"] == "reuse_existing_capture":
+            ingested.append(
+                {
+                    "url": url,
+                    "title": item.get("title"),
+                    "channel_name": item.get("channel_name"),
+                    "ingestion_mode": "canonical_reuse",
+                    "asset_id": decision["existing_artifact_id"],
+                    "canonical_source_id": source_id,
+                }
+            )
+            continue
+        if not decision["capture_required"]:
+            skipped.append({"url": url, "title": item.get("title"), "reason": "expensive_processing_not_authorized"})
+            continue
         try:
             result = _ingest_watchlist_video(
                 url=url,
@@ -1411,6 +1972,9 @@ def sync_watchlist_auto_ingest(
                 channel_name=item.get("channel_name"),
                 priority_lane=item.get("priority_lane"),
                 run_refresh=False,
+                canonical_processing=processing,
+                canonical_source_id=source_id,
+                include_legacy_projection=include_legacy_projection,
             )
             ingested.append(
                 {
@@ -1419,6 +1983,7 @@ def sync_watchlist_auto_ingest(
                     "channel_name": item.get("channel_name"),
                     "ingestion_mode": result.get("ingestion_mode"),
                     "asset_id": result.get("asset_id"),
+                    "canonical_source_id": source_id,
                 }
             )
         except Exception as exc:  # pragma: no cover - runtime dependent
@@ -1432,45 +1997,69 @@ def sync_watchlist_auto_ingest(
         if url in existing_urls:
             skipped.append({"url": url, "title": item.get("title"), "channel_name": item.get("channel_name"), "reason": "already_ingested"})
 
-    if run_refresh and (ingested or (backfill_result.get("backfilled") or [])):
+    if run_refresh and include_legacy_projection and (ingested or (backfill_result.get("backfilled") or [])):
         from app.services.workspace_snapshot_service import workspace_snapshot_service
 
         workspace_snapshot_service.refresh_persisted_linkedin_os_state()
 
     ingested_urls = {_clean_text(item.get("url")) for item in ingested if _clean_text(item.get("url"))}
     if ingested_urls:
-        for channel_payload in channel_payloads:
-            for video in channel_payload.get("videos") or []:
+        for source_payload in [*channel_payloads, *playlist_payloads]:
+            for video in source_payload.get("videos") or []:
                 if isinstance(video, dict) and _clean_text(video.get("url")) in ingested_urls:
                     video["already_ingested"] = True
     watchlist_payload = _assemble_youtube_watchlist_payload(
         watchlist,
         channel_payloads,
+        playlist_payloads=playlist_payloads,
         data_mode="local_runner_refresh",
     )
     watchlist_snapshot_persisted = _persist_youtube_watchlist_payload(watchlist_payload)
+    if not watchlist_snapshot_persisted:
+        warnings.append(
+            {
+                "kind": "watchlist_snapshot_persist_failed",
+                "stage": "watchlist_snapshot",
+                "reason": "canonical_snapshot_store_unavailable",
+            }
+        )
 
+    counts = {
+        "discovered": len(discovered),
+        "registered": len(registered),
+        "ingested": len(ingested),
+        "backfilled": len(backfill_result.get("backfilled") or []),
+        "skipped": len(skipped),
+        "warnings": len(warnings),
+        "errors": len(errors),
+    }
+    backfill_counts = backfill_result.get("counts") if isinstance(backfill_result.get("counts"), dict) else {}
+    degraded = bool(errors or warnings or int(backfill_counts.get("errors") or 0))
+    changed = bool(ingested or int(backfill_counts.get("backfilled") or 0))
+    disposition = "degraded" if degraded else "complete" if changed else "no_change"
+    receipt = execution.record_run_receipt(
+        run_kind="youtube_watchlist",
+        disposition=disposition,
+        counts=counts,
+        errors=[*errors, *warnings],
+        provenance={"trigger": "local_scheduler", "snapshot_persisted": watchlist_snapshot_persisted},
+    )
     return {
         "enabled": True,
         "auto_ingest": config,
         "backfill": backfill_result,
         "ingested": ingested,
+        "registered": registered,
         "skipped": skipped,
         "warnings": warnings,
         "errors": errors,
         "watchlist_snapshot_persisted": watchlist_snapshot_persisted,
+        "receipt": {"event_id": receipt["event_id"], "disposition": disposition},
         # The local automation reuses the payload for its authenticated
         # Railway mirror. Keeping it private to the caller avoids fetching
         # every channel feed a second time in the same run.
         "_watchlist_payload": watchlist_payload,
-        "counts": {
-            "discovered": len(discovered),
-            "ingested": len(ingested),
-            "backfilled": len(backfill_result.get("backfilled") or []),
-            "skipped": len(skipped),
-            "warnings": len(warnings),
-            "errors": len(errors),
-        },
+        "counts": counts,
     }
 
 
@@ -1483,7 +2072,7 @@ def run_ingest_job(job_id: str) -> None:
         job["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     try:
-        result = _ingest_watchlist_video(
+        result = ingest_youtube_watchlist_video(
             url=job["url"],
             title=job.get("title"),
             summary=job.get("summary"),

@@ -1470,6 +1470,8 @@ def execute_executive_decision_action(
     decision_id: str,
     action_id: str,
     payload: ExecutiveDecisionActionRequest,
+    *,
+    legacy_compatibility: bool = False,
 ) -> ExecutiveDecisionActionResult:
     decision, action = _find_decision_and_action(decision_id, action_id)
     if action.kind == "open_context":
@@ -1500,9 +1502,20 @@ def execute_executive_decision_action(
             raise ExecutiveDecisionNotFoundError("PM card was not found.")
         message = f"PM decision `{action_id}` was delegated to the existing PM action contract."
     elif decision.source_type == "workspace_review" and action_id in {"approve", "revise", "park"}:
+        if legacy_compatibility is not True:
+            raise ExecutiveDecisionActionError(
+                "The historical workspace owner-review decision writer is disabled by default; "
+                "use the canonical integrated-content lifecycle or explicitly enable the "
+                "rollback-only compatibility path."
+            )
         if action_id == "revise" and not _clean_text(payload.notes or payload.reason):
             raise ExecutiveDecisionActionError("Revision notes are required before returning a draft.")
-        result = record_owner_decision(decision.source_id, action_id, payload.notes or payload.reason)
+        result = record_owner_decision(
+            decision.source_id,
+            action_id,
+            payload.notes or payload.reason,
+            legacy_compatibility=True,
+        )
         message = f"Owner review `{action_id}` was delegated to the existing FEEZIE review contract."
     else:
         raise ExecutiveDecisionActionError("This action is not a supported fixed executive mutation.")

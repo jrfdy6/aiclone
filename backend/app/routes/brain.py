@@ -31,6 +31,8 @@ from app.models import (
     BrainYouTubeWatchlistIngestRequest,
     BrainYouTubeWatchlistSnapshotRequest,
     BrainWorkspaceSnapshotSyncRequest,
+    IntegratedContentProjectionSyncRequest,
+    OpsStandupProjectionSyncRequest,
     PersonaDelta,
 )
 from app.services import persona_delta_service
@@ -65,6 +67,16 @@ from app.services.workspace_snapshot_store import (
     list_snapshot_payloads,
     upsert_snapshot,
     upsert_snapshot_monotonic,
+)
+from app.services.integrated_content_projection_service import (
+    SNAPSHOT_TYPE as INTEGRATED_CONTENT_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as INTEGRATED_CONTENT_WORKSPACE_KEY,
+    validate_integrated_content_projection,
+)
+from app.services.ops_standup_projection_service import (
+    SNAPSHOT_TYPE as OPS_STANDUP_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as OPS_STANDUP_WORKSPACE_KEY,
+    validate_ops_standup_projection,
 )
 from app.services.workspace_snapshot_service import SNAPSHOT_WEEKLY_PLAN, workspace_snapshot_service
 from app.services.youtube_watchlist_service import build_persisted_youtube_watchlist_payload
@@ -304,7 +316,7 @@ def post_brain_signal(payload: BrainSignalCreateRequest):
 
 @router.post("/signals/intake")
 def post_brain_signal_intake(
-    include_source_intelligence: bool = True,
+    include_source_intelligence: bool = False,
     include_workspace_attention: bool = True,
     include_automation_outputs: bool = True,
     source_limit: int | None = None,
@@ -772,6 +784,66 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
         "message": "Brain workspace snapshots synchronized from the local runner.",
         "stored": any(item["stored"] for item in results.values()),
         "snapshots": results,
+    }
+
+
+@router.post("/integrated-content/sync")
+def publish_integrated_content_projection(payload: IntegratedContentProjectionSyncRequest):
+    projection = validate_integrated_content_projection(payload.projection)
+    try:
+        stored_snapshot, stored = upsert_snapshot_monotonic(
+            INTEGRATED_CONTENT_WORKSPACE_KEY,
+            INTEGRATED_CONTENT_SNAPSHOT_TYPE,
+            projection,
+            generated_at=_parse_generated_at(payload.generated_at),
+            metadata={"source": "codex_local_runner", "projection": "integrated_content"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Integrated content projection storage is unavailable.") from exc
+    if stored_snapshot is None:
+        raise HTTPException(status_code=503, detail="Integrated content projection storage is unavailable.")
+    current = validate_integrated_content_projection(stored_snapshot.get("payload"))
+    requested_hash = hashlib.sha256(
+        json.dumps(projection, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    current_hash = hashlib.sha256(
+        json.dumps(current, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return {
+        "stored": stored,
+        "disposition": "stored" if stored else ("idempotent_same_hash" if current_hash == requested_hash else "retained_newer"),
+        "workspace_key": INTEGRATED_CONTENT_WORKSPACE_KEY,
+        "snapshot_type": INTEGRATED_CONTENT_SNAPSHOT_TYPE,
+        "payload_sha256": current_hash,
+        "updated_at": stored_snapshot.get("updated_at"),
+    }
+
+
+@router.post("/ops-standup/sync")
+def publish_ops_standup_projection(payload: OpsStandupProjectionSyncRequest):
+    projection = validate_ops_standup_projection(payload.projection)
+    try:
+        stored_snapshot, stored = upsert_snapshot_monotonic(
+            OPS_STANDUP_WORKSPACE_KEY,
+            OPS_STANDUP_SNAPSHOT_TYPE,
+            projection,
+            generated_at=_parse_generated_at(payload.generated_at),
+            metadata={"source": "codex_local_runner", "projection": "ops_standup"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Ops standup projection storage is unavailable.") from exc
+    if stored_snapshot is None:
+        raise HTTPException(status_code=503, detail="Ops standup projection storage is unavailable.")
+    current = validate_ops_standup_projection(stored_snapshot.get("payload"))
+    requested_hash = hashlib.sha256(json.dumps(projection, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    current_hash = hashlib.sha256(json.dumps(current, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "stored": stored,
+        "disposition": "stored" if stored else ("idempotent_same_hash" if current_hash == requested_hash else "retained_newer"),
+        "workspace_key": OPS_STANDUP_WORKSPACE_KEY,
+        "snapshot_type": OPS_STANDUP_SNAPSHOT_TYPE,
+        "payload_sha256": current_hash,
+        "updated_at": stored_snapshot.get("updated_at"),
     }
 
 

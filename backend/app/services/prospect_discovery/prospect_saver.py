@@ -7,6 +7,10 @@ from typing import List
 
 from app.models.prospect_discovery import DiscoveredProspect, ProspectDiscoveryRequest
 from app.services.firestore_client import db
+from app.services.firestore_prospect_authority_service import (
+    canonical_prospect_collection,
+    canonicalize_prospect_document,
+)
 from .validators import is_valid_prospect_for_saving
 
 logger = logging.getLogger(__name__)
@@ -64,13 +68,6 @@ def save_prospects_to_database(user_id: str, prospects: List[DiscoveredProspect]
             # Use name-based ID to prevent duplicates
             doc_id = prospect.name.lower().replace(" ", "_").replace(".", "")
         
-        doc_ref = db.collection("users").document(user_id).collection("prospects").document(doc_id)
-        
-        # Check if already exists - skip if so
-        if doc_ref.get().exists:
-            logger.debug(f"Skipping duplicate prospect: {prospect.name}")
-            continue
-        
         prospect_doc = {
             "name": prospect.name,
             "title": prospect.title,
@@ -87,13 +84,20 @@ def save_prospects_to_database(user_id: str, prospects: List[DiscoveredProspect]
             "bio_snippet": prospect.bio_snippet,
             "created_at": time.time(),
         }
+        canonical_doc = canonicalize_prospect_document(prospect_doc, document_id=doc_id)
+        doc_ref = canonical_prospect_collection(db, user_id).document(canonical_doc["id"])
+
+        # Check if already exists - skip if so
+        if doc_ref.get().exists:
+            logger.debug(f"Skipping duplicate prospect: {prospect.name}")
+            continue
         
         # Track category
         category_tag = prospect.specialty[0] if prospect.specialty else "Unknown"
         category_counts[category_tag] = category_counts.get(category_tag, 0) + 1
         
         logger.info(f"[SAVE] {prospect.name} | Category: {category_tag} | Org: {prospect.organization} | Email: {prospect.contact.email or 'N/A'} | Phone: {prospect.contact.phone or 'N/A'}")
-        doc_ref.set(prospect_doc)
+        doc_ref.set(canonical_doc, merge=True)
         saved_count += 1
     
     duplicate_count = len(valid_prospects) - saved_count
@@ -108,4 +112,3 @@ def save_prospects_to_database(user_id: str, prospects: List[DiscoveredProspect]
         logger.info(f"  {cat}: {count} prospects")
     
     return saved_count
-

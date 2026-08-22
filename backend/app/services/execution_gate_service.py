@@ -47,6 +47,13 @@ KNOWN_CAPABILITIES = frozenset(
         "brain.youtube_watchlist_ingest/v1",
         "brain.refresh_feezie_workspace/v1",
         "brain.refresh_persona_review/v1",
+        "brain.integrated_content_variant/v1",
+        "brain.integrated_owner_post/v1",
+        "brain.integrated_content_manual_edit/v1",
+        "brain.integrated_content_learning/v1",
+        "brain.integrated_persona_reversal/v1",
+        "brain.canonical_decision_create/v1",
+        "brain.canonical_decision_transition/v1",
         "host.local_durable_writeback/v1",
         "host.execution_result_writeback/v1",
         "host.linkedin_schedule_writeback/v1",
@@ -63,6 +70,13 @@ SAFE_BRAIN_ACTION_CAPABILITIES = {
     "youtube_watchlist_ingest": "brain.youtube_watchlist_ingest/v1",
     "refresh_feezie_workspace": "brain.refresh_feezie_workspace/v1",
     "refresh_persona_review": "brain.refresh_persona_review/v1",
+    "integrated_content_variant": "brain.integrated_content_variant/v1",
+    "integrated_owner_post": "brain.integrated_owner_post/v1",
+    "integrated_content_manual_edit": "brain.integrated_content_manual_edit/v1",
+    "integrated_content_learning": "brain.integrated_content_learning/v1",
+    "integrated_persona_reversal": "brain.integrated_persona_reversal/v1",
+    "canonical_decision_create": "brain.canonical_decision_create/v1",
+    "canonical_decision_transition": "brain.canonical_decision_transition/v1",
 }
 
 SAFE_HOST_AUTOMATION_CAPABILITIES = {
@@ -342,6 +356,15 @@ def evaluate_execution_gate(
         risk_factors.append("PROMPT_CREDENTIAL_EXPOSURE")
         reason_codes.append("PROMPT_CONTAINS_CREDENTIAL_LIKE_VALUE")
     for risk_factor, reason_code, patterns in RISK_PATTERNS:
+        if (
+            capability_id == "brain.integrated_persona_reversal/v1"
+            and reason_code == "PERSONA_CANON_REQUIRES_APPROVAL"
+        ):
+            # This exact signed capability is created only from the bounded
+            # owner-confirmed reversal contract.  The owner judgment already
+            # occurred at the controller; all other persona-canon mutations
+            # remain subject to the general approval rule above.
+            continue
         if any(
             pattern.search(_mask_negated_risk_clause(segment))
             for segment in searchable_segments

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 import hashlib
 import ipaddress
 import os
@@ -80,16 +80,24 @@ EMAIL_CONTENT_TYPES = {"email_reply", "email_follow_up", "outbound_email"}
 FEEZIE_CODEX_DRAFT_OPTION_COUNT = 2
 FEEZIE_CODEX_HOOK_VARIANT_COUNT = 8
 FEEZIE_CODEX_DRAFT_CONTRACT_VERSION = "feezie_draft_contract/v1"
-FEEZIE_ROLE_PAYLOAD_VERSION = "feezie_role_payload/v3"
+FEEZIE_ROLE_PAYLOAD_VERSION = "feezie_role_payload/v4"
 FEEZIE_BLIND_CRITIC_RECEIPT_VERSION = "feezie_blind_critic_receipt/v1"
 FEEZIE_BLIND_CRITIC_ORDER_STRATEGY = "job_scoped_sha256_sort_non_identity/v1"
 FEEZIE_DETERMINISTIC_QUALITY_GATE_VERSION = "feezie_deterministic_quality_gate/v2"
+FEEZIE_VOICE_CONTAMINATION_RECEIPT_VERSION = "feezie_voice_exemplar_contamination/v2"
+FEEZIE_CRITIC_READY_SCORE = 8
+FEEZIE_CRITIC_DIMENSIONS = ("truth", "safety", "intent", "voice", "hook")
 FEEZIE_REVISION_CONTRACT_VERSION = "feezie_critic_guided_revision_contract/v1"
 FEEZIE_REVISION_RECEIPT_VERSION = "feezie_revision_execution_receipt/v1"
 FEEZIE_REMOTE_EXECUTION_CONTEXT_VERSION = "feezie_remote_execution_context/v1"
 FEEZIE_REMOTE_PROMPT_POLICY_VERSION = "feezie_remote_prompt_policy/v4"
 FEEZIE_CODEX_EXECUTION_PROFILE_VERSION = "feezie_codex_execution_profile/v1"
 FEEZIE_REMOTE_JOB_PACKET_VERSION = "feezie_remote_job_packet/v1"
+FEEZIE_REMOTE_BOOTSTRAP_PROMPT = (
+    "FEEZIE remote-safe execution packet. Reconstruct each isolated writer and critic prompt "
+    "only from remote_execution_context, evidence_contract, planned_option_briefs, and the "
+    "declared draft and revision contracts."
+)
 FEEZIE_COMPLETION_RESULT_VERSION = "feezie_completion_result/v1"
 FEEZIE_COMPLETION_ARTIFACT_VERSION = "feezie_completion_artifact/v1"
 CODEX_COMPLETION_RESULT_VERSION = "codex_completion_result/v1"
@@ -577,6 +585,14 @@ INTERNAL_PUBLIC_JARGON_PATTERNS = (
     re.compile(r"\bshared workspace state\b", re.IGNORECASE),
     re.compile(r"\bproof-aware prompts?\b", re.IGNORECASE),
     re.compile(r"\btyped retrieval\b", re.IGNORECASE),
+    re.compile(
+        r"\bbounded (?:comparison|lesson|observation|test detail|writing comparison)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:proof|evidence) posture\b", re.IGNORECASE),
+    re.compile(r"\bobservable lesson\b", re.IGNORECASE),
+    re.compile(r"\bediting (?:contract|constraint|language)\b", re.IGNORECASE),
+    re.compile(r"\bdeterministic preflight\b", re.IGNORECASE),
 )
 TASTE_POSITIVE_PATTERNS = (
     re.compile(r"\breal talk\b", re.IGNORECASE),
@@ -632,6 +648,13 @@ class ContentGenerationRequest(BaseModel):
     employer_safety: str | None = Field(default=None, description="Employer-safety disposition for the candidate")
     proof_posture: str | None = Field(default=None, description="Proof posture for the candidate")
     treatment: str | None = Field(default=None, description="Optional measurement-pilot treatment")
+    option_count: Literal[1, 3] = Field(
+        1,
+        description=(
+            "Generate one canonical result by default. Three options are admitted only "
+            "when an explicit legacy generic compatibility caller requests them."
+        ),
+    )
 
     @field_validator("category", mode="before")
     @classmethod
@@ -872,6 +895,13 @@ class LocalCodexEvidenceAnswers(BaseModel):
 
 
 class LocalCodexJobCreateRequest(ContentGenerationRequest):
+    option_count: Literal[2] = Field(
+        2,
+        description=(
+            "Exact two-option count for the deprecated FEEZIE compatibility comparator. "
+            "Canonical owner-facing post generation uses the integrated lifecycle instead."
+        ),
+    )
     tone: str = Field(
         "conversational",
         description="FEEZIE draft posture: direct, curious, evidence-led, and non-guru",
@@ -1001,8 +1031,11 @@ class ContentOptionBrief:
     mechanism_anchor_terms: List[str] = field(default_factory=list)
     recognition_anchor_terms: List[str] = field(default_factory=list)
     decision_rule_basis: str = ""
+    decision_moment_basis: str = ""
+    decision_moment_anchor_terms: List[str] = field(default_factory=list)
     required_context_concepts: str = ""
     consequence_basis: str = ""
+    application_closing_anchor_terms: List[str] = field(default_factory=list)
     proof_facet_id: str = ""
     semantic_payload_version: str = ""
 
@@ -2053,8 +2086,11 @@ def _empty_role_semantic_payload(proof_packet: str) -> Dict[str, Any]:
         "mechanism_anchor_terms": [],
         "recognition_anchor_terms": [],
         "decision_rule_basis": "",
+        "decision_moment_basis": "",
+        "decision_moment_anchor_terms": [],
         "required_context_concepts": "",
         "consequence_basis": "",
+        "application_closing_anchor_terms": [],
         "proof_facet_id": _proof_semantic_facet_id(proof_packet),
         "semantic_payload_version": FEEZIE_ROLE_PAYLOAD_VERSION,
     }
@@ -2187,7 +2223,7 @@ def _build_option_framing_plan(
     proof_packets: List[str],
     story_beats: List[str],
     request_context: str = "",
-    option_count: int = 3,
+    option_count: int = 1,
 ) -> List[Dict[str, Any]]:
     approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
     approved_claims = primary_claims or ["Stay tightly inside the topic anchors."]
@@ -2588,9 +2624,10 @@ def score_option_taste(
         strengths.append("low_genericity")
 
     first_line = _first_content_line(cleaned)
-    if _assigned_application_rule_near_opening(cleaned, active_brief) or _claim_near_opening(
-        cleaned,
-        active_brief.primary_claim,
+    if (
+        _assigned_application_rule_near_opening(cleaned, active_brief)
+        or _assigned_diagnosis_claim_near_opening(cleaned, active_brief)
+        or _claim_near_opening(cleaned, active_brief.primary_claim)
     ):
         score += 10
         strengths.append("claim_led_opening")
@@ -2848,13 +2885,39 @@ def _serialize_content_option_briefs(briefs: List[ContentOptionBrief]) -> List[D
             "mechanism_anchor_terms": list(brief.mechanism_anchor_terms),
             "recognition_anchor_terms": list(brief.recognition_anchor_terms),
             "decision_rule_basis": brief.decision_rule_basis,
+            "decision_moment_basis": brief.decision_moment_basis,
+            "decision_moment_anchor_terms": list(brief.decision_moment_anchor_terms),
             "required_context_concepts": brief.required_context_concepts,
             "consequence_basis": brief.consequence_basis,
+            "application_closing_anchor_terms": list(brief.application_closing_anchor_terms),
             "proof_facet_id": brief.proof_facet_id,
             "semantic_payload_version": brief.semantic_payload_version,
         }
         for brief in briefs
     ]
+
+
+def _deserialize_bound_anchor_terms(value: Any) -> List[str]:
+    """Preserve an already-bound literal anchor list across the job boundary.
+
+    V3 role anchors are selected from a specific approved proposition before
+    serialization. Re-running the generic topic-keyword selector here can drop
+    an intentionally concrete source word such as ``evidence`` because that
+    word is also planner metadata in other contexts. Validate the wire shape,
+    but never silently re-select or substitute its terms.
+    """
+
+    if not isinstance(value, (list, tuple)) or len(value) > 8:
+        return []
+    normalized = [str(item or "").strip().lower() for item in value]
+    if any(
+        not token
+        or len(token) > 64
+        or not re.fullmatch(r"[a-z][a-z0-9]*", token)
+        for token in normalized
+    ):
+        return []
+    return normalized
 
 
 def _deserialize_content_option_briefs(items: List[Dict[str, Any]] | None) -> List[ContentOptionBrief]:
@@ -2875,19 +2938,22 @@ def _deserialize_content_option_briefs(items: List[Dict[str, Any]] | None) -> Li
                 payoff=str(item.get("payoff") or ""),
                 mechanism_focus=str(item.get("mechanism_focus") or ""),
                 recognition_basis=str(item.get("recognition_basis") or ""),
-                mechanism_anchor_terms=_semantic_anchor_candidates(
-                    " ".join(str(value) for value in item.get("mechanism_anchor_terms") or [])
-                )[:2]
-                if isinstance(item.get("mechanism_anchor_terms"), (list, tuple))
-                else [],
-                recognition_anchor_terms=_semantic_anchor_candidates(
-                    " ".join(str(value) for value in item.get("recognition_anchor_terms") or [])
-                )[:2]
-                if isinstance(item.get("recognition_anchor_terms"), (list, tuple))
-                else [],
+                mechanism_anchor_terms=_deserialize_bound_anchor_terms(
+                    item.get("mechanism_anchor_terms")
+                ),
+                recognition_anchor_terms=_deserialize_bound_anchor_terms(
+                    item.get("recognition_anchor_terms")
+                ),
                 decision_rule_basis=str(item.get("decision_rule_basis") or ""),
+                decision_moment_basis=str(item.get("decision_moment_basis") or ""),
+                decision_moment_anchor_terms=_deserialize_bound_anchor_terms(
+                    item.get("decision_moment_anchor_terms")
+                ),
                 required_context_concepts=str(item.get("required_context_concepts") or ""),
                 consequence_basis=str(item.get("consequence_basis") or ""),
+                application_closing_anchor_terms=_deserialize_bound_anchor_terms(
+                    item.get("application_closing_anchor_terms")
+                ),
                 proof_facet_id=str(item.get("proof_facet_id") or ""),
                 semantic_payload_version=str(item.get("semantic_payload_version") or ""),
             )
@@ -3637,8 +3703,64 @@ _FEEZIE_OWNER_FUTURE_BOUNDARY_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _FEEZIE_OBSERVATION_PREFIX_RE = re.compile(
-    r"^i\s+(?:confirmed|discovered|found|learned|noticed|observed|realized)\s+that\s+",
+    r"^(?:"
+    r"i\s+(?:confirmed|discovered|found|learned|noticed|observed|realized)\s+that|"
+    r"(?:the|this)\s+(?:synthetic\s+)?"
+    r"(?:build|comparison|cycle|exercise|replay|review|run|scenario|test|walkthrough)\s+"
+    r"(?:confirmed|demonstrated|discovered|exposed|found|revealed|showed|taught)"
+    r"(?:\s+me)?(?:\s+that)?"
+    r")\s+",
     flags=re.IGNORECASE,
+)
+_FEEZIE_LESSON_ANCHOR_EXCLUSIONS = frozenset(
+    {
+        "about",
+        "after",
+        "appeared",
+        "became",
+        "began",
+        "begin",
+        "before",
+        "build",
+        "comparison",
+        "created",
+        "cycle",
+        "depended",
+        "earlier",
+        "exercise",
+        "exposed",
+        "first",
+        "found",
+        "had",
+        "learned",
+        "learning",
+        "let",
+        "made",
+        "making",
+        "needs",
+        "noticed",
+        "not",
+        "observation",
+        "observed",
+        "only",
+        "point",
+        "replay",
+        "revealed",
+        "review",
+        "run",
+        "scenario",
+        "showed",
+        "synthetic",
+        "taught",
+        "test",
+        "tied",
+        "visible",
+        "walkthrough",
+        "when",
+        "where",
+        "which",
+        "without",
+    }
 )
 _FEEZIE_SEPARATE_FOCUS_RE = re.compile(
     r"^(?P<focus>.+?)\s+(?:are|is)\s+(?:separate|distinct|different)\s+"
@@ -3653,12 +3775,55 @@ _FEEZIE_COMPARATIVE_FOCUS_RE = re.compile(
     r"^(?P<left>.+?)\s+(?:matters|works)\s+(?:more|better)\s+than\s+(?P<right>.+)$",
     flags=re.IGNORECASE,
 )
+_FEEZIE_LESSON_OBJECT_PATTERNS = (
+    re.compile(
+        r"\bmade\s+(?P<object>.+?)\s+(?:independently\s+)?"
+        r"(?:actionable|clearer|distinguishable|inspectable|legible|visible)\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\blet\s+(?P<object>.+?)\s+(?:advance|begin|continue|move|start)\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bmaking\s+(?P<object>.+?)\s+(?:clear|inspectable|legible|visible)\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:can\s+)?sharpen(?:ed|s)?\s+(?P<object>.+?)\s+when\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"^(?P<object>.+?)\s+(?:appeared|became|created|depended|emerged|made|surfaced)\b",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
+        r"^(?P<object>.+?)\s+(?:earlier|later)\s+when\b",
+        flags=re.IGNORECASE,
+    ),
+)
 _FEEZIE_PROBLEM_CONSEQUENCE_RE = re.compile(
     r"(?:,\s*so\s+|;\s*so\s+|\bwhich\s+meant\s+)(?P<consequence>.+)$",
     flags=re.IGNORECASE,
 )
 _FEEZIE_IMPLEMENTED_GATE_RELATION_RE = re.compile(
     r"\b(?P<relation>only\s+when|only\s+if|unless|without|before|until|when)\b",
+    flags=re.IGNORECASE,
+)
+_FEEZIE_OBSERVATION_OBJECT_SUBJECT_RE = re.compile(
+    r"^(?P<object>.+?)\s+(?:"
+    r"made|let|became|appeared|created|sharpened|can\s+sharpen|"
+    r"depends?\s+on|depended\s+on"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+_FEEZIE_OBSERVATION_OBJECT_TIMING_RE = re.compile(
+    r"^(?P<object>.+?)\s+(?:earlier|first)\s+(?:when|before|at)\b",
+    flags=re.IGNORECASE,
+)
+_FEEZIE_OBSERVATION_VISIBLE_BOUNDARY_RE = re.compile(
+    r"\bmaking\s+(?:the\s+)?(?P<object>[a-z][a-z0-9'’-]*"
+    r"(?:\s+[a-z][a-z0-9'’-]*){1,8}?\s+boundary)\s+visible\b",
     flags=re.IGNORECASE,
 )
 _FEEZIE_IMPLEMENTED_GATE_VERB_RE = re.compile(
@@ -3699,6 +3864,59 @@ _FEEZIE_GATE_VERB_BASE = {
     "validated": "validate",
     "validates": "validate",
 }
+_FEEZIE_ACTION_AUXILIARIES = frozenset(
+    {
+        "am",
+        "are",
+        "be",
+        "been",
+        "being",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "had",
+        "has",
+        "have",
+        "is",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "should",
+        "was",
+        "were",
+        "will",
+        "would",
+    }
+)
+_FEEZIE_ACTION_MODIFIERS = frozenset(
+    {
+        "actually",
+        "already",
+        "also",
+        "even",
+        "just",
+        "never",
+        "not",
+        "now",
+        "only",
+        "previously",
+        "recently",
+        "simply",
+        "still",
+        "then",
+    }
+)
+_FEEZIE_AUXILIARY_LEXICAL_ACTION_RE = re.compile(
+    r"^(?:[a-z][a-z'-]*ly\s+)*(?P<verb>"
+    r"[a-z][a-z'-]*(?:ed|en|ing)|built|brought|caught|chose|cut|drove|found|gave|"
+    r"held|kept|led|left|lost|made|met|paid|put|ran|read|said|saw|sent|set|sold|"
+    r"split|taught|told|took|understood|won|wrote"
+    r")\b",
+    flags=re.IGNORECASE,
+)
 
 
 def _feezie_lesson_focus_clause(recognition: str) -> str:
@@ -3719,11 +3937,127 @@ def _feezie_lesson_focus_clause(recognition: str) -> str:
     return clauses[-1] if clauses else ""
 
 
+def _feezie_lesson_anchor_terms(recognition: str) -> List[str]:
+    """Select source words for role grounding without setup scaffolding."""
+
+    focus_clause = _feezie_lesson_focus_clause(recognition)
+    blocked = set(STOPWORDS).union(_FEEZIE_LESSON_ANCHOR_EXCLUSIONS)
+    ordered: List[str] = []
+    for source in (focus_clause, recognition):
+        for token in re.findall(r"[a-z][a-z0-9]*", source.lower()):
+            if len(token) < 3 or token in blocked or token in ordered:
+                continue
+            ordered.append(token)
+    return ordered
+
+
+_FEEZIE_CONSEQUENCE_DERIVATIONAL_FAMILIES = (
+    frozenset({"ready", "readiness"}),
+)
+
+
+def _feezie_conservative_inflection_family(term: str) -> set[str]:
+    """Return only ordinary grammatical forms for a source-bound term."""
+
+    normalized = "".join(re.findall(r"[a-z0-9]+", str(term or "").lower()))
+    if not normalized:
+        return set()
+    family = {normalized}
+    if len(normalized) > 4 and normalized.endswith("ies"):
+        family.add(normalized[:-3] + "y")
+    elif len(normalized) > 4 and normalized.endswith("s") and not normalized.endswith("ss"):
+        family.add(normalized[:-1])
+    if len(normalized) > 5 and normalized.endswith("ed"):
+        family.add(normalized[:-2])
+        family.add(normalized[:-1])
+    if len(normalized) > 5 and normalized.endswith("ing"):
+        family.add(normalized[:-3])
+        family.add(normalized[:-3] + "e")
+    if len(normalized) > 5 and normalized.endswith("ly"):
+        family.add(normalized[:-2])
+    return family
+
+
+def _feezie_diagnosis_opening_terms(value: str) -> set[str]:
+    """Return the exact term class enforced by the diagnosis hook gate."""
+
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(value or "").lower())
+        if len(token) > 3 and token not in STOPWORDS
+    }
+
+
+def _feezie_application_closing_anchor_terms(
+    recognition: str,
+    consequence_basis: str,
+) -> List[str]:
+    """Keep application anchors lesson-derived and consequence-compatible."""
+
+    lesson_terms = _feezie_lesson_anchor_terms(recognition)
+    if len(lesson_terms) < 2:
+        raise ValueError("FEEZIE observable lesson cannot produce two closing anchors.")
+    consequence_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", str(consequence_basis or "").lower())
+        if len(token) > 2 and token not in STOPWORDS
+    }
+
+    def consequence_compatible(term: str) -> bool:
+        if term in {"can", "could", "may", "might"}:
+            return False
+        if term in consequence_terms:
+            return True
+        term_family = _feezie_conservative_inflection_family(term)
+        if any(
+            term_family.intersection(_feezie_conservative_inflection_family(source_term))
+            for source_term in consequence_terms
+        ):
+            return True
+        return any(
+            term in family and bool(family.intersection(consequence_terms))
+            for family in _FEEZIE_CONSEQUENCE_DERIVATIONAL_FAMILIES
+        )
+
+    compatible = [term for term in lesson_terms if consequence_compatible(term)]
+    return compatible[:2] if len(compatible) >= 2 else lesson_terms[:2]
+
+
 def _feezie_clean_focus_operand(value: str) -> str:
     cleaned = " ".join(str(value or "").split()).strip(" -,:;.!?")
     cleaned = re.sub(r"^(?:a|an|the)\s+", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+by\s+(?:itself|themselves)$", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip(" -,:;.!?")
+
+
+def _feezie_supported_lesson_object(recognition: str) -> str:
+    """Project a natural decision object directly from the supported lesson.
+
+    Falling back to two isolated anchor tokens produced grammatical artifacts
+    such as ``missing and evidence`` and ``trust and human``.  These bounded
+    patterns retain a contiguous source phrase around the lesson's own
+    predicate.  If no usable two-to-eighteen-word phrase exists, callers keep
+    the conservative anchor fallback.
+    """
+
+    focus_clause = _feezie_lesson_focus_clause(recognition)
+    for pattern in _FEEZIE_LESSON_OBJECT_PATTERNS:
+        match = pattern.search(focus_clause)
+        if match is None:
+            continue
+        projected = _feezie_clean_focus_operand(match.group("object"))
+        word_count = len(re.findall(r"[A-Za-z0-9]+", projected))
+        if not 2 <= word_count <= 18:
+            continue
+        projected_terms = {
+            token
+            for token in re.findall(r"[a-z0-9]+", projected.lower())
+            if token not in STOPWORDS
+        }
+        recognition_terms = set(re.findall(r"[a-z0-9]+", focus_clause.lower()))
+        if projected_terms and projected_terms.issubset(recognition_terms):
+            return projected
+    return ""
 
 
 def _feezie_implemented_gate_projection(concrete_action: str) -> tuple[str, str, str] | None:
@@ -3753,6 +4087,68 @@ def _feezie_implemented_gate_projection(concrete_action: str) -> tuple[str, str,
     if relation == "only when":
         relation = "only if"
     return decision_action, decision_object, f"{relation} {boundary_tail}"
+
+
+def _feezie_implemented_gate_action_basis(concrete_action: str) -> str:
+    """Return the distinct first-person action facet left after gate projection."""
+
+    action = " ".join(str(concrete_action or "").split()).strip()
+    relation_match = _FEEZIE_IMPLEMENTED_GATE_RELATION_RE.search(action)
+    if relation_match is None:
+        return ""
+    prefix = action[: relation_match.start()].strip(" -,:;.!?")
+    verb_matches = list(_FEEZIE_IMPLEMENTED_GATE_VERB_RE.finditer(prefix))
+    if not verb_matches:
+        return ""
+    gate_verb = verb_matches[-1]
+    first_person = re.search(r"\bi\s+[a-z][a-z'-]*\b", prefix, flags=re.IGNORECASE)
+    if first_person is None or first_person.start() >= gate_verb.start():
+        return ""
+
+    candidate = prefix[first_person.start() : gate_verb.start()].strip(" -,:;.!?")
+    connectors = list(
+        re.finditer(r"\b(?:and|so|that|which|to)\b", candidate, flags=re.IGNORECASE)
+    )
+    if connectors:
+        trimmed = candidate[: connectors[-1].start()].strip(" -,:;.!?")
+        if len(re.findall(r"[A-Za-z0-9]+", trimmed)) >= 3:
+            candidate = trimmed
+    candidate = re.sub(
+        r"\b(?:and|so|that|which|to)\s*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    ).strip(" -,:;.!?")
+    predicate_match = re.match(
+        r"i\s+(?P<verb>[a-z][a-z'-]*)\b",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    if predicate_match is None or len(re.findall(r"[A-Za-z0-9]+", candidate)) < 3:
+        return ""
+    gate_base = _FEEZIE_GATE_VERB_BASE.get(
+        gate_verb.group("verb").lower(),
+        gate_verb.group("verb").lower(),
+    )
+    residual_verb = predicate_match.group("verb").lower()
+    if residual_verb in _FEEZIE_ACTION_AUXILIARIES:
+        predicate_tail = candidate[predicate_match.end() :].strip()
+        while predicate_tail:
+            modifier_match = re.match(r"(?P<word>[a-z][a-z'-]*)\b", predicate_tail, flags=re.IGNORECASE)
+            if (
+                modifier_match is None
+                or modifier_match.group("word").lower()
+                not in _FEEZIE_ACTION_MODIFIERS.union(_FEEZIE_ACTION_AUXILIARIES)
+            ):
+                break
+            predicate_tail = predicate_tail[modifier_match.end() :].strip()
+        lexical_match = _FEEZIE_AUXILIARY_LEXICAL_ACTION_RE.match(predicate_tail)
+        if lexical_match is None:
+            return ""
+        residual_verb = lexical_match.group("verb").lower()
+    if residual_verb == gate_base or _FEEZIE_GATE_VERB_BASE.get(residual_verb) == gate_base:
+        return ""
+    return candidate[0].upper() + candidate[1:] + "."
 
 
 def _feezie_role_safe_lesson_projection(observable_lesson: str) -> tuple[str, str]:
@@ -3785,20 +4181,147 @@ def _feezie_role_safe_lesson_projection(observable_lesson: str) -> tuple[str, st
             f"{_feezie_clean_focus_operand(comparison.group('right'))}"
         )
     else:
-        anchors = _semantic_anchor_candidates(focus_clause or recognition)
-        if len(anchors) < 2:
-            raise ValueError("FEEZIE observable lesson cannot produce a source-bound decision object.")
-        decision_object = f"{anchors[0]} and {anchors[1]}"
+        decision_object = _feezie_supported_lesson_object(focus_clause or recognition)
+        if not decision_object:
+            anchors = _feezie_lesson_anchor_terms(focus_clause or recognition)
+            if len(anchors) < 2:
+                raise ValueError("FEEZIE observable lesson cannot produce a source-bound decision object.")
+            decision_object = f"{anchors[0]} and {anchors[1]}"
     decision_object = " ".join(decision_object.split()).strip(" -,:;.!?")
     if not 2 <= len(re.findall(r"[A-Za-z0-9]+", decision_object)) <= 18:
         raise ValueError("FEEZIE decision object is outside the bounded role contract.")
     return recognition + ".", decision_object
 
 
+def _feezie_source_bound_observation_object(
+    recognition: str,
+    *,
+    legacy_object: str,
+) -> str:
+    """Project a grammatical application object from one contiguous source phrase."""
+
+    source = " ".join(str(recognition or "").split()).strip(" -,:;.!?")
+    normalized_source = source.lower()
+
+    def source_candidate(value: str) -> str:
+        candidate = _feezie_clean_focus_operand(value)
+        word_count = len(re.findall(r"[A-Za-z0-9]+", candidate))
+        if not 2 <= word_count <= 12:
+            return ""
+        if " ".join(candidate.lower().split()) not in normalized_source:
+            return ""
+        return candidate
+
+    focus_clause = _feezie_lesson_focus_clause(source)
+    focus_match = _FEEZIE_SEPARATE_FOCUS_RE.match(focus_clause)
+    if focus_match:
+        candidate = source_candidate(focus_match.group("focus"))
+        if candidate:
+            return candidate
+    not_match = _FEEZIE_NOT_FOCUS_RE.match(focus_clause)
+    if not_match:
+        for operand in (not_match.group("left"), not_match.group("right")):
+            candidate = source_candidate(operand)
+            if candidate:
+                return candidate
+        # A one-word X-is-not-Y comparison has no usable multiword operand.
+        # The role projection already built this exact, source-bound pair; it
+        # is the only non-contiguous fallback permitted here.
+        paired_candidate = _feezie_clean_focus_operand(legacy_object)
+        paired_terms = set(re.findall(r"[a-z0-9]+", paired_candidate.lower()))
+        source_terms = set(re.findall(r"[a-z0-9]+", normalized_source))
+        if (
+            2 <= len(re.findall(r"[A-Za-z0-9]+", paired_candidate)) <= 4
+            and paired_terms
+            and paired_terms.issubset(source_terms.union({"and"}))
+        ):
+            return paired_candidate
+    comparison = _FEEZIE_COMPARATIVE_FOCUS_RE.match(focus_clause)
+    if comparison:
+        candidate = source_candidate(comparison.group("left"))
+        if candidate:
+            return candidate
+
+    for pattern in (
+        _FEEZIE_OBSERVATION_OBJECT_SUBJECT_RE,
+        _FEEZIE_OBSERVATION_OBJECT_TIMING_RE,
+        _FEEZIE_OBSERVATION_VISIBLE_BOUNDARY_RE,
+    ):
+        match = pattern.search(focus_clause)
+        if not match:
+            continue
+        candidate = source_candidate(match.group("object"))
+        if candidate:
+            return candidate
+
+    candidate = source_candidate(legacy_object)
+    if candidate:
+        return candidate
+    raise ValueError(
+        "FEEZIE observable lesson cannot produce a contiguous natural decision object."
+    )
+
+
+def _feezie_source_bound_observation_boundary(recognition: str) -> str:
+    """Keep an observation boundary source-bound without producing `when when`."""
+
+    focus_clause = _feezie_lesson_focus_clause(recognition)
+    relation_match = _FEEZIE_IMPLEMENTED_GATE_RELATION_RE.search(focus_clause)
+    if relation_match is not None:
+        boundary_tail = focus_clause[relation_match.end():].strip(" -,:;.!?")
+        if len(re.findall(r"[A-Za-z0-9]+", boundary_tail)) >= 2:
+            relation = " ".join(relation_match.group("relation").lower().split())
+            if relation == "only when":
+                relation = "only if"
+            return f"{relation} {boundary_tail}"
+    if len(re.findall(r"[A-Za-z0-9]+", focus_clause)) < 3:
+        raise ValueError("FEEZIE observable lesson cannot produce a bounded application boundary.")
+    return f"when {focus_clause}"
+
+
+def _feezie_decision_moment_focus(decision_moment_basis: str) -> str:
+    """Remove planner scaffolding while preserving the approved decision condition."""
+
+    basis = " ".join(str(decision_moment_basis or "").split()).strip(" -,:;.!?")
+    focus = re.sub(
+        r"^(?:the\s+)?(?:(?:design\s+)?decision|distinction|test|story)\s+"
+        r"(?:appears|matters|becomes\s+useful|is\s+useful)\s+"
+        r"(?:whenever|when|at)\s+",
+        "",
+        basis,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip(" -,:;.!?")
+    word_count = len(re.findall(r"[A-Za-z0-9]+", focus))
+    if not 2 <= word_count <= 24:
+        raise ValueError("FEEZIE decision moment cannot produce a bounded opening basis.")
+    return focus
+
+
+def _feezie_decision_moment_anchor_terms(decision_moment_basis: str) -> List[str]:
+    focus = _feezie_decision_moment_focus(decision_moment_basis)
+    anchors = _semantic_anchor_candidates(
+        focus,
+        exclude_terms={
+            "appears",
+            "becomes",
+            "could",
+            "every",
+            "matters",
+            "useful",
+            "whenever",
+        },
+    )
+    if len(anchors) < 2:
+        raise ValueError("FEEZIE decision moment requires two substantive opening anchors.")
+    return anchors[:2]
+
+
 def _feezie_application_rule_projection(
     *,
     concrete_action: str,
     observable_lesson: str,
+    decision_moment_basis: str = "",
 ) -> tuple[str, str, str, str]:
     """Return a source-bound application gate without inventing a future action."""
 
@@ -3817,9 +4340,19 @@ def _feezie_application_rule_projection(
                 return "check", lesson_object, f"{relation} {boundary_tail}", "owner-confirmed next step"
 
     implemented_gate = _feezie_implemented_gate_projection(concrete_action)
-    if implemented_gate is not None:
+    implemented_action_basis = _feezie_implemented_gate_action_basis(concrete_action)
+    if implemented_gate is not None and implemented_action_basis:
         decision_action, decision_object, boundary = implemented_gate
         return decision_action, decision_object, boundary, "owner-confirmed implemented gate"
+
+    if str(decision_moment_basis or "").strip():
+        decision_moment = _feezie_decision_moment_focus(decision_moment_basis)
+        return (
+            "frame",
+            decision_moment,
+            f"when {decision_moment}",
+            "owner-approved decision moment",
+        )
 
     focus_clause = _feezie_lesson_focus_clause(recognition)
     comparison = _FEEZIE_COMPARATIVE_FOCUS_RE.match(focus_clause)
@@ -3830,7 +4363,12 @@ def _feezie_application_rule_projection(
 
     # A fully source-bound fallback is intentionally less forceful than an
     # invented owner commitment. The critic can still withhold weak prose.
-    return "check", lesson_object, f"when {focus_clause}", "owner-confirmed observation"
+    observation_object = _feezie_source_bound_observation_object(
+        recognition,
+        legacy_object=lesson_object,
+    )
+    observation_boundary = _feezie_source_bound_observation_boundary(recognition)
+    return "check", observation_object, observation_boundary, "owner-confirmed observation"
 
 
 def _feezie_problem_consequence_projection(exact_problem: str) -> str:
@@ -3845,6 +4383,10 @@ def _feezie_problem_consequence_projection(exact_problem: str) -> str:
 def _bind_publish_ready_evidence_to_briefs(
     briefs: List[ContentOptionBrief],
     evidence_contract: Dict[str, Any],
+    *,
+    audience_consequence: str = "",
+    decision_moment_basis: str,
+    strategic_opening_basis: str,
 ) -> None:
     """Make the role-specific semantic gates compatible with the same lived evidence.
 
@@ -3858,21 +4400,65 @@ def _bind_publish_ready_evidence_to_briefs(
     concrete_action = str(evidence_contract["concrete_action"]).strip()
     exact_problem = str(evidence_contract["exact_problem"]).strip()
     observable_lesson = str(evidence_contract["observable_lesson"]).strip()
+    strategic_opening = " ".join(str(strategic_opening_basis or "").split()).strip()
+    if not strategic_opening:
+        raise ValueError("FEEZIE diagnosis requires a public-safe strategic opening basis.")
+    strategic_terms = _feezie_diagnosis_opening_terms(strategic_opening)
+    if len(strategic_terms) < 2:
+        raise ValueError(
+            "FEEZIE diagnosis strategic opening basis needs at least two substantive public-safe terms."
+        )
     recognition_basis, _lesson_object = _feezie_role_safe_lesson_projection(observable_lesson)
+    decision_moment = _feezie_decision_moment_focus(decision_moment_basis)
+    decision_moment_anchors = _feezie_decision_moment_anchor_terms(decision_moment)
     decision_action, decision_object, decision_boundary, rule_posture = _feezie_application_rule_projection(
         concrete_action=concrete_action,
         observable_lesson=observable_lesson,
+        decision_moment_basis=decision_moment,
     )
-    consequence_basis = _feezie_problem_consequence_projection(exact_problem)
-    problem_anchors = _semantic_anchor_candidates(exact_problem)
+    paragraph_two_action = (
+        _feezie_implemented_gate_action_basis(concrete_action)
+        if rule_posture == "owner-confirmed implemented gate"
+        else concrete_action
+    )
+    if not paragraph_two_action:
+        raise ValueError("FEEZIE application cannot separate its opening gate from paragraph-two action.")
+    # The planner's explicit audience consequence is the authoritative
+    # application payoff when the selected source card supplies one.  The
+    # exact-problem projection is only a safe fallback; replacing a stronger
+    # audience consequence with the whole problem made application drafts
+    # repeat the diagnosis and left their closers without a concrete payoff.
+    consequence_basis = (
+        " ".join(str(audience_consequence or "").split()).strip(" -,:;.!?") + "."
+        if str(audience_consequence or "").strip()
+        else _feezie_problem_consequence_projection(exact_problem)
+    )
+    problem_anchor_candidates = _semantic_anchor_candidates(exact_problem)
+    problem_anchors = [
+        candidate
+        for candidate in problem_anchor_candidates
+        if not any(
+            _feezie_conservative_inflection_family(candidate).intersection(
+                _feezie_conservative_inflection_family(strategic_term)
+            )
+            for strategic_term in strategic_terms
+        )
+    ]
     lesson_focus = _feezie_lesson_focus_clause(recognition_basis)
-    lesson_anchors = _semantic_anchor_candidates(lesson_focus or recognition_basis)
-    if len(problem_anchors) < 2 or len(lesson_anchors) < 2:
-        raise ValueError("FEEZIE evidence needs at least two substantive problem and lesson terms.")
+    lesson_anchors = _feezie_lesson_anchor_terms(lesson_focus or recognition_basis)
+    if len(problem_anchors) < 2:
+        raise ValueError(
+            "FEEZIE evidence needs two exact-problem anchors that do not overlap the strategic opening basis."
+        )
+    if len(lesson_anchors) < 2:
+        raise ValueError("FEEZIE evidence needs at least two substantive lesson terms.")
 
     diagnosis, application = briefs
     diagnosis.framing_mode = "bounded_evidence_diagnosis"
-    diagnosis.primary_claim = exact_problem
+    # The writer, opaque critic, and deterministic hook gate must grade the
+    # same public-safe strategic tension. The exact problem and both of its
+    # anchors remain reserved for paragraph two.
+    diagnosis.primary_claim = strategic_opening
     diagnosis.proof_packet = concrete_action
     diagnosis.story_beat = recognition_basis
     diagnosis.mechanism_focus = exact_problem
@@ -3884,10 +4470,16 @@ def _bind_publish_ready_evidence_to_briefs(
     application.primary_claim = consequence_basis
     application.proof_packet = concrete_action
     application.story_beat = recognition_basis
+    application.decision_moment_basis = decision_moment
+    application.decision_moment_anchor_terms = decision_moment_anchors
     application.required_context_concepts = (
-        f"Concrete action: {concrete_action} | Exact problem: {exact_problem}"
+        f"Paragraph-two action: {paragraph_two_action} | Exact problem: {exact_problem}"
     )
     application.consequence_basis = consequence_basis
+    application.application_closing_anchor_terms = _feezie_application_closing_anchor_terms(
+        recognition_basis,
+        consequence_basis,
+    )
     application.decision_rule_basis = (
         f"Decision action: {decision_action} | decision object: {decision_object} | "
         f"boundary: {decision_boundary} | rule posture: {rule_posture}."
@@ -3910,6 +4502,69 @@ def _feezie_codex_execution_profile() -> Dict[str, Any]:
             "model": FEEZIE_CODEX_MODEL,
             "reasoning_effort": "medium",
         },
+    }
+
+
+def _feezie_remote_safe_context_projection(
+    *,
+    topic: str,
+    audience: str,
+    intent: str,
+    classification: Dict[str, Any],
+    evidence_contract: Dict[str, Any],
+    audience_consequence: str = "",
+    student_scientist_enabled: bool,
+) -> Dict[str, Any]:
+    """Return the one closed remote-safe context shared by production and acceptance."""
+
+    safe_topic = anonymize_feezie_public_text(topic, limit=320)
+    projected_evidence_contract = {
+        key: evidence_contract[key]
+        for key in (
+            "schema_version",
+            "status",
+            "author_posture",
+            "concrete_action",
+            "exact_problem",
+            "observable_lesson",
+            "field_sources",
+            "retrieved_record_id_sha256",
+            "missing_fields",
+            "contract_sha256",
+        )
+        if key in evidence_contract
+    }
+    bounded_consequence = " ".join(str(audience_consequence or "").split()).strip()
+    if bounded_consequence:
+        projected_evidence_contract["audience_consequence"] = bounded_consequence
+    projected_evidence_contract["student_scientist_enabled"] = bool(student_scientist_enabled)
+    return {
+        "packet_schema_version": FEEZIE_REMOTE_JOB_PACKET_VERSION,
+        "prompt": FEEZIE_REMOTE_BOOTSTRAP_PROMPT,
+        "remote_execution_context": {
+            "schema_version": FEEZIE_REMOTE_EXECUTION_CONTEXT_VERSION,
+            "topic": safe_topic,
+            "audience": audience,
+            "intent": intent,
+            "tone": "direct_curiosity_evidence_led",
+            "canonical_pillar": str(classification.get("canonical_pillar") or "unclassified"),
+            "career_signal": str(classification.get("career_signal") or "unclassified"),
+            "employer_safety": str(classification.get("employer_safety") or "caution"),
+            "proof_posture": str(classification.get("proof_posture") or "verified_public"),
+            "author_posture": "learning_in_public",
+        },
+        "remote_prompt_policy": {
+            "schema_version": FEEZIE_REMOTE_PROMPT_POLICY_VERSION,
+            "raw_context_excluded": True,
+            "private_paths_excluded": True,
+            "raw_voice_examples_excluded": True,
+            "source_bodies_excluded": True,
+            "allowed_evidence": [
+                "remote_execution_context",
+                "publish_ready_evidence_contract",
+            ],
+        },
+        "evidence_contract": projected_evidence_contract,
     }
 
 
@@ -3973,6 +4628,22 @@ def _build_local_codex_context_packet(
     if classification.get("proof_posture") in {None, "", "principle_only", "owner_confirmation_required", "missing"}:
         classification["proof_posture"] = "verified_public"
     public_request_context = _local_codex_request_context(req)
+    _base_request_context, request_audience_consequence, request_why_now = (
+        _partition_semantic_request_context(public_request_context)
+    )
+    audience_consequence = " ".join(
+        str(classification.get("audience_consequence") or "").split()
+    ).strip()
+    if not audience_consequence:
+        audience_consequence = request_audience_consequence
+    decision_moment_basis = " ".join(
+        str(
+            classification.get("why_now")
+            or request_why_now
+            or classification.get("distinct_thesis")
+            or safe_topic
+        ).split()
+    ).strip()
     briefs = plan_content_option_briefs(
         primary_claims=local_primary_claims,
         proof_packets=local_proof_packets,
@@ -3981,7 +4652,13 @@ def _build_local_codex_context_packet(
         request_context=public_request_context,
         option_count=FEEZIE_CODEX_DRAFT_OPTION_COUNT,
     )
-    _bind_publish_ready_evidence_to_briefs(briefs, evidence_contract)
+    _bind_publish_ready_evidence_to_briefs(
+        briefs,
+        evidence_contract,
+        audience_consequence=audience_consequence,
+        decision_moment_basis=decision_moment_basis,
+        strategic_opening_basis=safe_topic,
+    )
     student_scientist_enabled = _student_scientist_enabled(req=req, classification=classification)
     if student_scientist_enabled:
         for brief in briefs:
@@ -4019,6 +4696,8 @@ PUBLISH-READY EVIDENCE CONTRACT:
 - Concrete action: {evidence_contract['concrete_action']}
 - Exact problem: {evidence_contract['exact_problem']}
 - Observable lesson: {evidence_contract['observable_lesson']}
+- Audience consequence: {audience_consequence or 'Not separately supplied; use only the exact-problem fallback.'}
+- Decision moment: {decision_moment_basis}
 - Author posture: {evidence_contract['author_posture']}
 
 EVIDENCE-BINDING RULES:
@@ -4062,52 +4741,18 @@ FINAL RESPONSE CONTRACT:
     # fields below. Persisting the much larger locally assembled prompt would copy
     # persona excerpts, source previews, and private provenance into Railway even
     # though current FEEZIE execution never reads them.
-    remote_bootstrap_prompt = (
-        "FEEZIE remote-safe execution packet. Reconstruct each isolated writer and critic prompt "
-        "only from remote_execution_context, evidence_contract, planned_option_briefs, and the "
-        "declared draft and revision contracts."
+    remote_projection = _feezie_remote_safe_context_projection(
+        topic=safe_topic,
+        audience=req.audience,
+        intent=req.category,
+        classification=classification,
+        evidence_contract=evidence_contract,
+        audience_consequence=audience_consequence,
+        student_scientist_enabled=student_scientist_enabled,
     )
-    projected_evidence_contract = {
-        key: evidence_contract[key]
-        for key in (
-            "schema_version",
-            "status",
-            "author_posture",
-            "concrete_action",
-            "exact_problem",
-            "observable_lesson",
-            "field_sources",
-            "retrieved_record_id_sha256",
-            "missing_fields",
-            "contract_sha256",
-        )
-        if key in evidence_contract
-    }
-    projected_evidence_contract["student_scientist_enabled"] = student_scientist_enabled
     return {
-        "packet_schema_version": FEEZIE_REMOTE_JOB_PACKET_VERSION,
+        **remote_projection,
         "workspace_slug": req.workspace_slug,
-        "prompt": remote_bootstrap_prompt,
-        "remote_execution_context": {
-            "schema_version": FEEZIE_REMOTE_EXECUTION_CONTEXT_VERSION,
-            "topic": safe_topic,
-            "audience": req.audience,
-            "intent": req.category,
-            "tone": "direct_curiosity_evidence_led",
-            "canonical_pillar": str(classification.get("canonical_pillar") or "unclassified"),
-            "career_signal": str(classification.get("career_signal") or "unclassified"),
-            "employer_safety": str(classification.get("employer_safety") or "caution"),
-            "proof_posture": str(classification.get("proof_posture") or "verified_public"),
-            "author_posture": "learning_in_public",
-        },
-        "remote_prompt_policy": {
-            "schema_version": FEEZIE_REMOTE_PROMPT_POLICY_VERSION,
-            "raw_context_excluded": True,
-            "private_paths_excluded": True,
-            "raw_voice_examples_excluded": True,
-            "source_bodies_excluded": True,
-            "allowed_evidence": ["remote_execution_context", "publish_ready_evidence_contract"],
-        },
         "requested_model": codex_execution_profile["writer"]["model"],
         "codex_execution_profile": codex_execution_profile,
         "expected_option_count": FEEZIE_CODEX_DRAFT_OPTION_COUNT,
@@ -4132,7 +4777,6 @@ FINAL RESPONSE CONTRACT:
             "fresh_blind_critic_required_after_revision": True,
         },
         "portfolio_learning": portfolio_learning,
-        "evidence_contract": projected_evidence_contract,
         "intent": req.category,
         "strategy_contract": strategy_contract,
         "candidate_classification": classification,
@@ -4264,6 +4908,14 @@ def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
     cached_remote_context = context_packet.get("remote_execution_context") if isinstance(context_packet, dict) else None
     cached_remote_policy = context_packet.get("remote_prompt_policy") if isinstance(context_packet, dict) else None
     cached_execution_profile = context_packet.get("codex_execution_profile") if isinstance(context_packet, dict) else None
+    cached_briefs = context_packet.get("planned_option_briefs") if isinstance(context_packet, dict) else None
+    cached_diagnosis = (
+        cached_briefs[0]
+        if isinstance(cached_briefs, list)
+        and len(cached_briefs) == FEEZIE_CODEX_DRAFT_OPTION_COUNT
+        and isinstance(cached_briefs[0], dict)
+        else None
+    )
     cache_hit = bool(
         isinstance(context_packet, dict)
         and context_packet.get("packet_schema_version") == FEEZIE_REMOTE_JOB_PACKET_VERSION
@@ -4275,6 +4927,11 @@ def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
         and isinstance(cached_remote_policy, dict)
         and cached_remote_policy.get("schema_version") == FEEZIE_REMOTE_PROMPT_POLICY_VERSION
         and cached_execution_profile == _feezie_codex_execution_profile()
+        and isinstance(cached_diagnosis, dict)
+        and " ".join(str(cached_diagnosis.get("primary_claim") or "").split()).strip()
+        == " ".join(str(cached_remote_context.get("topic") or "").split()).strip()
+        and " ".join(str(cached_diagnosis.get("mechanism_focus") or "").split()).strip()
+        == " ".join(str(cached_evidence.get("exact_problem") or "").split()).strip()
     )
     if not cache_hit:
         content_context: ContentGenerationContext = build_content_generation_context(
@@ -4537,6 +5194,526 @@ def _feezie_pair_sha256(option_hashes: List[str]) -> str:
     ).hexdigest()
 
 
+def _validate_feezie_voice_contamination_receipt(
+    receipt: Any,
+    *,
+    options: List[str],
+    required: bool,
+) -> Dict[str, Any] | None:
+    """Admit only the bounded no-copy receipt that the server cannot recompute."""
+
+    if receipt is None and not required:
+        return None
+    if not isinstance(receipt, dict):
+        raise ValueError("FEEZIE completion requires a bounded voice-contamination receipt.")
+    allowed_keys = {
+        "schema_version",
+        "passed",
+        "exemplar_count",
+        "evaluated_option_count",
+        "blocked_option_count",
+        "blocker_codes",
+        "pair_sha256",
+        "option_results",
+        "contains_exemplar_text",
+    }
+    if set(receipt) != allowed_keys:
+        raise ValueError("The FEEZIE voice-contamination receipt is unbounded or incomplete.")
+    if receipt.get("schema_version") != FEEZIE_VOICE_CONTAMINATION_RECEIPT_VERSION:
+        raise ValueError("The FEEZIE voice-contamination receipt has an unsupported schema.")
+    if not isinstance(receipt.get("passed"), bool) or receipt.get("contains_exemplar_text") is not False:
+        raise ValueError("The FEEZIE voice-contamination receipt violates its no-copy contract.")
+
+    def bounded_int(name: str, *, maximum: int) -> int:
+        value = receipt.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > maximum:
+            raise ValueError(f"The FEEZIE voice-contamination receipt has an invalid {name}.")
+        return value
+
+    expected_option_hashes = [_feezie_content_sha256(option) for option in options]
+    expected_option_count = len(expected_option_hashes)
+    pair_sha = str(receipt.get("pair_sha256") or "").strip().lower()
+    if not _valid_feezie_sha256(pair_sha) or pair_sha != _feezie_pair_sha256(expected_option_hashes):
+        raise ValueError(
+            "The FEEZIE voice-contamination receipt is not bound to the exact final draft pair."
+        )
+
+    bounded_int("exemplar_count", maximum=64)
+    evaluated_count = bounded_int("evaluated_option_count", maximum=FEEZIE_CODEX_DRAFT_OPTION_COUNT)
+    blocked_count = bounded_int("blocked_option_count", maximum=FEEZIE_CODEX_DRAFT_OPTION_COUNT)
+    if evaluated_count != expected_option_count:
+        raise ValueError("The FEEZIE voice-contamination receipt does not cover the final draft pair.")
+
+    def bounded_codes(value: Any) -> List[str]:
+        if (
+            not isinstance(value, list)
+            or len(value) > 32
+            or any(
+                not isinstance(item, str)
+                or re.fullmatch(r"[a-z0-9_:-]{1,160}", item.strip().lower()) is None
+                for item in value
+            )
+        ):
+            raise ValueError("The FEEZIE voice-contamination receipt has invalid blocker codes.")
+        normalized = [item.strip().lower() for item in value]
+        if normalized != sorted(set(normalized)):
+            raise ValueError("The FEEZIE voice-contamination blocker codes are not canonical.")
+        return normalized
+
+    top_codes = bounded_codes(receipt.get("blocker_codes"))
+    raw_results = receipt.get("option_results")
+    if not isinstance(raw_results, list) or len(raw_results) != expected_option_count:
+        raise ValueError("The FEEZIE voice-contamination receipt has invalid option coverage.")
+    all_finding_codes: set[str] = set()
+    observed_blocked_count = 0
+    seen_indices: set[int] = set()
+    for expected_index, raw_result in enumerate(raw_results, start=1):
+        if not isinstance(raw_result, dict) or set(raw_result) != {
+            "option_index",
+            "option_sha256",
+            "passed",
+            "blocker_codes",
+            "findings",
+        }:
+            raise ValueError("The FEEZIE voice-contamination receipt contains an invalid option row.")
+        option_index = raw_result.get("option_index")
+        if (
+            isinstance(option_index, bool)
+            or not isinstance(option_index, int)
+            or option_index != expected_index
+            or option_index in seen_indices
+        ):
+            raise ValueError("The FEEZIE voice-contamination option order is invalid.")
+        seen_indices.add(option_index)
+        option_sha = str(raw_result.get("option_sha256") or "").strip().lower()
+        if (
+            not _valid_feezie_sha256(option_sha)
+            or option_sha != expected_option_hashes[expected_index - 1]
+        ):
+            raise ValueError(
+                "The FEEZIE voice-contamination receipt is not bound to the exact final option bytes."
+            )
+        if not isinstance(raw_result.get("passed"), bool):
+            raise ValueError("The FEEZIE voice-contamination option verdict is invalid.")
+        row_codes = bounded_codes(raw_result.get("blocker_codes"))
+        findings = raw_result.get("findings")
+        if not isinstance(findings, list) or len(findings) > 32:
+            raise ValueError("The FEEZIE voice-contamination findings exceed their bound.")
+        finding_codes: set[str] = set()
+        finding_identities: set[tuple[str, str, str]] = set()
+        for finding in findings:
+            if not isinstance(finding, dict) or set(finding) not in (
+                {"code", "reference_id_sha256", "match_sha256"},
+                {"code", "reference_id_sha256", "match_sha256", "matched_token_count"},
+            ):
+                raise ValueError("The FEEZIE voice-contamination finding is unbounded.")
+            code = str(finding.get("code") or "").strip().lower()
+            reference_sha = str(finding.get("reference_id_sha256") or "").strip().lower()
+            match_sha = str(finding.get("match_sha256") or "").strip().lower()
+            if (
+                re.fullmatch(r"[a-z0-9_:-]{1,160}", code) is None
+                or not _valid_feezie_sha256(reference_sha)
+                or not _valid_feezie_sha256(match_sha)
+            ):
+                raise ValueError("The FEEZIE voice-contamination finding has an invalid commitment.")
+            if "matched_token_count" in finding:
+                token_count = finding.get("matched_token_count")
+                if isinstance(token_count, bool) or not isinstance(token_count, int) or not 1 <= token_count <= 500:
+                    raise ValueError("The FEEZIE voice-contamination token count is invalid.")
+            identity = (code, reference_sha, match_sha)
+            if identity in finding_identities:
+                raise ValueError("The FEEZIE voice-contamination finding is duplicated.")
+            finding_identities.add(identity)
+            finding_codes.add(code)
+        if row_codes != sorted(finding_codes) or raw_result.get("passed") is not (not findings):
+            raise ValueError("The FEEZIE voice-contamination option receipt is internally inconsistent.")
+        if findings:
+            observed_blocked_count += 1
+        all_finding_codes.update(finding_codes)
+
+    if (
+        blocked_count != observed_blocked_count
+        or top_codes != sorted(all_finding_codes)
+        or receipt.get("passed") is not (observed_blocked_count == 0)
+    ):
+        raise ValueError("The FEEZIE voice-contamination aggregate receipt is internally inconsistent.")
+    return json.loads(json.dumps(receipt, ensure_ascii=True))
+
+
+def _merge_feezie_voice_contamination_gate(
+    quality_gate: Dict[str, Any],
+    contamination_gate: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    """Reproduce the bounded local merge while retaining server quality authority."""
+
+    merged = json.loads(json.dumps(quality_gate, ensure_ascii=True))
+    if contamination_gate is None:
+        return merged
+    merged["voice_exemplar_contamination"] = contamination_gate
+    if contamination_gate.get("passed") is True:
+        return merged
+    merged["passed"] = False
+    failed_reasons = [str(item) for item in (merged.get("failed_reasons") or []) if str(item)]
+    contamination_reasons: List[str] = []
+    for code in contamination_gate.get("blocker_codes") or []:
+        reason = f"voice_exemplar_contamination:{code}"
+        contamination_reasons.append(reason)
+        if reason not in failed_reasons:
+            failed_reasons.append(reason)
+    shared_constraints = (
+        dict(merged.get("shared_constraints"))
+        if isinstance(merged.get("shared_constraints"), dict)
+        else {}
+    )
+    shared_failures = [
+        str(item)
+        for item in (shared_constraints.get("failed_reasons") or [])
+        if str(item)
+    ]
+    for reason in contamination_reasons or ["voice_exemplar_contamination:unknown"]:
+        if reason not in shared_failures:
+            shared_failures.append(reason)
+        if reason not in failed_reasons:
+            failed_reasons.append(reason)
+    shared_constraints["passed"] = False
+    shared_constraints["failed_reasons"] = shared_failures
+    merged["shared_constraints"] = shared_constraints
+    merged["selection_admission_passed"] = False
+    merged["failed_reasons"] = failed_reasons
+    return merged
+
+
+def _canonical_feezie_quality_gate(
+    *,
+    context_packet: Dict[str, Any],
+    options: List[str],
+    submitted_quality_gate: Any,
+    require_contamination: bool,
+    compare_full_receipt: bool,
+) -> Dict[str, Any]:
+    """Recompute the current server gate and reject worker/server contract drift."""
+
+    if not isinstance(submitted_quality_gate, dict):
+        raise ValueError("FEEZIE completion requires the explicit deterministic quality-gate v2 receipt.")
+    if str(submitted_quality_gate.get("schema_version") or "") != FEEZIE_DETERMINISTIC_QUALITY_GATE_VERSION:
+        raise ValueError("FEEZIE completion requires the explicit deterministic quality-gate v2 receipt.")
+    # Imported lazily because the local execution service intentionally imports
+    # this route module for established public-copy helpers.
+    from app.services.local_content_generation_execution_service import evaluate_local_quality
+
+    server_gate = evaluate_local_quality(context_packet, options)
+    contamination = _validate_feezie_voice_contamination_receipt(
+        submitted_quality_gate.get("voice_exemplar_contamination"),
+        options=options,
+        required=require_contamination,
+    )
+    canonical = _merge_feezie_voice_contamination_gate(server_gate, contamination)
+    submitted = json.loads(json.dumps(submitted_quality_gate, ensure_ascii=True))
+    expected = canonical if compare_full_receipt else _project_feezie_quality_gate(canonical)
+    if submitted != expected:
+        raise ValueError(
+            "The FEEZIE deterministic quality-gate receipt is stale or does not match the current server validator."
+        )
+    return canonical
+
+
+def _feezie_expected_blind_critic_plan(
+    *,
+    job_scope: str,
+    options: List[str],
+) -> Dict[str, Any]:
+    """Reconstruct the worker's opaque IDs from the exact final draft bytes."""
+
+    scope = str(job_scope or "").strip()
+    if not scope:
+        raise ValueError("The independent critic receipt is missing its durable job scope.")
+    entries: List[Dict[str, Any]] = []
+    for canonical_index, option in enumerate(options, start=1):
+        option_sha = _feezie_content_sha256(option)
+        critic_option_id = "draft_" + hashlib.sha256(
+            (
+                f"feezie-critic-option/v1\0{scope}\0{canonical_index}\0"
+                f"{option_sha}"
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+        shuffle_key = hashlib.sha256(
+            f"feezie-critic-order/v1\0{scope}\0{critic_option_id}".encode("utf-8")
+        ).hexdigest()
+        entries.append(
+            {
+                "critic_option_id": critic_option_id,
+                "canonical_option_index": canonical_index,
+                "shuffle_key": shuffle_key,
+            }
+        )
+    critic_order = sorted(entries, key=lambda entry: str(entry["shuffle_key"]))
+    canonical_order = [int(entry["canonical_option_index"]) for entry in critic_order]
+    identity_order = list(range(1, len(entries) + 1))
+    if len(entries) > 1 and canonical_order == identity_order:
+        rotation_seed = hashlib.sha256(
+            f"feezie-critic-rotation/v1\0{scope}".encode("utf-8")
+        ).hexdigest()
+        offset = 1 + (int(rotation_seed, 16) % (len(entries) - 1))
+        critic_order = critic_order[offset:] + critic_order[:offset]
+    mapping_rows = [
+        {
+            "critic_option_id": str(entry["critic_option_id"]),
+            "canonical_option_index": int(entry["canonical_option_index"]),
+        }
+        for entry in critic_order
+    ]
+    return {
+        "job_scope_sha256": hashlib.sha256(scope.encode("utf-8")).hexdigest(),
+        "critic_order": mapping_rows,
+        "option_id_to_index": {
+            str(entry["critic_option_id"]): int(entry["canonical_option_index"])
+            for entry in entries
+        },
+    }
+
+
+def _feezie_final_critic_job_scope(
+    *,
+    job: Dict[str, Any],
+    revision_receipt: Any,
+) -> str:
+    """Infer whether the returned critic reviewed initial or revised final bytes."""
+
+    job_id = str(job.get("id") or "").strip()
+    revision_contract = _feezie_revision_contract(job)
+    if not revision_contract:
+        return job_id
+    if not job_id:
+        raise ValueError("The revision-enabled FEEZIE critic receipt is missing its durable job identity.")
+    if (
+        not isinstance(revision_receipt, dict)
+        or revision_receipt.get("schema_version") != FEEZIE_REVISION_RECEIPT_VERSION
+    ):
+        raise ValueError("FEEZIE completion requires a revision execution receipt.")
+    status = str(revision_receipt.get("status") or "").strip().lower()
+    if status == "completed":
+        return f"{job_id}:final"
+    if status in {"not_required", "failed"}:
+        return f"{job_id}:initial"
+    raise ValueError("The FEEZIE revision execution receipt has an invalid status.")
+
+
+def _build_feezie_editorial_readiness(
+    *,
+    critic_review: Dict[str, Any],
+    deterministic_quality_gate: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the sole server-authoritative readiness view from bounded evidence."""
+
+    contamination_gate = (
+        deterministic_quality_gate.get("voice_exemplar_contamination")
+        if isinstance(deterministic_quality_gate.get("voice_exemplar_contamination"), dict)
+        else None
+    )
+    contamination_passed = contamination_gate is None or contamination_gate.get("passed") is True
+    contamination_results = {
+        int(item.get("option_index") or 0): item
+        for item in ((contamination_gate or {}).get("option_results") or [])
+        if isinstance(item, dict) and int(item.get("option_index") or 0) > 0
+    }
+    option_results = {
+        int(item.get("option_index") or 0): item
+        for item in (deterministic_quality_gate.get("option_results") or [])
+        if isinstance(item, dict) and int(item.get("option_index") or 0) > 0
+    }
+    shared_constraints = (
+        deterministic_quality_gate.get("shared_constraints")
+        if isinstance(deterministic_quality_gate.get("shared_constraints"), dict)
+        else {}
+    )
+    shared_constraints_passed = shared_constraints.get("passed") is True
+    selection_admission_passed = deterministic_quality_gate.get("selection_admission_passed") is True
+    batch_all_options_passed = deterministic_quality_gate.get("passed") is True
+    critic_status = str(critic_review.get("status") or "unavailable").strip().lower()
+    if critic_status != "completed":
+        return {
+            "ready": False,
+            "status": "critic_unavailable" if critic_status == "unavailable" else "critic_not_run",
+            "critic_status": critic_status,
+            "ready_score_threshold": FEEZIE_CRITIC_READY_SCORE,
+            "quality_gate_schema_version": FEEZIE_DETERMINISTIC_QUALITY_GATE_VERSION,
+            "deterministic_quality_receipt_valid": True,
+            "deterministic_quality_gate_passed": selection_admission_passed and contamination_passed,
+            "batch_all_options_quality_passed": batch_all_options_passed,
+            "shared_constraints_passed": shared_constraints_passed,
+            "selection_admission_passed": selection_admission_passed,
+            "voice_exemplar_contamination_passed": contamination_passed,
+            "semantic_distinctness_passed": False,
+            "pair_attribution_valid": False,
+            "pair_affected_option_indices": [],
+            "draft_distinctness": {},
+            "option_local_ready_count": 0,
+            "ready_option_count": 0,
+            "option_reviews": [],
+            "blocking_reasons": [
+                str(critic_review.get("reason") or "independent_critic_not_completed")
+            ],
+        }
+
+    semantic_distinctness = (
+        critic_review.get("draft_distinctness")
+        if isinstance(critic_review.get("draft_distinctness"), dict)
+        else {}
+    )
+    semantic_distinctness_passed = semantic_distinctness.get("passed") is True
+    critic_reviews = [
+        item
+        for item in (critic_review.get("reviews") or [])
+        if isinstance(item, dict)
+    ]
+    expected_non_ready_indices = sorted(
+        int(item.get("option_index") or 0)
+        for item in critic_reviews
+        if int(item.get("option_index") or 0) > 0
+        and str(item.get("verdict") or "").strip().lower() != "ready"
+    )
+    raw_affected_indices = semantic_distinctness.get("affected_option_indices", [])
+    affected_indices_well_formed = bool(
+        isinstance(raw_affected_indices, list)
+        and all(
+            not isinstance(index, bool) and isinstance(index, int) and index > 0
+            for index in raw_affected_indices
+        )
+        and len(set(raw_affected_indices)) == len(raw_affected_indices)
+    )
+    pair_affected_option_indices = (
+        sorted(raw_affected_indices) if affected_indices_well_formed else []
+    )
+    pair_attribution_valid = bool(
+        affected_indices_well_formed
+        and (
+            (semantic_distinctness_passed and not pair_affected_option_indices)
+            or (
+                not semantic_distinctness_passed
+                and bool(pair_affected_option_indices)
+                and pair_affected_option_indices == expected_non_ready_indices
+            )
+        )
+    )
+    shared_failures = [
+        str(reason)
+        for reason in (shared_constraints.get("failed_reasons") or [])
+        if str(reason)
+    ]
+    enriched_reviews: List[Dict[str, Any]] = []
+    for review in critic_reviews:
+        option_index = int(review.get("option_index") or 0)
+        dimensions = review.get("dimension_scores") if isinstance(review.get("dimension_scores"), dict) else {}
+        deterministic_result = option_results.get(option_index) or {}
+        contamination_result = contamination_results.get(option_index) or {}
+        deterministic_blockers = list(
+            dict.fromkeys(
+                [
+                    str(reason)
+                    for reason in (deterministic_result.get("failed_reasons") or [])
+                    if str(reason)
+                ]
+                + shared_failures
+                + [
+                    str(code)
+                    for code in (contamination_result.get("blocker_codes") or [])
+                    if str(code)
+                ]
+            )
+        )
+        deterministic_option_passed = (
+            shared_constraints_passed
+            and deterministic_result.get("passed") is True
+            and contamination_passed
+            and not deterministic_blockers
+        )
+        unresolved_issues = [
+            str(issue)
+            for issue in (review.get("issues") or [])
+            if str(issue).strip()
+        ]
+        option_local_ready = (
+            str(review.get("verdict") or "").strip().lower() == "ready"
+            and int(review.get("score") or 0) >= FEEZIE_CRITIC_READY_SCORE
+            and int(dimensions.get("truth") or 0) >= FEEZIE_CRITIC_READY_SCORE
+            and int(dimensions.get("safety") or 0) >= FEEZIE_CRITIC_READY_SCORE
+            and all(int(dimensions.get(name) or 0) >= 7 for name in ("intent", "voice", "hook"))
+            and not unresolved_issues
+            and deterministic_option_passed
+        )
+        pair_admission_passed = bool(
+            pair_attribution_valid
+            and (
+                semantic_distinctness_passed
+                or option_index not in pair_affected_option_indices
+            )
+        )
+        option_ready = option_local_ready and pair_admission_passed
+        enriched_reviews.append(
+            {
+                **review,
+                "option_local_ready": option_local_ready,
+                "pair_admission_passed": pair_admission_passed,
+                "editorially_ready": option_ready,
+                "deterministic_quality_passed": deterministic_option_passed,
+                "deterministic_score": deterministic_result.get("score"),
+                "deterministic_threshold": deterministic_result.get("threshold"),
+                "deterministic_blocked": not deterministic_option_passed,
+                "deterministic_blocking_reasons": deterministic_blockers,
+            }
+        )
+    option_local_ready_count = sum(
+        1 for review in enriched_reviews if review.get("option_local_ready") is True
+    )
+    ready_option_count = sum(1 for review in enriched_reviews if review.get("editorially_ready") is True)
+    deterministic_gate_passed = selection_admission_passed and contamination_passed
+    ready = (
+        deterministic_gate_passed
+        and shared_constraints_passed
+        and pair_attribution_valid
+        and semantic_distinctness_passed
+        and ready_option_count > 0
+    )
+    all_blocked = bool(enriched_reviews) and all(
+        str(review.get("verdict") or "").strip().lower() == "blocked"
+        for review in enriched_reviews
+    )
+    blocking_reasons: List[str] = []
+    if not deterministic_gate_passed:
+        blocking_reasons.append("deterministic_quality_gate_failed")
+    if not shared_constraints_passed:
+        blocking_reasons.append("deterministic_shared_constraints_failed")
+    if not contamination_passed:
+        blocking_reasons.append("voice_exemplar_contamination_detected")
+    if not semantic_distinctness_passed:
+        blocking_reasons.append("critic_found_drafts_not_meaningfully_different")
+    if not pair_attribution_valid:
+        blocking_reasons.append("critic_pair_attribution_malformed")
+    if ready_option_count == 0:
+        blocking_reasons.append("critic_found_no_ready_option")
+    return {
+        "ready": ready,
+        "status": "ready" if ready else ("blocked" if all_blocked or not contamination_passed else "revision_required"),
+        "critic_status": critic_status,
+        "ready_score_threshold": FEEZIE_CRITIC_READY_SCORE,
+        "quality_gate_schema_version": FEEZIE_DETERMINISTIC_QUALITY_GATE_VERSION,
+        "deterministic_quality_receipt_valid": True,
+        "deterministic_quality_gate_passed": deterministic_gate_passed,
+        "batch_all_options_quality_passed": batch_all_options_passed,
+        "shared_constraints_passed": shared_constraints_passed,
+        "selection_admission_passed": selection_admission_passed,
+        "voice_exemplar_contamination_passed": contamination_passed,
+        "semantic_distinctness_passed": semantic_distinctness_passed,
+        "pair_attribution_valid": pair_attribution_valid,
+        "pair_affected_option_indices": pair_affected_option_indices,
+        "draft_distinctness": semantic_distinctness,
+        "option_local_ready_count": option_local_ready_count,
+        "ready_option_count": ready_option_count,
+        "option_reviews": enriched_reviews,
+        "blocking_reasons": blocking_reasons,
+    }
+
+
 def _validate_feezie_revision_execution_receipt(
     *,
     receipt: Any,
@@ -4790,8 +5967,10 @@ def _validate_feezie_blind_critic_receipt(
     *,
     receipt: Any,
     reviews: List[Dict[str, Any]],
-    expected_option_count: int,
+    options: List[str],
+    job_scope: str,
 ) -> None:
+    expected_option_count = len(options)
     if not isinstance(receipt, dict):
         raise ValueError("The independent critic must include a blind-review audit receipt.")
     allowed_keys = {
@@ -4841,14 +6020,20 @@ def _validate_feezie_blind_critic_receipt(
     if int(receipt.get("option_count") or 0) != expected_option_count:
         raise ValueError("The blind-review audit receipt does not cover both FEEZIE drafts.")
 
-    def valid_sha256(value: Any) -> bool:
-        cleaned = str(value or "").lower()
-        return len(cleaned) == 64 and all(character in "0123456789abcdef" for character in cleaned)
-
-    if not valid_sha256(receipt.get("job_scope_sha256")) or not valid_sha256(
+    if not _valid_feezie_sha256(receipt.get("job_scope_sha256")) or not _valid_feezie_sha256(
         receipt.get("mapping_commitment_sha256")
     ):
         raise ValueError("The blind-review audit receipt has an invalid commitment.")
+
+    expected_plan = _feezie_expected_blind_critic_plan(
+        job_scope=job_scope,
+        options=options,
+    )
+    if not secrets.compare_digest(
+        str(receipt.get("job_scope_sha256") or "").strip().lower(),
+        str(expected_plan["job_scope_sha256"]),
+    ):
+        raise ValueError("The blind-review audit receipt is bound to the wrong job scope.")
 
     critic_order = receipt.get("critic_order")
     if not isinstance(critic_order, list) or len(critic_order) != expected_option_count:
@@ -4872,6 +6057,8 @@ def _validate_feezie_blind_critic_receipt(
         canonical_order.append(canonical_index)
     if canonical_order == list(range(1, expected_option_count + 1)):
         raise ValueError("The independent critic received the original draft order.")
+    if critic_order != expected_plan["critic_order"]:
+        raise ValueError("The blind-review audit receipt does not match the exact final draft bytes.")
     mapping_json = json.dumps(critic_order, sort_keys=True, separators=(",", ":"))
     expected_commitment = hashlib.sha256(mapping_json.encode("utf-8")).hexdigest()
     if not secrets.compare_digest(
@@ -4879,6 +6066,8 @@ def _validate_feezie_blind_critic_receipt(
         str(receipt.get("mapping_commitment_sha256") or ""),
     ):
         raise ValueError("The blind-review audit mapping commitment does not match its evidence.")
+    if option_id_to_index != expected_plan["option_id_to_index"]:
+        raise ValueError("The blind-review opaque identifiers do not match the exact final draft bytes.")
 
     seen_review_ids: set[str] = set()
     for review in reviews:
@@ -4917,12 +6106,7 @@ def _validate_feezie_codex_completion_result(
     if len(cleaned_options) != expected_option_count or len(options) != expected_option_count:
         raise ValueError("FEEZIE completion must include exactly two non-empty draft options.")
 
-    # Imported lazily because the local execution service intentionally imports
-    # this route module for the established public-copy helpers.
-    from app.services.local_content_generation_execution_service import evaluate_draft_distinctness
-
     packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
-    distinctness = evaluate_draft_distinctness(packet, cleaned_options)
     diagnostics = result_payload.get("diagnostics")
     if not isinstance(diagnostics, dict):
         diagnostics = {}
@@ -4930,42 +6114,41 @@ def _validate_feezie_codex_completion_result(
     diagnostics["draft_contract"] = contract
     if revision_contract:
         diagnostics["revision_contract"] = revision_contract
-    diagnostics["draft_distinctness"] = distinctness
-    quality_gate = diagnostics.get("quality_gate")
-    if not isinstance(quality_gate, dict):
-        quality_gate = {}
-        diagnostics["quality_gate"] = quality_gate
-    if str(quality_gate.get("schema_version") or "") != FEEZIE_DETERMINISTIC_QUALITY_GATE_VERSION:
-        raise ValueError("FEEZIE completion requires the explicit deterministic quality-gate v2 receipt.")
-    quality_gate["draft_distinctness"] = distinctness
+    quality_gate = _canonical_feezie_quality_gate(
+        context_packet=packet,
+        options=cleaned_options,
+        submitted_quality_gate=diagnostics.get("quality_gate"),
+        require_contamination=bool(revision_contract),
+        compare_full_receipt=True,
+    )
+    diagnostics["quality_gate"] = quality_gate
+    diagnostics["draft_distinctness"] = dict(quality_gate.get("draft_distinctness") or {})
     technical_completion = diagnostics.get("technical_completion")
     if isinstance(technical_completion, dict):
         technical_completion["draft_count"] = len(cleaned_options)
 
-    critic_review = diagnostics.get("critic_review")
-    if not isinstance(critic_review, dict):
-        raise ValueError("FEEZIE completion must include an independent critic receipt or an explicit critic failure state.")
+    critic_review = _closed_feezie_critic_receipt(diagnostics.get("critic_review"))
+    diagnostics["critic_review"] = critic_review
     critic_status = str(critic_review.get("status") or "").strip().lower()
     if critic_status not in {"completed", "unavailable", "not_run"}:
         raise ValueError("FEEZIE completion has an invalid independent critic status.")
 
-    readiness = diagnostics.get("editorial_readiness")
-    if not isinstance(readiness, dict):
+    submitted_readiness = diagnostics.get("editorial_readiness")
+    if not isinstance(submitted_readiness, dict):
         raise ValueError("FEEZIE completion must include an editorial-readiness receipt.")
-    if (
-        str(readiness.get("quality_gate_schema_version") or "")
-        != FEEZIE_DETERMINISTIC_QUALITY_GATE_VERSION
-        or readiness.get("deterministic_quality_receipt_valid") is not True
-    ):
-        raise ValueError("FEEZIE editorial readiness requires a validated deterministic quality-gate v2 receipt.")
     if critic_status == "completed":
         reviews = critic_review.get("reviews")
         if not isinstance(reviews, list) or len(reviews) != expected_option_count:
             raise ValueError("The independent critic must return one review for each of the two FEEZIE drafts.")
+        critic_scope = _feezie_final_critic_job_scope(
+            job=job,
+            revision_receipt=diagnostics.get("revision_execution"),
+        )
         _validate_feezie_blind_critic_receipt(
             receipt=critic_review.get("blind_review_receipt"),
             reviews=reviews,
-            expected_option_count=expected_option_count,
+            options=cleaned_options,
+            job_scope=critic_scope,
         )
         seen_indices: set[int] = set()
         for review in reviews:
@@ -4976,10 +6159,21 @@ def _validate_feezie_codex_completion_result(
                 raise ValueError("Independent critic option indices must uniquely cover both FEEZIE drafts.")
             seen_indices.add(option_index)
             dimensions = review.get("dimension_scores")
-            required_dimensions = {"truth", "safety", "intent", "voice", "hook"}
+            score = review.get("score")
+            verdict = str(review.get("verdict") or "").strip().lower()
+            if (
+                isinstance(score, bool)
+                or not isinstance(score, int)
+                or not 1 <= score <= 10
+                or verdict not in {"ready", "revise", "blocked"}
+            ):
+                raise ValueError("Each independent critic review must include a bounded score and verdict.")
+            issues = review.get("issues")
+            if verdict != "ready" and not issues:
+                raise ValueError("A non-ready independent critic verdict must include a concrete issue.")
             if (
                 not isinstance(dimensions, dict)
-                or set(dimensions) != required_dimensions
+                or set(dimensions) != set(FEEZIE_CRITIC_DIMENSIONS)
                 or any(
                     isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 10
                     for value in dimensions.values()
@@ -4993,35 +6187,20 @@ def _validate_feezie_codex_completion_result(
         semantic_distinctness = critic_review.get("draft_distinctness")
         if not isinstance(semantic_distinctness, dict) or not isinstance(semantic_distinctness.get("passed"), bool):
             raise ValueError("The independent critic must return a semantic draft-distinctness judgment.")
-        readiness_reviews = readiness.get("option_reviews")
-        if not isinstance(readiness_reviews, list) or len(readiness_reviews) != expected_option_count:
-            raise ValueError("Editorial readiness must retain the independent review for both FEEZIE drafts.")
-        critic_reviews_by_index = {
-            int(review.get("option_index") or 0): review
-            for review in reviews
-            if isinstance(review, dict)
-        }
-        for readiness_review in readiness_reviews:
-            if not isinstance(readiness_review, dict):
-                raise ValueError("Editorial readiness contains an invalid FEEZIE option review.")
-            option_index = int(readiness_review.get("option_index") or 0)
-            critic_option_review = critic_reviews_by_index.get(option_index)
-            if not critic_option_review:
-                raise ValueError("Editorial readiness does not match the independent critic option coverage.")
-            readiness_hooks = [
-                str(hook).strip()
-                for hook in (readiness_review.get("hook_variants") or [])
-                if str(hook).strip()
-            ]
-            critic_hooks = [
-                str(hook).strip()
-                for hook in (critic_option_review.get("hook_variants") or [])
-                if str(hook).strip()
-            ]
-            if readiness_hooks != critic_hooks:
-                raise ValueError("Editorial readiness must preserve each option's exact eight-hook critic receipt.")
-    elif readiness.get("ready") is True:
-        raise ValueError("FEEZIE drafts cannot be editorially ready when the independent critic did not complete.")
+        if [int(review.get("option_index") or 0) for review in reviews] != list(
+            range(1, expected_option_count + 1)
+        ):
+            raise ValueError("Independent critic reviews must preserve canonical option order after mapping.")
+
+    readiness = _build_feezie_editorial_readiness(
+        critic_review=critic_review,
+        deterministic_quality_gate=quality_gate,
+    )
+    if json.loads(json.dumps(submitted_readiness, ensure_ascii=True)) != readiness:
+        raise ValueError(
+            "The FEEZIE editorial-readiness receipt does not match the final critic and current server quality gate."
+        )
+    diagnostics["editorial_readiness"] = readiness
 
     if revision_contract:
         _validate_feezie_revision_execution_receipt(
@@ -5030,56 +6209,6 @@ def _validate_feezie_codex_completion_result(
             critic_review=critic_review,
             readiness=readiness,
         )
-
-    semantic_distinctness_passed = (
-        critic_status == "completed"
-        and isinstance(critic_review.get("draft_distinctness"), dict)
-        and critic_review["draft_distinctness"].get("passed") is True
-    )
-    if not distinctness.get("passed"):
-        quality_gate["passed"] = False
-        quality_gate["selection_admission_passed"] = False
-        quality_failures = [str(reason) for reason in (quality_gate.get("failed_reasons") or []) if str(reason).strip()]
-        shared_constraints = (
-            quality_gate.get("shared_constraints")
-            if isinstance(quality_gate.get("shared_constraints"), dict)
-            else {}
-        )
-        shared_failures = [
-            str(reason)
-            for reason in (shared_constraints.get("failed_reasons") or [])
-            if str(reason).strip()
-        ]
-        distinctness_failures = [
-            f"draft_distinctness:{reason}"
-            for reason in (distinctness.get("failed_reasons") or [])
-            if str(reason).strip()
-        ] or ["drafts_not_meaningfully_different"]
-        for reason in distinctness_failures:
-            if reason not in shared_failures:
-                shared_failures.append(reason)
-            if reason not in quality_failures:
-                quality_failures.append(reason)
-        shared_constraints["passed"] = False
-        shared_constraints["failed_reasons"] = shared_failures
-        quality_gate["shared_constraints"] = shared_constraints
-        quality_gate["failed_reasons"] = quality_failures
-    if not distinctness.get("passed") or (critic_status == "completed" and not semantic_distinctness_passed):
-        readiness["ready"] = False
-        readiness["status"] = "revision_required"
-        blocking_reasons = [
-            str(reason)
-            for reason in (readiness.get("blocking_reasons") or [])
-            if str(reason).strip()
-        ]
-        reason = (
-            "drafts_not_meaningfully_different"
-            if not distinctness.get("passed")
-            else "critic_found_drafts_not_meaningfully_different"
-        )
-        if reason not in blocking_reasons:
-            blocking_reasons.append(reason)
-        readiness["blocking_reasons"] = blocking_reasons
     result_payload["options"] = cleaned_options
     return result_payload
 
@@ -5195,6 +6324,8 @@ def _project_feezie_option_review(value: Any) -> Dict[str, Any]:
             "option_index",
             "score",
             "verdict",
+            "option_local_ready",
+            "pair_admission_passed",
             "editorially_ready",
             "deterministic_quality_passed",
             "deterministic_score",
@@ -5397,6 +6528,7 @@ def _project_feezie_voice_contamination_receipt(value: Any) -> Dict[str, Any]:
             "exemplar_count",
             "evaluated_option_count",
             "blocked_option_count",
+            "pair_sha256",
             "contains_exemplar_text",
         )
         if raw.get(key) is not None
@@ -5420,6 +6552,7 @@ def _project_feezie_voice_contamination_receipt(value: Any) -> Dict[str, Any]:
         option_results.append(
             {
                 "option_index": item.get("option_index"),
+                "option_sha256": item.get("option_sha256"),
                 "passed": item.get("passed"),
                 "blocker_codes": _completion_text_list(
                     item.get("blocker_codes"), limit=32, item_limit=160
@@ -5548,6 +6681,9 @@ def _project_feezie_editorial_readiness(value: Any) -> Dict[str, Any]:
             "selection_admission_passed",
             "voice_exemplar_contamination_passed",
             "semantic_distinctness_passed",
+            "pair_attribution_valid",
+            "pair_affected_option_indices",
+            "option_local_ready_count",
             "ready_option_count",
         )
         if raw.get(key) is not None
@@ -6056,7 +7192,10 @@ def _build_local_codex_status_response(job: Dict[str, Any]) -> LocalCodexJobStat
 
 
 def _parse_provider_order(value: str) -> List[str]:
-    allowed = {"openai", "gemini", "ollama", "codex"}
+    # Owner decision 2026-08-21: Llama-family generation is retired system-wide.
+    # Keep unknown/retired provider names fail-closed so a stale environment
+    # variable cannot silently restore an owner-facing Ollama/Llama path.
+    allowed = {"openai", "gemini", "codex"}
     ordered: List[str] = []
     seen: set[str] = set()
     for raw in (value or "").split(","):
@@ -6074,9 +7213,7 @@ def _default_content_provider_order() -> List[str]:
         return configured
     if _runtime_is_production():
         return ["gemini", "openai"]
-    # Local generation must not silently depend on a daemon that may be absent,
-    # asleep, or serving a different model than expected. Ollama remains
-    # available only through an explicit provider order plus its opt-in flag.
+    # Local generation must not silently depend on a local generative model.
     return ["openai", "gemini"]
 
 
@@ -6084,10 +7221,7 @@ def _default_email_content_provider_order() -> List[str]:
     configured = _parse_provider_order(os.getenv("CONTENT_GENERATION_EMAIL_PROVIDER_ORDER", ""))
     if configured:
         return configured
-    base_order = _default_content_provider_order()
-    non_ollama = [provider for provider in base_order if provider != "ollama"]
-    ollama = [provider for provider in base_order if provider == "ollama"]
-    return non_ollama + ollama
+    return _default_content_provider_order()
 
 
 def _request_uses_email_provider_policy(req: "ContentGenerationRequest | None" = None) -> bool:
@@ -6103,7 +7237,43 @@ def _normalize_openai_base_url(url: str) -> str:
     normalized = (url or "").strip()
     if not normalized:
         return normalized
+    try:
+        parsed = urlsplit(normalized)
+    except ValueError as exc:
+        raise ValueError("Content-generation provider base URL is invalid.") from exc
+    hostname = str(parsed.hostname or "").strip().lower()
+    if (
+        parsed.scheme != "https"
+        or not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or "ollama" in normalized.lower()
+    ):
+        raise ValueError("Content-generation provider base URL must be a public HTTPS endpoint.")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if (
+        (address is not None and not address.is_global)
+        or hostname in {"localhost", "0.0.0.0"}
+        or hostname.endswith((".internal", ".local"))
+    ):
+        raise ValueError("Content-generation provider base URL must be a public HTTPS endpoint.")
     return normalized if normalized.endswith("/") else f"{normalized}/"
+
+
+def _validated_generation_model(value: str) -> str:
+    """Reject retired model identities before an allowed provider is invoked."""
+
+    normalized = str(value or "").strip()
+    if not normalized or len(normalized) > 200 or any(character in normalized for character in "\r\n"):
+        raise ValueError("Content-generation model configuration is invalid.")
+    if "llama" in normalized.lower() or "ollama" in normalized.lower():
+        raise ValueError("Llama-family generation is retired and cannot be configured.")
+    return normalized
 
 
 def _provider_is_configured(name: str) -> bool:
@@ -6113,8 +7283,6 @@ def _provider_is_configured(name: str) -> bool:
         return bool((os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip())
     if name == "gemini":
         return bool((os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
-    if name == "ollama":
-        return _env_flag_enabled("CONTENT_GENERATION_ENABLE_OLLAMA")
     return False
 
 
@@ -6128,14 +7296,16 @@ def _uses_fast_model_alias(requested_model: str) -> bool:
 def _resolve_provider_model(provider: ContentLLMProvider, requested_model: str) -> str:
     normalized = (requested_model or "").strip().lower()
     if normalized == CONTENT_FAST_MODEL_ALIAS:
-        return provider.fast_model
+        return _validated_generation_model(provider.fast_model)
     if normalized == CONTENT_EDITOR_MODEL_ALIAS:
-        return provider.editor_model or provider.fast_model
+        return _validated_generation_model(provider.editor_model or provider.fast_model)
+    if normalized:
+        _validated_generation_model(requested_model)
     if provider.name == "openai":
-        return requested_model
+        return _validated_generation_model(requested_model or provider.fast_model)
     if _uses_fast_model_alias(requested_model):
-        return provider.fast_model
-    return provider.editor_model or provider.fast_model
+        return _validated_generation_model(provider.fast_model)
+    return _validated_generation_model(provider.editor_model or provider.fast_model)
 
 
 def _is_retryable_rate_limit_error(exc: Exception) -> bool:
@@ -6238,13 +7408,7 @@ def _provider_timeout_seconds(provider_name: str, req: "ContentGenerationRequest
             continue
         if timeout_seconds > 0:
             return timeout_seconds
-    if uses_email_policy:
-        if provider_name == "ollama":
-            return 4.0
-        return 12.0
-    if provider_name == "ollama":
-        return 20.0
-    return 45.0
+    return 12.0 if uses_email_policy else 45.0
 
 
 def _content_provider_order_for_request(req: "ContentGenerationRequest | None" = None) -> List[str]:
@@ -6265,66 +7429,89 @@ def get_openai_client(req: "ContentGenerationRequest | None" = None):
         if provider_name == "codex":
             codex_api_key = os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY")
             codex_base_url = _normalize_openai_base_url(os.getenv("CONTENT_GENERATION_CODEX_BASE_URL", ""))
-            client_kwargs: Dict[str, Any] = {"api_key": codex_api_key, "timeout": timeout_seconds}
+            codex_fast_model = _validated_generation_model(
+                os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini")
+            )
+            codex_editor_model = _validated_generation_model(
+                os.getenv("CONTENT_GENERATION_CODEX_EDITOR_MODEL", codex_fast_model)
+            )
+            client_kwargs: Dict[str, Any] = {
+                "api_key": codex_api_key,
+                "timeout": timeout_seconds,
+                # The provider router owns retries and fallback.  Hidden SDK
+                # retries defeat its bounded attempt and timeout receipts.
+                "max_retries": 0,
+            }
             if codex_base_url:
                 client_kwargs["base_url"] = codex_base_url
             providers.append(
                 ContentLLMProvider(
                     name="codex",
                     client=openai.OpenAI(**client_kwargs),
-                    fast_model=os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini"),
-                    editor_model=os.getenv(
-                        "CONTENT_GENERATION_CODEX_EDITOR_MODEL",
-                        os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini"),
-                    ),
+                    fast_model=codex_fast_model,
+                    editor_model=codex_editor_model,
                 )
             )
             continue
         if provider_name == "openai":
+            openai_fast_model = _validated_generation_model(
+                os.getenv("CONTENT_GENERATION_OPENAI_FAST_MODEL", "gpt-4o-mini")
+            )
+            openai_editor_model = _validated_generation_model(
+                os.getenv(
+                    "CONTENT_GENERATION_OPENAI_EDITOR_MODEL",
+                    os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o-mini"),
+                )
+            )
             providers.append(
                 ContentLLMProvider(
                     name="openai",
-                    client=openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=timeout_seconds),
-                    fast_model=os.getenv("CONTENT_GENERATION_OPENAI_FAST_MODEL", "gpt-4o-mini"),
-                    editor_model=os.getenv("CONTENT_GENERATION_OPENAI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o-mini")),
+                    client=openai.OpenAI(
+                        api_key=os.getenv("OPENAI_API_KEY"),
+                        # Do not inherit OPENAI_BASE_URL: that implicit SDK
+                        # override could redirect this allowed provider name to
+                        # a retired local OpenAI-compatible model server.
+                        base_url="https://api.openai.com/v1/",
+                        timeout=timeout_seconds,
+                        max_retries=0,
+                    ),
+                    fast_model=openai_fast_model,
+                    editor_model=openai_editor_model,
                 )
             )
             continue
         if provider_name == "gemini":
+            gemini_base_url = _normalize_openai_base_url(
+                os.getenv(
+                    "GEMINI_OPENAI_BASE_URL",
+                    "https://generativelanguage.googleapis.com/v1beta/openai/",
+                )
+            )
+            gemini_fast_model = _validated_generation_model(
+                os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash")
+            )
+            gemini_editor_model = _validated_generation_model(
+                os.getenv("CONTENT_GENERATION_GEMINI_EDITOR_MODEL", gemini_fast_model)
+            )
             providers.append(
                 ContentLLMProvider(
                     name="gemini",
                     client=openai.OpenAI(
                         api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
-                        base_url=_normalize_openai_base_url(
-                            os.getenv("GEMINI_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-                        ),
+                        base_url=gemini_base_url,
                         timeout=timeout_seconds,
+                        max_retries=0,
                     ),
-                    fast_model=os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash"),
-                    editor_model=os.getenv("CONTENT_GENERATION_GEMINI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash")),
+                    fast_model=gemini_fast_model,
+                    editor_model=gemini_editor_model,
                 )
             )
             continue
-        if provider_name == "ollama":
-            providers.append(
-                ContentLLMProvider(
-                    name="ollama",
-                    client=openai.OpenAI(
-                        api_key=os.getenv("OLLAMA_API_KEY", "ollama"),
-                        base_url=_normalize_openai_base_url(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")),
-                        timeout=timeout_seconds,
-                    ),
-                    fast_model=os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1"),
-                    editor_model=os.getenv("CONTENT_GENERATION_OLLAMA_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1")),
-                )
-            )
     if not providers:
         raise ValueError(
             "No reliable content-generation provider is configured. Set GEMINI_API_KEY, "
-            "OPENAI_API_KEY, or CONTENT_GENERATION_CODEX_API_KEY. To opt into the "
-            "local Ollama fallback, also set CONTENT_GENERATION_ENABLE_OLLAMA=true "
-            "and include ollama in CONTENT_GENERATION_PROVIDER_ORDER."
+            "OPENAI_API_KEY, or CONTENT_GENERATION_CODEX_API_KEY. Local Llama-family "
+            "generation is retired and cannot be enabled by provider-order configuration."
         )
     return ContentLLMRouterClient(providers)
 
@@ -6343,7 +7530,7 @@ def _use_compact_staged_generation(client: Any, *, content_type: str) -> bool:
         return False
     providers = getattr(client, "providers", []) or []
     primary_provider = str(getattr(providers[0], "name", "")).lower() if providers else ""
-    return primary_provider in {"gemini", "ollama"}
+    return primary_provider == "gemini"
 
 
 def _split_example_references(example_chunks: List[Dict[str, Any]], *, limit: int = 3) -> tuple[List[str], List[str]]:
@@ -6381,8 +7568,11 @@ def build_content_prompt(
     proof_packets: Optional[List[str]] = None,
     story_beats: Optional[List[str]] = None,
     disallowed_moves: Optional[List[str]] = None,
+    option_count: Literal[1, 3] = 1,
 ) -> str:
     """Build the prompt for content generation."""
+    if option_count not in {1, 3}:
+        raise ValueError("content generation supports one canonical option or three legacy options")
     audience_label = _audience_prompt_label(audience)
     topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
@@ -6436,9 +7626,54 @@ def build_content_prompt(
         primary_claims=primary_claims,
         proof_packets=proof_packets,
         story_beats=story_beats,
-        option_count=3,
+        option_count=option_count,
     )
     option_framing_plan_text = _render_option_framing_plan(option_framing_plan)
+    option_plan_heading = (
+        "## OPTION FRAMING PLAN (follow this for the canonical post):"
+        if option_count == 1
+        else "## OPTION FRAMING PLAN (follow this so the three options do not collapse into one shape):"
+    )
+    option_grounding_instruction = (
+        "Ground the canonical post in the topic anchors first. Biography is support, not the main point."
+        if option_count == 1
+        else "Ground every option in the topic anchors first. Biography is support, not the main point."
+    )
+    option_proof_instruction = (
+        "The canonical post must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available."
+        if option_count == 1
+        else "Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available."
+    )
+    option_generation_instruction = (
+        "Generate exactly 1 canonical content option. Do not generate hidden alternatives or a second thesis."
+        if option_count == 1
+        else "Generate 3 different options with varying hooks/angles."
+    )
+    option_framing_instruction = (
+        "Use the single approved framing mode in the OPTION FRAMING PLAN."
+        if option_count == 1
+        else "Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape."
+    )
+    option_plan_instruction = (
+        "Follow the OPTION FRAMING PLAN. The canonical post must keep one hook, posture, and payoff."
+        if option_count == 1
+        else "Follow the OPTION FRAMING PLAN above. Option 1, 2, and 3 should feel materially different in hook, posture, and payoff."
+    )
+    option_claim_instruction = (
+        "Pick one PRIMARY CLAIM for the canonical post and stay inside it. Do not merge multiple weak ideas together."
+        if option_count == 1
+        else "Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together."
+    )
+    option_proof_ready_instruction = (
+        "If `proof_ready`, the canonical post must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact."
+        if option_count == 1
+        else "If `proof_ready`, each option must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact."
+    )
+    output_instruction = (
+        "Generate exactly 1 canonical content option. Output only that option; do not use an option separator:"
+        if option_count == 1
+        else 'Generate 3 content options, separated by "---OPTION---":'
+    )
     
     visible_persona_chunks = _collect_prompt_visible_chunks(
         persona_chunks=persona_chunks,
@@ -7037,7 +8272,7 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## APPROVED FRAMING MODES (preserve the legacy rhetorical edge):
 {framing_modes_text}
 
-## OPTION FRAMING PLAN (follow this so the three options do not collapse into one shape):
+{option_plan_heading}
 {option_framing_plan_text}
 
 ## PRIMARY CLAIMS YOU MAY MAKE:
@@ -7066,20 +8301,20 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## INSTRUCTIONS:
 1. Write AS this person using their actual experiences and perspectives.
 2. Follow the 3-part structure above, but do NOT force a personal story when the topic anchors are principle-led.
-3. Ground every option in the topic anchors first. Biography is support, not the main point.
+3. {option_grounding_instruction}
 4. Only use a personal anecdote if it appears in the eligible story/proof anchors above.
 5. If there is no eligible story anchor, stay with proof, principle, and operating insight.
 6. Start from one PRIMARY CLAIM as the strategic thesis of the post. Do not let a proof packet become the whole headline unless the primary claim itself is already phrased that way.
-7. Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available.
+7. {option_proof_instruction}
 8. If you use a metric, keep its original subject intact. Never convert a participation, utilization, or revenue metric into a generic productivity or completion-time claim.
 9. Use proof packets to support the thesis, not to replace the thesis.
 10. Be specific and actionable, not generic.
-11. Generate 3 different options with varying hooks/angles.
+11. {option_generation_instruction}
 10. Keep the writing vivid. Use tension, agreement, contrast, or drama only when it stays grounded in the approved framing modes above.
-11. Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape.
-12. Follow the OPTION FRAMING PLAN above. Option 1, 2, and 3 should feel materially different in hook, posture, and payoff.
-12. Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together.
-13. If `proof_ready`, each option must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact.
+11. {option_framing_instruction}
+12. {option_plan_instruction}
+12. {option_claim_instruction}
+13. {option_proof_ready_instruction}
 14. If `principle_only`, do not mention named systems, employers, projects, or metrics unless they already appear in PRIMARY CLAIMS.
 15. If a named reference is not in APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES, remove it.
 16. Use the VOICE SHAPING RULES above. Keep the language casual, sharp, and spoken. Do not flatten the writing into generic professional summaries.
@@ -7104,7 +8339,7 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 
 Output only the content. No notes, no explanations.
 
-Generate 3 content options, separated by "---OPTION---":
+{output_instruction}
 """
     
     return prompt
@@ -7176,7 +8411,7 @@ def plan_content_option_briefs(
     story_beats: List[str],
     framing_modes: List[str],
     request_context: str = "",
-    option_count: int = 3,
+    option_count: int = 1,
 ) -> List[ContentOptionBrief]:
     option_plan = _build_option_framing_plan(
         framing_modes=framing_modes,
@@ -7208,8 +8443,13 @@ def plan_content_option_briefs(
                 mechanism_anchor_terms=list(item.get("mechanism_anchor_terms") or []),
                 recognition_anchor_terms=list(item.get("recognition_anchor_terms") or []),
                 decision_rule_basis=str(item.get("decision_rule_basis") or ""),
+                decision_moment_basis=str(item.get("decision_moment_basis") or ""),
+                decision_moment_anchor_terms=list(item.get("decision_moment_anchor_terms") or []),
                 required_context_concepts=str(item.get("required_context_concepts") or ""),
                 consequence_basis=str(item.get("consequence_basis") or ""),
+                application_closing_anchor_terms=list(
+                    item.get("application_closing_anchor_terms") or []
+                ),
                 proof_facet_id=str(item.get("proof_facet_id") or ""),
                 semantic_payload_version=str(item.get("semantic_payload_version") or ""),
             )
@@ -7237,10 +8477,20 @@ def _render_content_option_briefs(briefs: List[ContentOptionBrief]) -> str:
             lines.append(f"- Mechanism anchor terms: {', '.join(brief.mechanism_anchor_terms)}")
         if brief.recognition_anchor_terms:
             lines.append(f"- Recognition anchor terms: {', '.join(brief.recognition_anchor_terms)}")
+        if brief.decision_moment_anchor_terms:
+            lines.append(
+                f"- Decision moment anchor terms: {', '.join(brief.decision_moment_anchor_terms)}"
+            )
+        if brief.application_closing_anchor_terms:
+            lines.append(
+                "- Application closing anchor terms: "
+                + ", ".join(brief.application_closing_anchor_terms)
+            )
         for value, label in (
             (brief.mechanism_focus, "Mechanism focus"),
             (brief.recognition_basis, "Recognition basis"),
             (brief.decision_rule_basis, "Decision-rule basis"),
+            (brief.decision_moment_basis, "Decision moment basis"),
             (brief.required_context_concepts, "Required context concepts"),
             (brief.consequence_basis, "Consequence basis"),
             (brief.proof_facet_id, "Proof facet ID"),
@@ -7489,6 +8739,13 @@ def build_planned_writer_prompt(
     approved_references: List[str],
     disallowed_moves: List[str],
 ) -> str:
+    option_count = max(len(briefs), 1)
+    option_suffix = "" if option_count == 1 else "s"
+    separator_instruction = (
+        "Output only the canonical option; do not add an option heading or hidden alternative."
+        if option_count == 1
+        else f"Output only the {option_count} options, separated by ---OPTION---."
+    )
     audience_label = _audience_prompt_label(audience)
     topic_anchor_text = _prompt_topic_anchor_text(
         topic_anchor_chunks=topic_anchor_chunks,
@@ -7541,7 +8798,7 @@ def build_planned_writer_prompt(
     topic_specific_guardrail_text = "\n".join(f"- {line}" for line in topic_specific_guardrails) or "- No extra topic-specific guardrails."
     return f"""You are the writer stage in a planner -> writer -> critic content system.
 
-Write exactly 3 LinkedIn post options, separated by ---OPTION---.
+Write exactly {option_count} LinkedIn post option{option_suffix}{', separated by ---OPTION---' if option_count > 1 else ''}.
 Write one option for each planned brief below.
 
 Topic: {topic}
@@ -7600,7 +8857,7 @@ WRITER RULES:
 - If no story is approved, do not force one.
 - Borrow rhythm and shape from GOOD STYLE REFERENCES, not their facts.
 - If a line sounds like generic LinkedIn advice, replace it with sharper operator language.
-- Return exactly 3 complete options, each separated by ---OPTION---.
+- Return exactly {option_count} complete option{option_suffix}{', each separated by ---OPTION---' if option_count > 1 else ''}.
 - Do not add standalone filler fragments like "Why?", "This.", "That.", or a one-line restatement of the opener.
 - Use at most one short punch line per option, and only if it adds new meaning.
 - Do not stack multiple short contrast fragments before the proof.
@@ -7608,7 +8865,7 @@ WRITER RULES:
 - Do not echo internal audience slugs like `tech_ai` or `education_admissions`.
 - Do not use house scaffold lines like `That is the operating model.`, `That is where it breaks.`, or `Otherwise it's just another tab.`.
 
-Output only the 3 options, separated by ---OPTION---.
+{separator_instruction}
 """
 
 
@@ -7893,6 +9150,13 @@ def build_planned_critic_prompt(
     voice_directives: List[str],
     approved_references: List[str],
 ) -> str:
+    option_count = max(len(rough_options), 1)
+    option_suffix = "" if option_count == 1 else "s"
+    separator_instruction = (
+        "Output only the rewritten canonical option; do not add an option heading or hidden alternative."
+        if option_count == 1
+        else "Output only the rewritten options, separated by ---OPTION---."
+    )
     audience_label = _audience_prompt_label(audience)
     options_text = "\n---OPTION---\n".join(rough_options)
     avoid_text = "\n".join(f"- {example}" for example in avoid_examples[:3]) or "- No extra avoid-pattern examples."
@@ -7953,7 +9217,7 @@ DRAFTS TO CRITIQUE:
 {options_text}
 
 CRITIC RULES:
-- Keep 3 options separated by ---OPTION---.
+- Keep exactly {option_count} option{option_suffix}{' separated by ---OPTION---' if option_count > 1 else ''}.
 - Preserve the approved facts, claim meaning, and proof meaning.
 - Remove generic consultant phrasing.
 - If an option opens with a flat generic statement, rewrite the opening around the planned strategic claim.
@@ -7966,7 +9230,7 @@ CRITIC RULES:
 - If a short punch line does not add new meaning, remove it.
 - Translate internal operator phrasing into public language. Do not leave phrases like `shared workspace state`, `typed retrieval`, or `proof-aware prompts` in the final copy.
 
-Output only the rewritten options, separated by ---OPTION---.
+{separator_instruction}
 """
 
 
@@ -8135,6 +9399,95 @@ def _assigned_application_rule_near_opening(option: str, brief: ContentOptionBri
     }
     required = min(2, len(basis_terms))
     return bool(required and len(basis_terms.intersection(opening_terms)) >= required)
+
+
+def _feezie_role_term_variants(term: str) -> set[str]:
+    """Return conservative grammatical variants for a source-bound role term."""
+
+    normalized = "".join(re.findall(r"[a-z0-9]+", str(term or "").lower()))
+    if not normalized:
+        return set()
+    variants = {normalized}
+    if len(normalized) > 6 and normalized.endswith("ty"):
+        variants.add(normalized[:-2])
+    if len(normalized) > 5 and normalized.endswith("ies"):
+        variants.add(normalized[:-3] + "y")
+    if len(normalized) > 5 and normalized.endswith("ing"):
+        variants.add(normalized[:-3])
+        variants.add(normalized[:-3] + "e")
+    if len(normalized) > 5 and normalized.endswith("ed"):
+        variants.add(normalized[:-2])
+        variants.add(normalized[:-1])
+    if len(normalized) > 4 and normalized.endswith("s") and not normalized.endswith("ss"):
+        variants.add(normalized[:-1])
+    return {value for value in variants if len(value) >= 4}
+
+
+def _feezie_role_term_overlap_count(left: set[str], right: set[str]) -> int:
+    """Count one-to-one exact or conservative grammatical term matches."""
+
+    remaining = set(right)
+    matches = 0
+    for left_term in sorted(left):
+        left_variants = _feezie_role_term_variants(left_term)
+        matched = next(
+            (
+                right_term
+                for right_term in sorted(remaining)
+                if left_variants.intersection(_feezie_role_term_variants(right_term))
+            ),
+            None,
+        )
+        if matched is not None:
+            matches += 1
+            remaining.remove(matched)
+    return matches
+
+
+def _assigned_diagnosis_claim_near_opening(
+    option: str,
+    brief: ContentOptionBrief,
+) -> bool:
+    """Recognize the current topic-led diagnosis hook without spending its problem.
+
+    V4 reserves both exact-problem anchors for paragraph two, so the older
+    requirement that sentence one contain a mechanism anchor directly
+    contradicted the writer and paragraph-role contracts.  Current hooks must
+    instead retain at least two substantive terms from their remote-safe
+    strategic topic while consuming neither reserved problem anchor.
+    """
+
+    if str(getattr(brief, "semantic_payload_version", "") or "").strip() != FEEZIE_ROLE_PAYLOAD_VERSION:
+        return False
+    diagnosis_fields = (
+        str(getattr(brief, "mechanism_focus", "") or "").strip(),
+        str(getattr(brief, "recognition_basis", "") or "").strip(),
+    )
+    application_fields = (
+        str(getattr(brief, "decision_rule_basis", "") or "").strip(),
+        str(getattr(brief, "required_context_concepts", "") or "").strip(),
+        str(getattr(brief, "consequence_basis", "") or "").strip(),
+    )
+    if not all(diagnosis_fields) or any(application_fields):
+        return False
+    opening = (_first_content_line(option) or "").lower()
+    opening_terms = _feezie_diagnosis_opening_terms(opening)
+    claim_terms = _feezie_diagnosis_opening_terms(str(brief.primary_claim or ""))
+    mechanism_anchors = [
+        str(token or "").strip().lower()
+        for token in (getattr(brief, "mechanism_anchor_terms", ()) or ())
+        if str(token or "").strip()
+    ]
+    reserved_problem_anchor_present = any(
+        re.search(rf"\b{re.escape(anchor)}\b", opening)
+        for anchor in mechanism_anchors
+    )
+    opening_word_count = len(re.findall(r"[A-Za-z0-9]+", opening))
+    return bool(
+        not reserved_problem_anchor_present
+        and 5 <= opening_word_count <= 16
+        and _feezie_role_term_overlap_count(claim_terms, opening_terms) >= 2
+    )
 
 
 def _force_claim_lead(option: str, brief: ContentOptionBrief) -> str:
@@ -9563,6 +10916,13 @@ def build_proof_enforcement_prompt(
     framing_modes: List[str],
     voice_directives: Optional[List[str]] = None,
 ) -> str:
+    option_count = max(len(rough_options), 1)
+    option_suffix = "" if option_count == 1 else "s"
+    separator_instruction = (
+        "Output only the rewritten canonical option; do not add an option heading or hidden alternative."
+        if option_count == 1
+        else "Output only the rewritten options, separated by ---OPTION---."
+    )
     audience_label = _audience_prompt_label(audience)
     options_text = "\n---OPTION---\n".join(rough_options)
     claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay inside the topic."
@@ -9582,7 +10942,7 @@ def build_proof_enforcement_prompt(
             primary_claims=primary_claims,
             proof_packets=proof_packets,
             story_beats=story_beats,
-            option_count=max(len(rough_options), 3),
+            option_count=option_count,
         )
     )
     return f"""You are repairing draft posts that are too generic and are not carrying the approved proof strongly enough.
@@ -9618,7 +10978,7 @@ DRAFTS TO REWRITE:
 {options_text}
 
 REWRITE RULES:
-- Keep 3 options.
+- Keep exactly {option_count} option{option_suffix}.
 - Each option must use one PRIMARY CLAIM.
 - Each option must explicitly mention at least one named system, artifact, or evidence phrase from an APPROVED PROOF PACKET.
 - Only use named references that appear in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list above.
@@ -9627,12 +10987,12 @@ REWRITE RULES:
 - Keep the original proof meaning intact. Do not generalize it into vague productivity language.
 - Do not use phrases like seamless, unlock potential, drive results, or everything flows.
 - Preserve the person's casual rhythm and punchy style.
-- Use different framing modes across the options.
-- Use the assigned OPTION FRAMING PLAN so the three options do not flatten into the same shape.
+- Follow the assigned framing mode for every option.
+- Use the assigned OPTION FRAMING PLAN without introducing extra options or theses.
 - Delete filler beats like "Why?" and remove standalone restatements of the opener.
 - Do not stack multiple short fragments before the proof line.
 
-Output only the rewritten options, separated by ---OPTION---.
+{separator_instruction}
 """
 
 
@@ -9653,6 +11013,13 @@ def build_refinement_prompt(
     story_beats: Optional[List[str]] = None,
     disallowed_moves: Optional[List[str]] = None,
 ) -> str:
+    option_count = max(len(rough_options), 1)
+    option_suffix = "" if option_count == 1 else "s"
+    separator_instruction = (
+        "Output only the rewritten canonical option; do not add an option heading or hidden alternative."
+        if option_count == 1
+        else "Output only the rewritten options, separated by ---OPTION---."
+    )
     audience_label = _audience_prompt_label(audience)
     topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
@@ -9702,7 +11069,7 @@ def build_refinement_prompt(
             primary_claims=primary_claims,
             proof_packets=proof_packets,
             story_beats=story_beats,
-            option_count=max(len(rough_options), 3),
+            option_count=option_count,
         )
     )
     rough_text = "\n---OPTION---\n".join(rough_options)
@@ -9755,7 +11122,7 @@ ROUGH OPTIONS TO REWRITE:
 {rough_text}
 
 REVISION RULES:
-- Keep 3 options.
+- Keep exactly {option_count} option{option_suffix}.
 - Preserve the person's casual voice and punchy rhythm.
 - Remove generic filler, motivational fluff, and any language that could apply to anyone.
 - Make sure each option clearly leads with one approved PRIMARY CLAIM.
@@ -9781,7 +11148,7 @@ REVISION RULES:
 - Delete filler beats like "Why?" and remove short standalone restatements that only repeat the opener.
 - Keep each option as one clear opener, one proof-bearing middle, and one sharp landing.
 
-Output only the rewritten options, separated by ---OPTION---.
+{separator_instruction}
 """
 
 
@@ -9796,6 +11163,13 @@ def build_voice_sharpen_prompt(
     framing_modes: List[str],
     voice_directives: List[str],
 ) -> str:
+    option_count = max(len(rough_options), 1)
+    option_suffix = "" if option_count == 1 else "s"
+    separator_instruction = (
+        "Output only the sharpened canonical option; do not add an option heading or hidden alternative."
+        if option_count == 1
+        else "Output only the rewritten options, separated by ---OPTION---."
+    )
     audience_label = _audience_prompt_label(audience)
     options_text = "\n---OPTION---\n".join(rough_options)
     claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay tightly inside the topic."
@@ -9810,7 +11184,7 @@ def build_voice_sharpen_prompt(
             primary_claims=primary_claims,
             proof_packets=proof_packets,
             story_beats=story_beats,
-            option_count=max(len(rough_options), 3),
+            option_count=option_count,
         )
     )
     approved_reference_text = "\n".join(
@@ -9848,7 +11222,7 @@ DRAFTS TO SHARPEN:
 {options_text}
 
 SHARPENING RULES:
-- Keep 3 options.
+- Keep exactly {option_count} option{option_suffix}.
 - Do not add new facts, names, or proof.
 - Preserve the approved claim and proof meaning exactly.
 - Remove flat openers like "X is essential", "X is critical", or "In today's world".
@@ -9864,7 +11238,7 @@ SHARPENING RULES:
 - Keep one strong punch line, not a stack of fragments.
 - Do not use meta directives like "Read that again" or "Write that down".
 
-Output only the rewritten options, separated by ---OPTION---.
+{separator_instruction}
 """
 
 
@@ -9921,7 +11295,7 @@ def refine_generated_options(
         max_tokens=1800,
     )
     refined = parse_content_options(response.choices[0].message.content or "")
-    return refined[:3] if len(refined) >= len(rough_options) else rough_options
+    return refined[: len(rough_options)] if len(refined) >= len(rough_options) else rough_options
 
 
 def sharpen_editorial_options(
@@ -9975,7 +11349,7 @@ def sharpen_editorial_options(
             max_tokens=1800,
         )
     sharpened = parse_content_options(response.choices[0].message.content or "")
-    sharpened = sharpened[:3] if len(sharpened) >= len(rough_options) else rough_options
+    sharpened = sharpened[: len(rough_options)] if len(sharpened) >= len(rough_options) else rough_options
     if grounding_mode == "proof_ready" and proof_packets:
         approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
         if not all(
@@ -10065,7 +11439,7 @@ def enforce_grounding_on_options(
         max_tokens=1800,
     )
     repaired = parse_content_options(response.choices[0].message.content or "")
-    return repaired[:3] if len(repaired) >= len(rough_options) else rough_options
+    return repaired[: len(rough_options)] if len(repaired) >= len(rough_options) else rough_options
 
 
 def _generate_legacy_options(
@@ -10096,6 +11470,7 @@ def _generate_legacy_options(
         proof_packets=content_context.proof_packets,
         story_beats=content_context.story_beats,
         disallowed_moves=content_context.disallowed_moves,
+        option_count=req.option_count,
     )
     response = client.chat.completions.create(
         model=CONTENT_FAST_MODEL_ALIAS,
@@ -10167,7 +11542,7 @@ CRITICAL RULES:
         story_beats=content_context.story_beats,
         framing_modes=content_context.framing_modes,
     )
-    return options[:3]
+    return options[: req.option_count]
 
 
 def _generate_staged_options(
@@ -10200,7 +11575,7 @@ def _generate_staged_options(
         proof_packets=content_context.proof_packets,
         story_beats=content_context.story_beats,
         framing_modes=content_context.framing_modes,
-        option_count=3,
+        option_count=req.option_count,
     )
     rough_options = write_planned_options(
         client=client,
@@ -10301,7 +11676,7 @@ def _generate_staged_options(
         grounding_mode=content_context.grounding_mode,
     )
     fallback_trace["final_option_count_before_cap"] = len(finalized)
-    return finalized[:3], briefs, "planner_writer_critic", fallback_trace
+    return finalized[: req.option_count], briefs, "planner_writer_critic", fallback_trace
 
 
 def _provider_trace_indicates_fallback(provider_trace: List[Dict[str, Any]]) -> bool:
@@ -10315,6 +11690,12 @@ def _provider_trace_indicates_fallback(provider_trace: List[Dict[str, Any]]) -> 
     if len(distinct_providers) > 1:
         return True
     return not any(str(entry.get("status") or "").lower() == "success" for entry in provider_trace)
+
+
+def _legacy_generation_fallback_allowed(req: ContentGenerationRequest) -> bool:
+    """Keep the retired generator reachable only to the explicit three-option caller."""
+
+    return req.option_count == 3
 
 
 async def run_content_generation(req: ContentGenerationRequest) -> ContentGenerationResponse:
@@ -10346,6 +11727,11 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
         example_chunks=example_chunks,
     )
     if not options:
+        if not _legacy_generation_fallback_allowed(req):
+            raise RuntimeError(
+                "Canonical staged generation returned no options; "
+                "the legacy generator is disabled for canonical requests."
+            )
         options = _generate_legacy_options(
             client=client,
             req=req,
@@ -10358,7 +11744,7 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
             proof_packets=content_context.proof_packets,
             story_beats=content_context.story_beats,
             framing_modes=content_context.framing_modes,
-            option_count=max(len(options), 3),
+            option_count=max(len(options), req.option_count),
         )
         generation_strategy = "legacy_fallback"
         fallback_trace["legacy_fallback_triggered"] = True
@@ -10370,6 +11756,7 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
                 "action": "used_legacy_generator",
             }
         )
+    options = options[: req.option_count]
     approved_references = _extract_approved_reference_terms(
         content_context.primary_claims,
         content_context.proof_packets,
@@ -10381,7 +11768,7 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
         primary_claims=content_context.primary_claims,
         proof_packets=content_context.proof_packets,
         story_beats=content_context.story_beats,
-        option_count=3,
+        option_count=req.option_count,
     )
     topic_anchor_preview = [
         _render_anchor_chunk(item)[:220]
@@ -10404,17 +11791,17 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
             story_beats=content_context.story_beats,
             grounding_mode=content_context.grounding_mode,
         )
-        for index, option in enumerate(options[:3])
+        for index, option in enumerate(options[: req.option_count])
     ]
     options, option_briefs, taste_scores = _rank_options_by_taste(
-        options=options[:3],
+        options=options[: req.option_count],
         briefs=option_briefs,
         taste_scores=taste_scores,
         topic=req.topic,
         audience=req.audience,
     )
     options, taste_scores = _repair_weak_ranked_options(
-        options=options[:3],
+        options=options[: req.option_count],
         briefs=option_briefs,
         taste_scores=taste_scores,
         topic=req.topic,
@@ -10426,7 +11813,7 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
         approved_reference_terms=approved_references,
     )
     options, option_briefs, taste_scores = _rank_options_by_taste(
-        options=options[:3],
+        options=options[: req.option_count],
         briefs=option_briefs,
         taste_scores=taste_scores,
         topic=req.topic,
@@ -10436,7 +11823,7 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
 
     return ContentGenerationResponse(
         success=True,
-        options=options[:3],
+        options=options[: req.option_count],
         persona_context=content_context.persona_context_summary,
         examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]],
         diagnostics={
@@ -10850,7 +12237,7 @@ def _repair_weak_ranked_options(
     return repaired_options, repaired_tastes
 
 
-@router.post("/codex-jobs", response_model=LocalCodexJobCreateResponse)
+@router.post("/codex-jobs", response_model=LocalCodexJobCreateResponse, deprecated=True)
 async def create_local_codex_job(req: LocalCodexJobCreateRequest):
     try:
         job = queue_local_codex_job(req)
@@ -11068,11 +12455,65 @@ def _require_v2_selected_quality_result(
     return selected
 
 
+def _revalidate_feezie_persisted_completion_receipts(
+    *,
+    job_id: str,
+    result_payload: Dict[str, Any],
+    context_packet: Dict[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Recheck projected Railway state before an exact-copy owner handoff."""
+
+    options = [
+        str(option).strip()
+        for option in (result_payload.get("options") or [])
+        if isinstance(option, str) and str(option).strip()
+    ]
+    if len(options) != FEEZIE_CODEX_DRAFT_OPTION_COUNT:
+        raise ValueError("The stored FEEZIE result no longer contains its exact final draft pair.")
+    diagnostics = (
+        result_payload.get("diagnostics")
+        if isinstance(result_payload.get("diagnostics"), dict)
+        else {}
+    )
+    job = {"id": job_id, "context_packet": context_packet}
+    revision_contract = _feezie_revision_contract(job)
+    quality_gate = _canonical_feezie_quality_gate(
+        context_packet=context_packet,
+        options=options,
+        submitted_quality_gate=diagnostics.get("quality_gate"),
+        require_contamination=bool(revision_contract),
+        compare_full_receipt=False,
+    )
+    critic_review = _closed_feezie_critic_receipt(diagnostics.get("critic_review"))
+    try:
+        readiness = _build_feezie_editorial_readiness(
+            critic_review=critic_review,
+            deterministic_quality_gate=quality_gate,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("The stored FEEZIE critic receipt is no longer valid.") from exc
+    projected_readiness = _project_feezie_editorial_readiness(readiness)
+    if diagnostics.get("editorial_readiness") != projected_readiness:
+        raise ValueError(
+            "The stored FEEZIE editorial-readiness receipt no longer matches the exact final drafts."
+        )
+
+    # Reuse the full completion validator for critic byte/scope binding and the
+    # no-copy revision topology after restoring the server-only full receipts.
+    candidate = json.loads(json.dumps(result_payload, ensure_ascii=True))
+    candidate_diagnostics = candidate.setdefault("diagnostics", {})
+    candidate_diagnostics["quality_gate"] = quality_gate
+    candidate_diagnostics["editorial_readiness"] = readiness
+    _validate_feezie_codex_completion_result(job=job, result_payload=candidate)
+    return _project_feezie_quality_gate(quality_gate), projected_readiness
+
+
 def _require_editorially_ready_option(
     *,
     result_payload: Dict[str, Any],
     context_packet: Dict[str, Any],
     option_index: int,
+    job_id: str | None = None,
 ) -> Dict[str, Any]:
     diagnostics = result_payload.get("diagnostics") if isinstance(result_payload.get("diagnostics"), dict) else {}
     readiness = diagnostics.get("editorial_readiness") if isinstance(diagnostics.get("editorial_readiness"), dict) else {}
@@ -11086,6 +12527,12 @@ def _require_editorially_ready_option(
         or FEEZIE_CODEX_DRAFT_OPTION_COUNT
     )
     revision_contract = _feezie_revision_contract({"context_packet": context_packet})
+    if revision_contract and job_id:
+        quality_gate, readiness = _revalidate_feezie_persisted_completion_receipts(
+            job_id=job_id,
+            result_payload=result_payload,
+            context_packet=context_packet,
+        )
     if revision_contract:
         final_options = [
             str(option).strip()
@@ -11215,7 +12662,20 @@ def _require_editorially_ready_option(
     "/codex-jobs/{job_id}/send-to-review",
     response_model=LocalCodexJobSendToReviewResponse,
 )
-async def send_local_codex_option_to_review(job_id: str, req: LocalCodexJobSendToReviewRequest):
+async def send_local_codex_option_to_review(
+    job_id: str,
+    req: LocalCodexJobSendToReviewRequest,
+    legacy_compatibility: bool = False,
+):
+    if not legacy_compatibility:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The historical two-option owner-review handoff is disabled by default; "
+                "use the canonical integrated-content lifecycle or explicitly enable "
+                "the rollback-only compatibility path."
+            ),
+        )
     job = get_codex_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Local Codex job not found")
@@ -11238,8 +12698,10 @@ async def send_local_codex_option_to_review(job_id: str, req: LocalCodexJobSendT
             result_payload=result_payload,
             context_packet=context_packet,
             option_index=req.option_index,
+            job_id=job_id,
         )
         review = ensure_generated_owner_review_item(
+            legacy_compatibility=True,
             job_id=job_id,
             option_index=req.option_index,
             option_text=selected_option.strip(),

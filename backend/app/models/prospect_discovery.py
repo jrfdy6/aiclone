@@ -97,7 +97,7 @@ class DiscoveredProspect(BaseModel):
 
 class ProspectDiscoveryRequest(BaseModel):
     """Request for prospect discovery"""
-    user_id: str = Field(..., description="User ID")
+    user_id: Optional[str] = Field(None, description="Compatibility owner ID; the API enforces DEFAULT_USER_ID")
     source: ProspectSource = Field(..., description="Source to search")
     specialty: Optional[str] = Field(None, description="Specialty filter (e.g., 'educational consultant')")
     location: Optional[str] = Field(None, description="Location filter (e.g., 'California')")
@@ -164,4 +164,3 @@ LOCATION_SHORTCUTS: Dict[str, str] = {
     "VA": "Virginia",
     "MD": "Maryland",
 }
-

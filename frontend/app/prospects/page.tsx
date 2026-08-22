@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { getApiUrl, apiFetch } from '@/lib/api-client';
+import { apiFetch } from '@/lib/api-client';
 import NavHeader from '@/components/NavHeader';
-
-const API_URL = getApiUrl();
 
 type Prospect = {
   id: string;
@@ -20,8 +18,19 @@ type Prospect = {
   notes?: string;
   summary?: string;
   pain_points?: string[];
+  source?: string;
   source_url?: string;
   created_at?: string;
+};
+
+type ProspectListContract = {
+  schema_version: 'prospect_pipeline/v1';
+  success: boolean;
+  state: string;
+  data_source: string;
+  reason_codes: string[];
+  prospects: Prospect[];
+  total: number;
 };
 
 type ProspectStatus = 'all' | 'new' | 'analyzed' | 'contacted' | 'follow_up_needed';
@@ -33,10 +42,16 @@ const STATUS_OPTIONS = [
   { value: 'follow_up_needed', label: 'Follow-up', color: 'bg-orange-100 text-orange-800' },
 ];
 
+function normalizedFitScore(score?: number) {
+  if (score === undefined || score === null) return 0;
+  return score > 1 ? score / 100 : score;
+}
+
 export default function ProspectsPage() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pipelineState, setPipelineState] = useState<{ state: string; source: string; reasons: string[] } | null>(null);
   
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,34 +72,17 @@ export default function ProspectsPage() {
   }, []);
 
   const loadProspects = async () => {
-    if (!API_URL) {
-      setError('API URL not configured');
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
       const params = new URLSearchParams({
-        user_id: 'dev-user',
         limit: '500',
       });
 
-      const response = await fetch(`${API_URL}/api/prospects/?${params.toString()}`);
+      const response = await apiFetch(`/api/prospects/?${params.toString()}`);
+      const data = await response.json() as ProspectListContract;
       
-      if (!response.ok) {
-        if (response.status === 404) {
-          setProspects([]);
-          setError(null);
-          return;
-        }
-        throw new Error(`Failed to load prospects: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.success && data.prospects) {
-        setProspects(data.prospects.map((p: any) => ({
+      if (data.success && Array.isArray(data.prospects)) {
+        setProspects(data.prospects.map((p) => ({
           id: p.id,
           name: p.name,
           company: p.company,
@@ -94,14 +92,22 @@ export default function ProspectsPage() {
           status: p.status || 'new',
           tags: p.tags || [],
           last_action: p.last_action,
-          summary: p.summary || p.analysis?.summary,
+          summary: p.summary,
           pain_points: p.pain_points || [],
+          source: p.source,
           source_url: p.source_url,
           created_at: p.created_at,
         })));
+        setPipelineState({
+          state: data.state || response.headers.get('X-AI-Clone-Firestore-State') || 'degraded',
+          source: data.data_source || response.headers.get('X-AI-Clone-Data-Source') || 'unavailable',
+          reasons: data.reason_codes || [],
+        });
         setError(null);
       } else {
         setProspects([]);
+        setPipelineState({ state: 'degraded', source: 'unavailable', reasons: ['invalid_prospect_contract'] });
+        setError('The prospect API returned an invalid contract.');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load prospects');
@@ -118,12 +124,15 @@ export default function ProspectsPage() {
       });
       
       if (response.ok) {
+        const data = await response.json() as { prospects?: Prospect[] };
+        const updated = data.prospects?.[0];
         setProspects(prev => prev.map(p => 
-          p.id === prospectId ? { ...p, status: newStatus as any } : p
+          p.id === prospectId ? { ...p, ...(updated || {}), status: newStatus as Prospect['status'] } : p
         ));
+        setError(null);
       }
     } catch (err) {
-      console.error('Failed to update status:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update prospect status.');
     }
     setEditingStatus(null);
   };
@@ -148,7 +157,7 @@ export default function ProspectsPage() {
         if (statusFilter !== 'all' && p.status !== statusFilter) return false;
         
         // Fit score filter
-        if (minFitScore > 0 && (p.fit_score || 0) < minFitScore / 100) return false;
+        if (minFitScore > 0 && normalizedFitScore(p.fit_score) < minFitScore / 100) return false;
         
         return true;
       })
@@ -206,7 +215,7 @@ export default function ProspectsPage() {
     new: prospects.filter(p => p.status === 'new').length,
     contacted: prospects.filter(p => p.status === 'contacted').length,
     followUp: prospects.filter(p => p.status === 'follow_up_needed').length,
-    highFit: prospects.filter(p => (p.fit_score || 0) >= 0.8).length,
+    highFit: prospects.filter(p => normalizedFitScore(p.fit_score) >= 0.8).length,
   }), [prospects]);
 
   return (
@@ -300,6 +309,19 @@ export default function ProspectsPage() {
       </div>
 
       <div style={{ maxWidth: '1600px', margin: '0 auto', padding: '24px' }}>
+        {pipelineState && pipelineState.state !== 'ready' && (
+          <aside
+            role="status"
+            style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b', borderRadius: '8px', padding: '16px', color: '#fbbf24', marginBottom: '24px' }}
+          >
+            Prospect data is running in {pipelineState.state} mode from {pipelineState.source}. This view may be incomplete; canonical writes still target the configured owner&apos;s nested prospect store.
+            {pipelineState.reasons.length > 0 && (
+              <span style={{ display: 'block', marginTop: '4px', fontSize: '12px' }}>
+                Reason codes: {pipelineState.reasons.join(', ')}
+              </span>
+            )}
+          </aside>
+        )}
         {/* Quick Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
           <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>

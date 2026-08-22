@@ -31,8 +31,10 @@ test('LinkedIn performance recorder is valid TSX and exposes every canonical lif
   }
 });
 
-test('recorder uses the bounded Railway-to-local event and status endpoints', () => {
-  assert.match(source, /controlApiPost<QueueResponse>\(\s*['"]\/api\/workspace\/linkedin-performance\/events['"]/s);
+test('recorder uses the explicit rollback-only Railway-to-local event and status endpoints', () => {
+  assert.match(source, /controlApiPost<QueueResponse>\(\s*['"]\/api\/workspace\/linkedin-performance\/events\?legacy_compatibility=true['"]/s);
+  assert.match(source, /ROLLBACK-ONLY · SIGNED TRANSPORT/);
+  assert.match(source, /Canonical posts record learning in the integrated content portfolio/);
   assert.match(source, /controlApiGet<LinkedinPerformanceJob>\(\s*`\/api\/workspace\/linkedin-performance\/jobs\/\$\{encodeURIComponent\(cardId\)\}`/s);
   assert.match(source, /data-performance-job-status/);
   for (const status of ['queued', 'running', 'completed', 'failed']) {
@@ -59,7 +61,7 @@ test('recorder enforces approval completion and observation windows before queue
   assert.match(source, /eventType === 'metrics_24h_recorded' \? 24 : 168/);
   assert.match(source, /windowHours \* 3_600_000/);
   assert.match(source, /browser entry alone cannot establish publication truth/);
-  assert.match(source, /This records evidence only\. It cannot draft, schedule, or publish/);
+  assert.match(source, /This records evidence only for the explicitly enabled legacy compatibility lane\. It cannot draft, schedule, or publish/);
 });
 
 test('metrics reference timestamp stays browser-only', () => {

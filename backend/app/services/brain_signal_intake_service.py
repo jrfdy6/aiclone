@@ -183,7 +183,7 @@ def load_source_intelligence_index() -> dict[str, Any]:
 
 def run_brain_signal_intake(
     *,
-    include_source_intelligence: bool = True,
+    include_source_intelligence: bool = False,
     include_workspace_attention: bool = True,
     include_automation_outputs: bool = True,
     source_limit: int | None = None,

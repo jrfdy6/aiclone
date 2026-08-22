@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from app.services.social_signal_utils import (
     normalize_unit_kind,
 )
 from app.utils.runtime_workspace_root import resolve_runtime_workspace_root
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _candidate_roots() -> list[Path]:
@@ -105,13 +109,31 @@ def _list_strings(value: Any, limit: int = 8) -> list[str]:
     return cleaned
 
 
+def _split_frontmatter(content: str) -> tuple[dict[str, Any], str]:
+    """Parse only an exact Markdown frontmatter delimiter line.
+
+    A source excerpt may legitimately contain ``---`` inside a quoted YAML
+    scalar. Splitting on the bare substring truncates that scalar and lets one
+    historical signal crash the complete feed build.
+    """
+
+    lines = content.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return {}, content.strip()
+    closing_index = next(
+        (index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
+        None,
+    )
+    if closing_index is None:
+        return {}, content.strip()
+    parsed = yaml.safe_load("".join(lines[1:closing_index])) or {}
+    if not isinstance(parsed, dict):
+        raise ValueError("market signal frontmatter must be a mapping")
+    return dict(parsed), "".join(lines[closing_index + 1 :]).strip()
+
+
 def _parse_frontmatter(content: str) -> dict[str, Any]:
-    if not content.startswith("---"):
-        return {}
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return {}
-    return yaml.safe_load(parts[1]) or {}
+    return _split_frontmatter(content)[0]
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -185,7 +207,11 @@ def _load_watchlist(workspace_root: Path) -> dict[str, Any]:
         return yaml.safe_load(fh) or {}
 
 
-def _read_saved_signals(workspace_root: Path) -> list[dict[str, Any]]:
+def _read_saved_signals(
+    workspace_root: Path,
+    *,
+    diagnostics: list[str] | None = None,
+) -> list[dict[str, Any]]:
     research_root = workspace_root / "research" / "market_signals"
     signals_by_id: dict[str, dict[str, Any]] = {}
 
@@ -193,9 +219,19 @@ def _read_saved_signals(workspace_root: Path) -> list[dict[str, Any]]:
         if path.name.upper() == "README.MD":
             continue
         text = path.read_text(encoding="utf-8")
-        meta = _parse_frontmatter(text)
-        parts = text.split("---", 2)
-        body_text = parts[2].strip() if len(parts) >= 3 else ""
+        try:
+            meta, body_text = _split_frontmatter(text)
+        except (ValueError, yaml.YAMLError) as exc:
+            logical_path = path.relative_to(workspace_root).as_posix()
+            LOGGER.warning(
+                "Skipping malformed market-signal frontmatter at %s (%s); "
+                "the durable archive remains eligible as fallback.",
+                logical_path,
+                type(exc).__name__,
+            )
+            if diagnostics is not None:
+                diagnostics.append("malformed_signal_frontmatter")
+            continue
         meta["source_path"] = path.relative_to(workspace_root).as_posix()
         meta["id"] = path.stem
         meta["body_text"] = body_text
@@ -697,7 +733,13 @@ def build_feed(
     resolved_root = workspace_root or discover_linkedin_workspace_root()
     explicit_workspace_root = workspace_root is not None
     watchlist = _load_watchlist(source_workspace_root or resolved_root)
-    signals = _read_saved_signals(resolved_root)
+    input_diagnostics: list[str] = []
+    signals = _read_saved_signals(resolved_root, diagnostics=input_diagnostics)
+    input_health = {
+        "status": "degraded" if input_diagnostics else "ready",
+        "malformed_signal_count": len(input_diagnostics),
+        "reason_codes": sorted(set(input_diagnostics)),
+    }
     existing_feed = _load_existing_feed(resolved_root)
     persisted_feed = None if explicit_workspace_root else _load_persisted_feed()
     if explicit_workspace_root:
@@ -719,18 +761,19 @@ def build_feed(
 
     if not items:
         if existing_feed:
-            return existing_feed
+            return {**existing_feed, "input_health": input_health}
         for alternate_feed in alternate_feeds:
             if alternate_feed:
-                return alternate_feed
+                return {**alternate_feed, "input_health": input_health}
         if persisted_feed:
-            return persisted_feed
+            return {**persisted_feed, "input_health": input_health}
 
     items, curation_summary = _apply_feed_curation(items, watchlist)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "workspace": "linkedin-content-os",
         "strategy_mode": "production",
+        "input_health": input_health,
         "curation_summary": curation_summary,
         "items": items,
     }

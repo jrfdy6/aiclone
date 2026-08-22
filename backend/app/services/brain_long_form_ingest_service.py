@@ -11,6 +11,13 @@ from urllib.parse import urlparse
 import yaml
 
 from app.services import workspace_snapshot_service as workspace_snapshot_module
+from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.source_intake_adapter_service import (
+    long_form_discovery_envelope,
+    manual_discovery_envelope,
+    podcast_discovery_envelope,
+)
+from app.services.source_intake_execution_service import SourceIntakeExecutionService
 
 INLINE_TIMESTAMP_PATTERN = re.compile(r"<\d{2}:\d{2}:\d{2}\.\d{3}>")
 INLINE_CAPTION_TAG_PATTERN = re.compile(r"</?c(?:\.[^>]*)?>")
@@ -411,6 +418,148 @@ def _build_structured_extraction(
 
 
 class BrainLongFormIngestService:
+    def register_canonical_source(
+        self,
+        *,
+        url: str | None = None,
+        title: str | None = None,
+        summary: str | None = None,
+        notes: str | None = None,
+        transcript_text: str | None = None,
+        source_type: str | None = None,
+        author: str | None = None,
+        run_refresh: bool = True,
+        ingestions_root: Path | None = None,
+        reference_root: Path | None = None,
+        canonical_store: IntegratedSystemStore | None = None,
+        submission_ref: str | None = None,
+        include_legacy_projection: bool = False,
+    ) -> dict[str, Any]:
+        """Gate and capture owner-requested long-form intake in canonical storage.
+
+        The historical Markdown extraction tree is a rollback-only projection.
+        Callers must opt into it explicitly; canonical intake never writes it as
+        an incidental side effect.
+        """
+
+        normalized_url = _normalize_url(url or "")
+        normalized_type = _infer_source_type(normalized_url, source_type)
+        channel = _infer_channel(normalized_url, normalized_type)
+        exact_transcript = str(transcript_text or "").strip()
+        exact_notes = str(notes or "").strip()
+        submitted_body = exact_transcript or exact_notes
+        stable_ref = _clean_text(submission_ref)
+        if not stable_ref:
+            stable_material = normalized_url or submitted_body or _clean_text(title)
+            stable_ref = hashlib.sha256(stable_material.encode("utf-8")).hexdigest()
+
+        if channel == "podcast" and normalized_url:
+            envelope = podcast_discovery_envelope(
+                feed_url=normalized_url,
+                episode_guid=stable_ref,
+                episode_url=normalized_url,
+                title=title,
+                publisher=author,
+                rights_state="owner_controlled",
+            )
+        elif normalized_url:
+            envelope = long_form_discovery_envelope(
+                capture_route="owner_signed_local_action",
+                external_ref=stable_ref,
+                canonical_url=normalized_url,
+                title=title,
+                author=author,
+                rights_state="owner_controlled",
+            )
+        else:
+            envelope = manual_discovery_envelope(
+                submission_id=stable_ref,
+                submitted_text=submitted_body,
+                title=title,
+                author=author,
+                rights_state="owner_controlled",
+            )
+
+        execution = SourceIntakeExecutionService(canonical_store or IntegratedSystemStore())
+        capture_kind = "transcript" if exact_transcript else "raw"
+        prepared = execution.register_and_gate(
+            envelope,
+            relevance_state="qualified",
+            admissibility_state="admissible",
+            reason="explicit_owner_long_form_request",
+            policy_name="owner_requested_long_form_gate",
+            capture_kind=capture_kind,
+        )
+        decision = prepared["decision"]
+        capture: dict[str, Any] | None = None
+        effective_transcript = exact_transcript
+        effective_notes = exact_notes
+        if submitted_body:
+            capture = execution.attach_or_reuse_text(
+                prepared,
+                text=submitted_body,
+                capture_kind=capture_kind,
+                metadata={
+                    "capture_adapter": "owner_signed_long_form",
+                    "capture_version": "1.0.0",
+                },
+            )
+            if capture_kind == "transcript":
+                effective_transcript = capture["text"]
+            else:
+                effective_notes = capture["text"]
+        elif not decision.get("capture_required") and decision.get("existing_artifact_id"):
+            reused_text = execution.captured_text(str(decision["existing_artifact_id"]))
+            capture = {
+                "artifact_id": str(decision["existing_artifact_id"]),
+                "reused": True,
+                "text": reused_text,
+            }
+            if capture_kind == "transcript":
+                effective_transcript = reused_text
+            else:
+                effective_notes = reused_text
+
+        result: dict[str, Any] = {
+            "asset_id": str(capture["artifact_id"] if capture else decision["source_id"]),
+            "title": _clean_text(title) or "Long-form source",
+            "source_url": normalized_url,
+            "source_type": normalized_type,
+            "source_channel": channel,
+            "source_path": None,
+            "routing_status_path": None,
+            "has_transcript": bool(effective_transcript),
+            "refreshed_snapshots": [],
+            "compatibility_projection": "not_requested",
+        }
+        if include_legacy_projection:
+            result = self.register_source(
+                url=normalized_url or None,
+                title=title,
+                summary=summary,
+                notes=effective_notes or None,
+                transcript_text=effective_transcript or None,
+                source_type=normalized_type,
+                author=author,
+                run_refresh=run_refresh,
+                ingestions_root=ingestions_root,
+                reference_root=reference_root,
+                compatibility_projection=True,
+            )
+            result["compatibility_projection"] = "written"
+        result["canonical_source_id"] = decision["source_id"]
+        result["canonical_discovery_id"] = prepared["registration"]["discovery"]["discovery_id"]
+        result["canonical_capture"] = (
+            {
+                "artifact_id": capture["artifact_id"],
+                "reused": capture["reused"],
+                "capture_kind": capture_kind,
+            }
+            if capture
+            else None
+        )
+        return result
+
     def register_source(
         self,
         *,
@@ -424,7 +573,13 @@ class BrainLongFormIngestService:
         run_refresh: bool = True,
         ingestions_root: Path | None = None,
         reference_root: Path | None = None,
+        compatibility_projection: bool = False,
     ) -> dict[str, Any]:
+        if not compatibility_projection:
+            raise RuntimeError(
+                "Legacy long-form Markdown extraction is rollback-only; "
+                "set compatibility_projection=True explicitly."
+            )
         normalized_url = _normalize_url(url or "")
         normalized_type = _infer_source_type(normalized_url, source_type)
         channel = _infer_channel(normalized_url, normalized_type)

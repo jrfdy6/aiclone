@@ -89,7 +89,6 @@ export default function TopicIntelligencePage() {
       const response = await apiFetch('/api/topic-intelligence/run', {
         method: 'POST',
         body: JSON.stringify({
-          user_id: 'dev-user',
           theme: selectedTheme,
           generate_content: true,
           generate_outreach: true,
@@ -411,4 +410,3 @@ export default function TopicIntelligencePage() {
     </main>
   );
 }
-

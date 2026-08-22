@@ -47,6 +47,10 @@ import LinkedinPerformanceRecorder, {
   type LinkedinPerformanceVerifiedLifecycle,
 } from '@/app/workspace/LinkedinPerformanceRecorder';
 import PromotableInlineText from '@/app/workspace/PromotableInlineText';
+import IntegratedContentPortfolio from '@/app/workspace/IntegratedContentPortfolio';
+import OpsStandupSummary from '@/app/workspace/OpsStandupSummary';
+import OwnerDecisionSurface from '@/app/workspace/OwnerDecisionSurface';
+import SocialEngagementAssist from '@/app/workspace/SocialEngagementAssist';
 import {
   FeeziePrivateRuntimeStatusBadge,
   humanizeFeezieRuntimeReason,
@@ -75,6 +79,7 @@ import {
   publicOwnerNorthStar,
   publicOwnerRoleLabel,
 } from '@/lib/public-profile';
+import { legacyTwoOptionCompatibilityRequested } from '@/lib/content-generation-topology';
 
 type FeedLensId =
   | 'admissions'
@@ -1444,6 +1449,7 @@ export function LinkedinWorkspaceSurface({
   const searchParams = useSearchParams();
   const safeSearchParams = searchParams ?? new URLSearchParams();
   const requestedOwnerReviewId = safeSearchParams.get('owner_review')?.trim() ?? '';
+  const legacyTwoOptionCompatibilityEnabled = legacyTwoOptionCompatibilityRequested(safeSearchParams);
   const tabs = useMemo(() => workspaceTabs(), []);
   const composerQuery = useMemo(() => readWorkspaceComposerQuery(searchParams), [searchParams]);
   const querySeed = useMemo<WorkspaceQuerySeed>(() => toWorkspaceQuerySeed(composerQuery), [composerQuery]);
@@ -1452,9 +1458,19 @@ export function LinkedinWorkspaceSurface({
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(initialSnapshot);
   const [snapshotState, setSnapshotState] = useState<'loading' | 'live' | 'error'>(initialSnapshot ? 'live' : 'loading');
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
-  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>(() => splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).pending);
-  const [bankedPostItems, setBankedPostItems] = useState<OwnerReviewItem[]>(() => splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).banked);
-  const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>(initialOwnerReviewItems ? 'live' : 'loading');
+  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>(() =>
+    legacyTwoOptionCompatibilityEnabled
+      ? splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).pending
+      : [],
+  );
+  const [bankedPostItems, setBankedPostItems] = useState<OwnerReviewItem[]>(() =>
+    legacyTwoOptionCompatibilityEnabled
+      ? splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).banked
+      : [],
+  );
+  const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>(
+    legacyTwoOptionCompatibilityEnabled && !initialOwnerReviewItems ? 'loading' : 'live',
+  );
   const [ownerReviewError, setOwnerReviewError] = useState<string | null>(null);
   const [ownerReviewNotes, setOwnerReviewNotes] = useState<Record<string, string>>({});
   const [ownerReviewVoiceEdits, setOwnerReviewVoiceEdits] = useState<Record<string, string>>({});
@@ -1486,7 +1502,11 @@ export function LinkedinWorkspaceSurface({
   const [performanceRecorderStatus, setPerformanceRecorderStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!requestedOwnerReviewId || !ownerReviewItems.some((item) => item.queue_id === requestedOwnerReviewId)) {
+    if (
+      !legacyTwoOptionCompatibilityEnabled ||
+      !requestedOwnerReviewId ||
+      !ownerReviewItems.some((item) => item.queue_id === requestedOwnerReviewId)
+    ) {
       return undefined;
     }
     const frame = window.requestAnimationFrame(() => {
@@ -1495,7 +1515,7 @@ export function LinkedinWorkspaceSurface({
       target?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [ownerReviewItems, requestedOwnerReviewId]);
+  }, [legacyTwoOptionCompatibilityEnabled, ownerReviewItems, requestedOwnerReviewId]);
 
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<ContentCategory>('value');
@@ -1581,7 +1601,10 @@ export function LinkedinWorkspaceSurface({
   }, [contentItems]);
 
   const categoryItems = useMemo(() => contentItems.filter((item) => item.category === activeCategory), [activeCategory, contentItems]);
-  const weeklyPlanRecommendations = snapshot?.weekly_plan?.recommendations ?? [];
+  const weeklyPlanRecommendations = useMemo(
+    () => snapshot?.weekly_plan?.recommendations ?? [],
+    [snapshot?.weekly_plan?.recommendations],
+  );
   const topRecommendations = useMemo(() => {
     const developNowRecommendations = weeklyPlanRecommendations.filter(
       (item) => normalizeStrategyValue(item.development_status) === 'develop_now',
@@ -1810,6 +1833,13 @@ export function LinkedinWorkspaceSurface({
   }, []);
 
   const loadOwnerReview = useCallback(async () => {
+    if (!legacyTwoOptionCompatibilityEnabled) {
+      setOwnerReviewItems([]);
+      setBankedPostItems([]);
+      setOwnerReviewError(null);
+      setOwnerReviewState('live');
+      return;
+    }
     setOwnerReviewState((current) => (current === 'live' ? 'live' : 'loading'));
     try {
       const payload = await controlApiGet<OwnerReviewPayload>('/api/workspace/linkedin-os-owner-review?include_resolved=true');
@@ -1840,7 +1870,7 @@ export function LinkedinWorkspaceSurface({
       setOwnerReviewError(error instanceof Error ? error.message : 'Unable to load owner review items right now.');
       setOwnerReviewState((current) => (current === 'live' ? 'live' : 'error'));
     }
-  }, []);
+  }, [legacyTwoOptionCompatibilityEnabled]);
 
   useEffect(() => {
     void loadSnapshot();
@@ -2172,6 +2202,7 @@ export function LinkedinWorkspaceSurface({
       audience,
       source_mode: effectiveSourceMode,
       workspace_slug: 'linkedin-content-os',
+      option_count: 2,
       ...(Object.keys(answers).length > 0 ? { evidence_answers: answers } : {}),
       ...(activeSourceCard ? { source_card: activeSourceCard } : {}),
     });
@@ -2331,6 +2362,12 @@ export function LinkedinWorkspaceSurface({
 
   const sendGeneratedOptionToOwnerReview = useCallback(
     async (optionIndex: number) => {
+      if (!legacyTwoOptionCompatibilityEnabled) {
+        setReviewHandoffError(
+          'The historical two-option owner-review handoff is available only in rollback compatibility mode.',
+        );
+        return;
+      }
       if (!codexJobId || codexJobStatus !== 'completed') {
         setReviewHandoffError('Finish the local Codex run before sending a draft to owner review.');
         return;
@@ -2339,7 +2376,7 @@ export function LinkedinWorkspaceSurface({
       setReviewHandoffError(null);
       try {
         const response = await controlApiPost<OwnerReviewHandoffResponse>(
-          `/api/content-generation/codex-jobs/${encodeURIComponent(codexJobId)}/send-to-review`,
+          `/api/content-generation/codex-jobs/${encodeURIComponent(codexJobId)}/send-to-review?legacy_compatibility=true`,
           { option_index: optionIndex },
         );
         if (!response?.queue_id) {
@@ -2354,7 +2391,7 @@ export function LinkedinWorkspaceSurface({
         setReviewActionLoading(null);
       }
     },
-    [codexJobId, codexJobStatus, loadOwnerReview],
+    [codexJobId, codexJobStatus, legacyTwoOptionCompatibilityEnabled, loadOwnerReview],
   );
 
   const promoteGeneratedFragment = useCallback(
@@ -2575,6 +2612,12 @@ export function LinkedinWorkspaceSurface({
 
   const submitOwnerReviewDecision = useCallback(
     async (item: OwnerReviewItem, decision: OwnerReviewDecision) => {
+      if (!legacyTwoOptionCompatibilityEnabled) {
+        setOwnerReviewStatus(
+          'The historical owner-review decision writer is available only in rollback compatibility mode.',
+        );
+        return;
+      }
       const browserLocalVoiceEdit = ownerReviewVoiceEdits[item.queue_id] ?? item.first_pass_draft ?? '';
       if (
         decision === 'approve' &&
@@ -2590,7 +2633,7 @@ export function LinkedinWorkspaceSurface({
       setOwnerReviewActioning(item.queue_id);
       setOwnerReviewStatus(`Saving ${humanizeSnakeCase(decision)} for ${item.queue_id}...`);
       try {
-        const payload = await controlApiPost<OwnerReviewPayload>(`/api/workspace/linkedin-os-owner-review/${item.queue_id}`, {
+        const payload = await controlApiPost<OwnerReviewPayload>(`/api/workspace/linkedin-os-owner-review/${item.queue_id}?legacy_compatibility=true`, {
           decision,
           notes: ownerReviewNotes[item.queue_id] ?? '',
         });
@@ -2649,7 +2692,7 @@ export function LinkedinWorkspaceSurface({
         setOwnerReviewActioning(null);
       }
     },
-    [loadOwnerReview, loadSnapshot, ownerReviewNotes, ownerReviewVoiceEdits],
+    [legacyTwoOptionCompatibilityEnabled, loadOwnerReview, loadSnapshot, ownerReviewNotes, ownerReviewVoiceEdits],
   );
 
   async function handleCopy(text: string, label: string, feedbackContext?: { item: SocialFeedItem; lens: FeedLensId; notes?: string }) {
@@ -2809,6 +2852,8 @@ export function LinkedinWorkspaceSurface({
             <MiniStat label="Feedback" value={String(snapshot?.feedback_summary?.total_events ?? 0)} detail="human training events" />
           </div>
         </section>
+
+        <SocialEngagementAssist />
 
         <section
           data-snapshot-editorial-state={snapshotEditorialState}
@@ -3046,7 +3091,8 @@ export function LinkedinWorkspaceSurface({
           </section>
         ) : null}
 
-        <section id="linkedin-performance-recorder" style={{ display: 'grid', gap: '10px', scrollMarginTop: '24px' }}>
+        {legacyTwoOptionCompatibilityEnabled ? (
+        <section id="linkedin-performance-recorder" data-legacy-performance-compatibility="true" style={{ display: 'grid', gap: '10px', scrollMarginTop: '24px' }}>
           {performanceRecorderStatus ? (
             <p role="status" style={{ color: performanceRecorderSeed ? '#86efac' : '#fbbf24', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
               {performanceRecorderStatus}
@@ -3061,8 +3107,16 @@ export function LinkedinWorkspaceSurface({
             onJobCompleted={() => void loadSnapshot()}
           />
         </section>
+        ) : null}
 
-        <section style={panelStyle}>
+        <OpsStandupSummary />
+
+        <OwnerDecisionSurface />
+
+        <IntegratedContentPortfolio />
+
+        {legacyTwoOptionCompatibilityEnabled ? (
+        <section data-content-generation-authority="legacy_two_option_compatibility" style={panelStyle}>
           <div style={{ marginBottom: '18px' }}>
             <p style={sectionLabelStyle('#38bdf8')}>2 Content Pipeline</p>
             <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>Content Pipeline</h2>
@@ -3244,7 +3298,7 @@ export function LinkedinWorkspaceSurface({
                   <textarea
                     value={evidenceAnswerDraft}
                     onChange={(event) => setEvidenceAnswerDraft(event.target.value)}
-                    placeholder="Give the concrete detail in language that would be safe to publish. Employer-linked names, systems, paths, and metrics are anonymized server-side."
+                    placeholder="Give only concrete detail that is already safe to publish. Generalize employer-linked names, systems, and metrics before submitting."
                     rows={3}
                     style={{ ...textareaStyle, minHeight: '88px' }}
                   />
@@ -3255,7 +3309,7 @@ export function LinkedinWorkspaceSurface({
                   </div>
                 </div>
               )}
-              {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Model trace: {providerTrace}</p>}
+              {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Process trace: {providerTrace}</p>}
               {generatorError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{generatorError}</p>}
               {codexJobStatus && (
                 <div
@@ -3273,6 +3327,7 @@ export function LinkedinWorkspaceSurface({
                     <div style={{ display: 'grid', gap: '4px' }}>
                       <p style={{ color: codexJobTone, fontSize: '12px', fontWeight: 700, margin: 0 }}>{codexJobStatusLabel(codexJobStatus)}</p>
                       <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{codexJobStatusHint(codexJobStatus)}</p>
+                      {codexJobId && <code style={{ color: '#64748b', fontSize: '11px' }}>Job ID: {codexJobId}</code>}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                       {codexInFlight && (
@@ -3436,8 +3491,28 @@ export function LinkedinWorkspaceSurface({
             )}
           </div>
         </section>
+        ) : (
+          <section data-content-generation-authority="canonical_content_lifecycle" style={panelStyle}>
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <p style={sectionLabelStyle('#38bdf8')}>Canonical content creation</p>
+              <h2 style={{ fontSize: '24px', color: 'white', margin: 0 }}>One base post, linked revisions</h2>
+              <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, margin: 0, maxWidth: '880px' }}>
+                The integrated Sources → Opportunities → Posts lifecycle above is the owner-facing writing authority. It creates one canonical base post, then generates platform or strategy variants only when you request them.
+              </p>
+              <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, margin: 0, maxWidth: '880px' }}>
+                The former two-option comparator is isolated as rollback-only compatibility and does not appear in normal workspace navigation or create canonical posts.
+              </p>
+              <div>
+                <a href="#integrated-content-portfolio" style={headerLinkStyle('#38bdf8')}>
+                  Open canonical content lifecycle
+                </a>
+              </div>
+            </div>
+          </section>
+        )}
 
-        <section id="owner-review-lane" style={panelStyle}>
+        {legacyTwoOptionCompatibilityEnabled ? (
+        <section id="owner-review-lane" data-legacy-owner-review-compatibility="true" style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <div>
               <p style={sectionLabelStyle('#22c55e')}>1 Unified Feed</p>
@@ -4278,6 +4353,7 @@ export function LinkedinWorkspaceSurface({
             )}
           </div>
         </section>
+        ) : null}
 
         <section style={panelStyle}>
           <div>

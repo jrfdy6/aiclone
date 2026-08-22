@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { safeJsonLd } from "@/lib/safe-json-ld";
+
 type KnowledgeResult = {
   source_id?: string;
   source_file_id?: string;
@@ -113,7 +115,7 @@ export default async function KbQueryPage(
       <>
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(schemaData) }}
         />
         <main style={{ maxWidth: "800px", margin: "0 auto", padding: "40px 24px", fontFamily: "system-ui, sans-serif", lineHeight: 1.6 }}>
           <article>
@@ -122,7 +124,7 @@ export default async function KbQueryPage(
                 {data.query}
               </h1>
               <p style={{ color: "#666", fontSize: "16px" }}>
-                Search results from the owner's knowledge base. This content is
+                Search results from the owner&apos;s knowledge base. This content is
                 server-rendered for AI crawlers.
               </p>
             </header>

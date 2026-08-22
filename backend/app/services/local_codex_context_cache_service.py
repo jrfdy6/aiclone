@@ -15,7 +15,7 @@ from app.services.persona_bundle_context_service import load_bundle_persona_chun
 from app.services.workspace_snapshot_store import get_snapshot_payload
 
 
-_CACHE_VERSION = "local-codex-context-v8"
+_CACHE_VERSION = "local-codex-context-v9"
 _CACHE_KEYS = {
     "cache_key",
     "workspace_slug",

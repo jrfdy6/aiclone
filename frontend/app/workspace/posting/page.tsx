@@ -38,12 +38,14 @@ import {
   OptionCriticReceipt,
 } from '@/app/workspace/GenerationReceiptPanel';
 import PromotableInlineText from '@/app/workspace/PromotableInlineText';
+import IntegratedContentPortfolio from '@/app/workspace/IntegratedContentPortfolio';
 import {
   FeeziePrivateRuntimeStatusBadge,
   isFeeziePrivateRuntimeContextReady,
   type FeeziePrivateRuntimeContextStatus,
   type FeeziePrivateRuntimeLoadState,
 } from '@/app/workspace/FeeziePrivateRuntimeStatus';
+import { legacyTwoOptionCompatibilityRequested } from '@/lib/content-generation-topology';
 
 type PostingMode = 'post' | 'comment';
 type ContentSourceMode = 'persona_only' | 'reservoir_ranked' | 'selected_source' | 'recent_signals';
@@ -102,6 +104,17 @@ function normalizeCommentLane(lane: string) {
   return normalized;
 }
 
+function isHttpSourceUrl(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function mapGroundingModeToSourceMode(mode: GroundingMode): ContentSourceMode {
   if (mode === 'canon_only') return 'persona_only';
   if (mode === 'canon_recent_reservoir') return 'recent_signals';
@@ -128,8 +141,10 @@ function postingWorkspaceTabs() {
 
 function PostingWorkspaceClient() {
   const searchParams = useSearchParams();
+  const legacyTwoOptionCompatibilityEnabled = legacyTwoOptionCompatibilityRequested(searchParams);
   const initialQuery = useMemo(() => readWorkspaceComposerQuery(searchParams), [searchParams]);
   const sourceCard = useMemo(() => toWorkspaceSourceCard(initialQuery), [initialQuery]);
+  const sourceCardAvailable = useMemo(() => hasSeededSource(initialQuery), [initialQuery]);
 
   const [activeMode, setActiveMode] = useState<PostingMode>(initialQuery.mode);
   const [topic, setTopic] = useState(initialQuery.title);
@@ -234,6 +249,7 @@ function PostingWorkspaceClient() {
   );
   const feezieGenerationReady = privateRuntimeLoadState === 'live'
     && isFeeziePrivateRuntimeContextReady(privateRuntimeStatus);
+  const manualTopicIsSourceUrl = topicSourceMode === 'manual' && isHttpSourceUrl(topic);
 
   const handleTopicSourceModeChange = useCallback(
     (nextMode: TopicSourceMode) => {
@@ -297,6 +313,7 @@ function PostingWorkspaceClient() {
       audience,
       source_mode: effectiveSourceMode,
       workspace_slug: 'linkedin-content-os',
+      option_count: 2,
       ...(Object.keys(answers).length > 0 ? { evidence_answers: answers } : {}),
       ...(activeSourceCard ? { source_card: activeSourceCard } : {}),
     });
@@ -614,12 +631,15 @@ function PostingWorkspaceClient() {
       void handleGenerateComment();
       return;
     }
+    if (!legacyTwoOptionCompatibilityEnabled) {
+      return;
+    }
     if (!feezieGenerationReady) {
       return;
     }
     setAutoRunKey(key);
     void handleGeneratePost();
-  }, [autoRunKey, feezieGenerationReady, handleGenerateComment, handleGeneratePost, initialQuery]);
+  }, [autoRunKey, feezieGenerationReady, handleGenerateComment, handleGeneratePost, initialQuery, legacyTwoOptionCompatibilityEnabled]);
 
   async function handleCopy(text: string, label: string) {
     try {
@@ -632,6 +652,12 @@ function PostingWorkspaceClient() {
 
   const sendOptionToOwnerReview = useCallback(
     async (optionIndex: number) => {
+      if (!legacyTwoOptionCompatibilityEnabled) {
+        setReviewError(
+          'The historical two-option owner-review handoff is available only in rollback compatibility mode.',
+        );
+        return;
+      }
       if (!codexJobId || codexJobStatus !== 'completed') {
         setReviewError('Finish the local Codex run before sending a draft to owner review.');
         return;
@@ -640,7 +666,7 @@ function PostingWorkspaceClient() {
       setReviewError(null);
       try {
         const response = await controlApiPost<OwnerReviewHandoffResponse>(
-          `/api/content-generation/codex-jobs/${encodeURIComponent(codexJobId)}/send-to-review`,
+          `/api/content-generation/codex-jobs/${encodeURIComponent(codexJobId)}/send-to-review?legacy_compatibility=true`,
           { option_index: optionIndex },
         );
         if (!response?.queue_id) {
@@ -653,7 +679,7 @@ function PostingWorkspaceClient() {
         setReviewActionLoading(null);
       }
     },
-    [codexJobId, codexJobStatus],
+    [codexJobId, codexJobStatus, legacyTwoOptionCompatibilityEnabled],
   );
 
   const previewVariant = useMemo(() => {
@@ -731,12 +757,16 @@ function PostingWorkspaceClient() {
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
               <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 6px' }}>Source card</p>
-              <h2 style={{ color: 'white', fontSize: '22px', margin: '0 0 8px' }}>{initialQuery.title || 'Untitled brief item'}</h2>
+              <h2 style={{ color: 'white', fontSize: '22px', margin: '0 0 8px' }}>{initialQuery.title || 'Direct-entry composer'}</h2>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {initialQuery.section && <InlinePill label={humanizeSnakeCase(initialQuery.section)} tone="#818cf8" />}
                 {initialQuery.priorityLane && <InlinePill label={humanizeSnakeCase(initialQuery.priorityLane)} tone="#22c55e" />}
                 {initialQuery.sourceKind && <InlinePill label={humanizeSnakeCase(initialQuery.sourceKind)} tone="#64748b" />}
                 {initialQuery.targetFile && <InlinePill label={humanizeTargetFileLabel(initialQuery.targetFile)} tone="#64748b" />}
+                {initialQuery.canonicalPillar && <InlinePill label={humanizeSnakeCase(initialQuery.canonicalPillar)} tone="#38bdf8" />}
+                {initialQuery.careerSignal && <InlinePill label={humanizeSnakeCase(initialQuery.careerSignal)} tone="#a78bfa" />}
+                {initialQuery.employerSafety && <InlinePill label={`Employer ${humanizeSnakeCase(initialQuery.employerSafety)}`} tone="#f59e0b" />}
+                {initialQuery.proofPosture && <InlinePill label={humanizeSnakeCase(initialQuery.proofPosture)} tone="#34d399" />}
               </div>
             </div>
             {initialQuery.sourceUrl && (
@@ -762,6 +792,14 @@ function PostingWorkspaceClient() {
           {initialQuery.summary && <p style={{ color: '#dbe7ff', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{initialQuery.summary}</p>}
           {initialQuery.hook && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>Hook: {initialQuery.hook}</p>}
           {initialQuery.routeReason && <p style={{ color: '#64748b', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>Why it matters: {initialQuery.routeReason}</p>}
+          {initialQuery.distinctThesis && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>Thesis: {initialQuery.distinctThesis}</p>}
+          {initialQuery.audienceConsequence && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>Audience consequence: {initialQuery.audienceConsequence}</p>}
+          {initialQuery.whyNow && <p style={{ color: '#64748b', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>Why now: {initialQuery.whyNow}</p>}
+          {!sourceCardAvailable && (
+            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              No source card is attached. Use a plain-language idea below, or open the workspace hub to ingest a URL before drafting from it.
+            </p>
+          )}
           {copyStatus && <p style={{ color: copyStatus.includes('copied') ? '#34d399' : '#f87171', fontSize: '12px', margin: 0 }}>{copyStatus}</p>}
         </section>
 
@@ -770,14 +808,17 @@ function PostingWorkspaceClient() {
           <ModeButton active={activeMode === 'comment'} label="Comment on this" onClick={() => setActiveMode('comment')} />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)', gap: '18px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '18px' }}>
+          {legacyTwoOptionCompatibilityEnabled ? (
           <section
+            data-content-generation-authority="legacy_two_option_compatibility"
+            hidden={activeMode !== 'post'}
             style={{
               borderRadius: '16px',
               border: '1px solid #1f2937',
               backgroundColor: '#050b19',
               padding: '18px',
-              display: 'grid',
+              display: activeMode === 'post' ? 'grid' : 'none',
               gap: '14px',
             }}
           >
@@ -787,7 +828,7 @@ function PostingWorkspaceClient() {
             </div>
             <label style={{ display: 'grid', gap: '6px' }}>
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Topic</span>
-              <input value={topic} onChange={(event) => { clearEvidenceIntake(); setTopic(event.target.value); }} style={fieldStyle} />
+              <input value={topic} readOnly={topicSourceMode === 'source_card'} onChange={(event) => { clearEvidenceIntake(); setTopic(event.target.value); }} style={fieldStyle} />
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
               <label style={{ display: 'grid', gap: '6px' }}>
@@ -804,7 +845,7 @@ function PostingWorkspaceClient() {
                 <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Topic source</span>
                 <select value={topicSourceMode} onChange={(event) => handleTopicSourceModeChange(event.target.value as TopicSourceMode)} style={fieldStyle}>
                   {TOPIC_SOURCE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <option key={option.value} value={option.value} disabled={option.value === 'source_card' && !sourceCardAvailable}>
                       {option.label}
                     </option>
                   ))}
@@ -812,7 +853,7 @@ function PostingWorkspaceClient() {
               </label>
               <label style={{ display: 'grid', gap: '6px' }}>
                 <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Grounding mode</span>
-                <select value={groundingMode} onChange={(event) => { clearEvidenceIntake(); setGroundingMode(event.target.value as GroundingMode); }} style={fieldStyle}>
+                <select value={groundingMode} disabled={topicSourceMode === 'source_card'} onChange={(event) => { clearEvidenceIntake(); setGroundingMode(event.target.value as GroundingMode); }} style={fieldStyle}>
                   {GROUNDING_MODE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -836,7 +877,17 @@ function PostingWorkspaceClient() {
                 {TOPIC_SOURCE_OPTIONS.find((option) => option.value === topicSourceMode)?.hint}
               </p>
               <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
+                {topicSourceMode === 'source_card'
+                  ? 'Source-card mode keeps the attached source identity and uses selected-source grounding.'
+                  : GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
+              </p>
+              {topicSourceMode === 'source_card' && (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                  The source topic is locked. Add only public-safe owner context below; switch to Manual topic for a different thesis.
+                </p>
+              )}
+              <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                The planner manages the rolling 4/4/2 topic mix. Category sets this post&apos;s 9:1:1 intent; Value is the normal default.
               </p>
               <FeeziePrivateRuntimeStatusBadge
                 status={privateRuntimeStatus}
@@ -847,11 +898,24 @@ function PostingWorkspaceClient() {
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Context</span>
               <textarea value={context} onChange={(event) => { clearEvidenceIntake(); setContext(event.target.value); }} rows={8} style={textareaStyle} />
             </label>
+            {manualTopicIsSourceUrl && (
+              <div role="alert" style={{ borderRadius: '14px', border: '1px solid #f59e0b55', backgroundColor: '#1a1306', padding: '14px', display: 'grid', gap: '8px' }}>
+                <p style={{ color: '#fbbf24', fontSize: '13px', fontWeight: 700, margin: 0 }}>That link is a source, not a manual topic.</p>
+                <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                  Open the workspace hub, paste the link under Unified Feed, generate its preview, then choose Write post or Comment on this. That preserves the source card and grounding.
+                </p>
+                <div>
+                  <Link href="/workspace" style={{ ...secondaryButtonStyle('#f59e0b'), display: 'inline-flex', textDecoration: 'none' }}>
+                    Open source intake
+                  </Link>
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => void handleGeneratePost()} disabled={!feezieGenerationReady || postLoading || codexInFlight || codexActionLoading !== null} style={primaryButtonStyle('#f97316')}>
-                {postLoading ? 'Queueing…' : codexInFlight ? 'Running on This Mac…' : 'Queue on This Mac'}
+              <button onClick={() => void handleGeneratePost()} disabled={!feezieGenerationReady || manualTopicIsSourceUrl || postLoading || codexInFlight || codexActionLoading !== null} style={primaryButtonStyle('#f97316')}>
+                {postLoading ? 'Checking evidence…' : codexInFlight ? 'Running on This Mac…' : 'Check evidence + queue'}
               </button>
-              {providerTrace && <span style={{ color: '#94a3b8', fontSize: '12px' }}>Model trace: {providerTrace}</span>}
+              {providerTrace && <span style={{ color: '#94a3b8', fontSize: '12px' }}>Process trace: {providerTrace}</span>}
               {postError && <span style={{ color: '#f87171', fontSize: '12px' }}>{postError}</span>}
               <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0, width: '100%' }}>
                 FEEZIE searches the public-safe AI Clone records first. It queues the local writer only after it has a concrete action, exact problem, and observable lesson; otherwise it asks one question here.
@@ -862,7 +926,7 @@ function PostingWorkspaceClient() {
                   <textarea
                     value={evidenceAnswerDraft}
                     onChange={(event) => setEvidenceAnswerDraft(event.target.value)}
-                    placeholder="Give the concrete detail in language that would be safe to publish. Employer-linked names, systems, paths, and metrics are anonymized server-side."
+                    placeholder="Give only concrete detail that is already safe to publish. Generalize employer-linked names, systems, and metrics before submitting."
                     rows={3}
                     style={{ ...textareaStyle, minHeight: '88px' }}
                   />
@@ -889,6 +953,7 @@ function PostingWorkspaceClient() {
                     <div style={{ display: 'grid', gap: '4px' }}>
                       <span style={{ color: codexJobTone, fontSize: '12px', fontWeight: 700 }}>{codexJobStatusLabel(codexJobStatus)}</span>
                       <span style={{ color: '#94a3b8', fontSize: '12px' }}>{codexJobStatusHint(codexJobStatus)}</span>
+                      {codexJobId && <code style={{ color: '#64748b', fontSize: '11px' }}>Job ID: {codexJobId}</code>}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                       {codexInFlight && (
@@ -902,7 +967,7 @@ function PostingWorkspaceClient() {
                         </button>
                       )}
                       {localJobCompleted && (
-                        <InlinePill label={usedCodexTerminal ? 'Escalated to Codex Terminal' : 'Completed on This Mac'} tone="#34d399" />
+                        <InlinePill label={usedCodexTerminal ? 'Executed by Codex CLI' : 'Completed on This Mac'} tone="#34d399" />
                       )}
                     </div>
                   </div>
@@ -960,17 +1025,46 @@ function PostingWorkspaceClient() {
                 </article>
                 );
               })}
-              {postOptions.length === 0 && <EmptyMessage message="No post options yet. Generate from this source card when you are ready." />}
+              {postOptions.length === 0 && (
+                <EmptyMessage message={sourceCardAvailable ? 'No post options yet. Generate from this source card when you are ready.' : 'No post options yet. Enter a specific idea in plain language, then run the evidence check.'} />
+              )}
             </div>
           </section>
+          ) : (
+            <div
+              data-content-generation-authority="canonical_content_lifecycle"
+              hidden={activeMode !== 'post'}
+              style={{ display: activeMode === 'post' ? 'grid' : 'none', gap: '14px' }}
+            >
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '18px', display: 'grid', gap: '10px' }}>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Canonical post lifecycle</p>
+                <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>Create one base post, then request linked variants</h3>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
+                  Post creation now starts from a canonical source or ContentOpportunity. The two-option comparison composer is isolated as rollback-only compatibility and cannot create canonical posts from this default view.
+                </p>
+                {sourceCardAvailable ? (
+                  <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.6, margin: 0 }}>
+                    This handoff retains the source card above for reference. Use the matching canonical source below to create or reuse its opportunity.
+                  </p>
+                ) : null}
+                <div>
+                  <Link href="/workspace#integrated-content-portfolio" style={{ ...secondaryButtonStyle('#38bdf8'), display: 'inline-flex', textDecoration: 'none' }}>
+                    Open canonical lifecycle in workspace
+                  </Link>
+                </div>
+              </section>
+              <IntegratedContentPortfolio />
+            </div>
+          )}
 
           <section
+            hidden={activeMode !== 'comment'}
             style={{
               borderRadius: '16px',
               border: '1px solid #1f2937',
               backgroundColor: '#050b19',
               padding: '18px',
-              display: 'grid',
+              display: activeMode === 'comment' ? 'grid' : 'none',
               gap: '14px',
             }}
           >
@@ -983,11 +1077,24 @@ function PostingWorkspaceClient() {
               <input value={commentLane} onChange={(event) => setCommentLane(event.target.value)} style={fieldStyle} />
             </label>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => void handleGenerateComment()} disabled={commentLoading} style={primaryButtonStyle('#22c55e')}>
+              <button onClick={() => void handleGenerateComment()} disabled={commentLoading || !sourceCardAvailable} style={primaryButtonStyle('#22c55e')}>
                 {commentLoading ? 'Generating…' : 'Generate comment preview'}
               </button>
               {commentError && <span style={{ color: '#f87171', fontSize: '12px' }}>{commentError}</span>}
             </div>
+            {!sourceCardAvailable && (
+              <div role="alert" style={{ borderRadius: '14px', border: '1px solid #38bdf855', backgroundColor: '#071827', padding: '14px', display: 'grid', gap: '8px' }}>
+                <p style={{ color: '#7dd3fc', fontSize: '13px', fontWeight: 700, margin: 0 }}>Attach a source before generating a comment or repost.</p>
+                <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                  Use the workspace hub&apos;s Unified Feed intake, then open this composer from that preview card.
+                </p>
+                <div>
+                  <Link href="/workspace" style={{ ...secondaryButtonStyle('#38bdf8'), display: 'inline-flex', textDecoration: 'none' }}>
+                    Open source intake
+                  </Link>
+                </div>
+              </div>
+            )}
             {commentPreview ? (
               <div style={{ display: 'grid', gap: '12px' }}>
                 <article style={resultCardStyle}>

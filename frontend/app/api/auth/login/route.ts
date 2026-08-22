@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { shouldUseSecureSessionCookie } from '@/lib/control-cookie-policy';
 import { createSessionValue, SESSION_COOKIE, SESSION_SECONDS } from '@/lib/control-session';
 
 export const runtime = 'nodejs';
@@ -28,7 +29,16 @@ export async function POST(request: NextRequest) {
     name: SESSION_COOKIE,
     value: await createSessionValue(sessionSecret),
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureSessionCookie({
+      nodeEnv: process.env.NODE_ENV,
+      localBetaMode: process.env.AI_CLONE_LOCAL_BETA_MODE,
+      allowHttpCookie: process.env.CONTROL_PLANE_ALLOW_HTTP_COOKIE,
+      protocol: request.nextUrl.protocol,
+      // Next may retain the bind hostname (0.0.0.0) in nextUrl. The request Host
+      // is the actual owner-visible LAN authority and remains constrained to a
+      // private/local address by the explicit two-flag beta policy.
+      hostname: request.headers.get('host') || request.nextUrl.hostname,
+    }),
     sameSite: 'strict',
     path: '/',
     maxAge: SESSION_SECONDS,

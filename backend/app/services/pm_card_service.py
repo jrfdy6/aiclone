@@ -148,6 +148,13 @@ STALE_CLAIM_AUTO_RECOVERABLE_BRAIN_ACTIONS = frozenset(
         "linkedin_performance_record",
         "refresh_feezie_workspace",
         "refresh_persona_review",
+        "integrated_content_variant",
+        "integrated_owner_post",
+        "integrated_content_manual_edit",
+        "integrated_content_learning",
+        "integrated_persona_reversal",
+        "canonical_decision_create",
+        "canonical_decision_transition",
     }
 )
 
@@ -193,6 +200,8 @@ def list_cards(
 
 def backfill_execution_gates(
     request: PMExecutionGateBackfillRequest,
+    *,
+    legacy_owner_review_compatibility: bool = False,
 ) -> PMExecutionGateBackfillResult:
     """Persist current fail-closed gates on active historical execution cards.
 
@@ -215,6 +224,12 @@ def backfill_execution_gates(
     cas_miss_count = 0
 
     for card in cards:
+        if (
+            _is_workspace_owner_review_card(card)
+            and legacy_owner_review_compatibility is not True
+            and (card.payload or {}).get("legacy_owner_review_compatibility") is not True
+        ):
+            continue
         if not _is_execution_gate_backfill_candidate(card):
             continue
         candidate_count += 1
@@ -545,6 +560,8 @@ def _require_safe_execution_result_references(request: PMExecutionResultCommitRe
 def claim_execution(
     card_id: str,
     request: PMExecutionClaimRequest,
+    *,
+    legacy_owner_review_compatibility: bool = False,
 ) -> tuple[PMCard, str] | None:
     """Atomically claim one signed runnable card for one exact local worker."""
 
@@ -567,6 +584,14 @@ def claim_execution(
 
             card = _row_to_card(row)
             payload = dict(card.payload or {})
+            if (
+                _is_workspace_owner_review_card(card)
+                and legacy_owner_review_compatibility is not True
+                and payload.get("legacy_owner_review_compatibility") is not True
+            ):
+                raise PMExecutionClaimConflict(
+                    "Historical owner-review PM rows are read-only without rollback compatibility."
+                )
             if not verify_execution_payload(card.id, payload):
                 raise PMExecutionClaimConflict("PM card execution authorization is missing or invalid.")
             try:
@@ -690,6 +715,8 @@ def claim_execution(
 def commit_execution_result(
     card_id: str,
     request: PMExecutionResultCommitRequest,
+    *,
+    legacy_owner_review_compatibility: bool = False,
 ) -> tuple[PMCard, str] | None:
     """Atomically commit one result iff its signed PM execution claim is current.
 
@@ -722,6 +749,14 @@ def commit_execution_result(
 
             card = _row_to_card(row)
             current_payload = dict(card.payload or {})
+            if (
+                _is_workspace_owner_review_card(card)
+                and legacy_owner_review_compatibility is not True
+                and current_payload.get("legacy_owner_review_compatibility") is not True
+            ):
+                raise PMExecutionResultCommitConflict(
+                    "Historical owner-review PM rows are read-only without rollback compatibility."
+                )
             if not verify_execution_payload(card.id, current_payload):
                 raise PMExecutionResultCommitConflict("PM card execution authorization is missing or invalid.")
 
@@ -838,6 +873,7 @@ def recover_stale_execution_claims(
     request: PMStaleExecutionClaimRecoveryRequest,
     *,
     now: datetime | None = None,
+    legacy_owner_review_compatibility: bool = False,
 ) -> PMStaleExecutionClaimRecoveryResult:
     """Recover only deterministic Brain claims; quarantine every other stale claim.
 
@@ -884,6 +920,20 @@ def recover_stale_execution_claims(
             rows = list(cur.fetchall())
             for row in rows:
                 card = _row_to_card(row)
+                if (
+                    _is_workspace_owner_review_card(card)
+                    and legacy_owner_review_compatibility is not True
+                    and (card.payload or {}).get("legacy_owner_review_compatibility") is not True
+                ):
+                    items.append(
+                        {
+                            "card_id": card.id,
+                            "claim_id": str(((card.payload or {}).get("execution") or {}).get("claim_id") or ""),
+                            "disposition": "skipped_legacy_owner_review_read_only",
+                            "reason": "Historical owner-review PM rows remain read-only without compatibility.",
+                        }
+                    )
+                    continue
                 payload = dict(card.payload or {})
                 execution = dict(payload.get("execution") or {})
                 claim_id = str(execution.get("claim_id") or "").strip()
@@ -1197,11 +1247,18 @@ def list_execution_queue(
     manager_agent: Optional[str] = None,
     workspace_key: Optional[str] = None,
     execution_state: Optional[str] = None,
+    legacy_owner_review_compatibility: bool = False,
 ) -> List[ExecutionQueueEntry]:
-    repair_execution_contracts(limit=max(limit, 250), workspace_key=workspace_key)
+    repair_execution_contracts(
+        limit=max(limit, 250),
+        workspace_key=workspace_key,
+        legacy_owner_review_compatibility=legacy_owner_review_compatibility,
+    )
     cards = list_cards(limit=limit, workspace_key=workspace_key)
     entries: List[ExecutionQueueEntry] = []
     for card in cards:
+        if _is_workspace_owner_review_card(card) and legacy_owner_review_compatibility is not True:
+            continue
         entry = build_execution_queue_entry(card)
         if entry is None:
             continue
@@ -1222,10 +1279,21 @@ def list_execution_queue(
     return entries[:limit]
 
 
-def dispatch_card(card_id: str, payload: PMCardDispatchRequest) -> Optional[PMCardDispatchResult]:
+def dispatch_card(
+    card_id: str,
+    payload: PMCardDispatchRequest,
+    *,
+    legacy_owner_review_compatibility: bool = False,
+) -> Optional[PMCardDispatchResult]:
     card = get_card(card_id)
     if card is None:
         return None
+    if (
+        _is_workspace_owner_review_card(card)
+        and legacy_owner_review_compatibility is not True
+        and (card.payload or {}).get("legacy_owner_review_compatibility") is not True
+    ):
+        raise ValueError("Historical owner-review PM rows are read-only without rollback compatibility.")
     if _is_host_action_required_card(card):
         raise ValueError("Host-action cards cannot be dispatched into execution. Confirm, return, or block the host step instead.")
 
@@ -1312,10 +1380,21 @@ def dispatch_card(card_id: str, payload: PMCardDispatchRequest) -> Optional[PMCa
     return PMCardDispatchResult(card=updated, queue_entry=build_execution_queue_entry(updated) or _fallback_execution_entry(updated))
 
 
-def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardActionResult]:
+def act_on_card(
+    card_id: str,
+    payload: PMCardActionRequest,
+    *,
+    legacy_owner_review_compatibility: bool = False,
+) -> Optional[PMCardActionResult]:
     card = get_card(card_id)
     if card is None:
         return None
+    if (
+        _is_workspace_owner_review_card(card)
+        and legacy_owner_review_compatibility is not True
+        and (card.payload or {}).get("legacy_owner_review_compatibility") is not True
+    ):
+        raise ValueError("Historical owner-review PM rows are read-only without rollback compatibility.")
     return _apply_card_action(
         card,
         action=payload.action,
@@ -1332,6 +1411,7 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
 def queue_host_action_automation(
     card_id: str,
     *,
+    legacy_owner_review_compatibility: bool = False,
     requested_by: str = "Neo",
     reason: str | None = None,
     proof_items: list[str] | None = None,
@@ -1344,6 +1424,12 @@ def queue_host_action_automation(
     card = get_card(card_id)
     if card is None:
         return None
+    if (
+        _is_workspace_owner_review_card(card)
+        and legacy_owner_review_compatibility is not True
+        and (card.payload or {}).get("legacy_owner_review_compatibility") is not True
+    ):
+        raise ValueError("Historical owner-review PM rows are read-only without rollback compatibility.")
     if _is_closed_pm_status(card.status):
         raise ValueError("Host-action card is already closed.")
     automation = _infer_host_action_automation(card)
@@ -1798,11 +1884,17 @@ def build_card_action_update(
     return next_status, payload
 
 
-def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
+def auto_resolve_review_cards(
+    limit: int = 250,
+    *,
+    legacy_owner_review_compatibility: bool = False,
+) -> dict[str, Any]:
     cards = list_cards(limit=limit)
     resolved: list[dict[str, Any]] = []
 
     for card in cards:
+        if _is_workspace_owner_review_card(card) and legacy_owner_review_compatibility is not True:
+            continue
         policy = _auto_resolve_review_policy(card)
         if policy is None:
             continue
@@ -1837,9 +1929,18 @@ def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
     }
 
 
-def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
-    repair_result = repair_execution_contracts(limit=limit)
+def auto_progress_review_cards(
+    limit: int = 250,
+    *,
+    legacy_owner_review_compatibility: bool = False,
+) -> dict[str, Any]:
+    repair_result = repair_execution_contracts(
+        limit=limit,
+        legacy_owner_review_compatibility=legacy_owner_review_compatibility,
+    )
     cards = list_cards(limit=limit)
+    if legacy_owner_review_compatibility is not True:
+        cards = [card for card in cards if not _is_workspace_owner_review_card(card)]
     cards_by_id = {card.id: card for card in cards}
     owner_review_duplicates = _auto_close_stale_owner_review_duplicates(cards)
     closed_owner_review_duplicate_ids = {str(item.get("card_id")) for item in owner_review_duplicates if item.get("card_id")}
@@ -1873,11 +1974,31 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
     return result
 
 
-def auto_progress_card(card_id: str, *, limit: int = 250, record_audit: bool = False) -> dict[str, Any]:
+def auto_progress_card(
+    card_id: str,
+    *,
+    limit: int = 250,
+    record_audit: bool = False,
+    legacy_owner_review_compatibility: bool = False,
+) -> dict[str, Any]:
     cards = list_cards(limit=limit)
     cards_by_id = {card.id: card for card in cards}
     card = cards_by_id.get(card_id) or get_card(card_id)
-    if card is None:
+    if card is not None and _is_workspace_owner_review_card(card) and legacy_owner_review_compatibility is not True:
+        result = {
+            "card_id": card_id,
+            "processed": False,
+            "reason": "Historical owner-review cards are read-only outside rollback compatibility mode.",
+            "rule": "legacy_owner_review_read_only",
+            "action": None,
+            "resolution_mode": None,
+            "successor_card_id": None,
+            "successor_card_title": None,
+            "host_action_card_id": None,
+            "host_action_card_title": None,
+            "card": decorate_card_for_client(card),
+        }
+    elif card is None:
         result = {
             "card_id": card_id,
             "processed": False,
@@ -3396,8 +3517,15 @@ def _is_execution_candidate(card: PMCard) -> bool:
     return _execution_contract_source(card) is not None
 
 
-def repair_execution_contracts(limit: int = 250, workspace_key: str | None = None) -> dict[str, Any]:
+def repair_execution_contracts(
+    limit: int = 250,
+    workspace_key: str | None = None,
+    *,
+    legacy_owner_review_compatibility: bool = False,
+) -> dict[str, Any]:
     cards = list_cards(limit=limit, workspace_key=workspace_key)
+    if legacy_owner_review_compatibility is not True:
+        cards = [card for card in cards if not _is_workspace_owner_review_card(card)]
     deduped = _dedupe_active_pm_review_resolution_cards(cards)
     host_followup_repairs = _repair_legacy_host_action_cards(cards)
     closed_duplicate_ids = {str(item.get("card_id")) for item in deduped}
@@ -4321,6 +4449,8 @@ def _create_host_action_required_card(
         "instructions": steps,
         "acceptance_criteria": proof_required,
     }
+    if (source_card.payload or {}).get("legacy_owner_review_compatibility") is True:
+        payload["legacy_owner_review_compatibility"] = True
     if follow_up_phase is not None:
         payload["host_action_followup"] = {
             **follow_up_phase,

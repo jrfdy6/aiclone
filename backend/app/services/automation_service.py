@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from app.models.automations import Automation, AutomationInstruction, AutomationRun
+from app.services.launchd_policy import RETIRED_INTEGRATED_COMPATIBILITY_IDS
 
 AI_CLONE_RUNTIME_ROOT = Path(os.getenv("AI_CLONE_RUNTIME_ROOT") or (Path.home() / ".codex" / "ai-clone"))
 CODEX_RUN_LEDGER_PATH = AI_CLONE_RUNTIME_ROOT / "state" / "automations" / "runs" / "all.jsonl"
@@ -26,7 +27,7 @@ CONFIGURED_LAUNCHD_AUTOMATION_IDS = frozenset(
         "codex_memory_sync",
         "codex_workspace_execution",
         "content_safe_operator_lessons",
-        "dream_cycle",
+        "daily_integrated_cycle",
         "external_service_health",
         "feezie_codex_bridge",
         "feezie_content_pipeline",
@@ -36,12 +37,11 @@ CONFIGURED_LAUNCHD_AUTOMATION_IDS = frozenset(
         "meeting_watchdog",
         "memory_archive_sweep",
         "memory_health_check",
-        "morning_daily_brief",
+        "monthly_recovery_drill",
         "neo_guest",
         "operator_story_signals",
         "persona_bundle_sync",
         "pm_review_resolution",
-        "portfolio_standup_prep",
         "post_sync_dispatch",
         "progress_pulse",
         "project_snapshot",
@@ -131,7 +131,7 @@ def _project_launchd_automations() -> List[Automation]:
         Automation(
             id="feezie_content_pipeline",
             name="FEEZIE Content Pipeline",
-            description="Codex-native local automation that refreshes the FEEZIE workspace signal lane, rebuilds weekly planning and reaction artifacts, and materializes owner-review drafts in the FEEZIE workspace.",
+            description="Codex-native local automation that refreshes the FEEZIE RSS/Reddit signal lane and planning artifacts without duplicating the dedicated YouTube scheduler or defaulting to the retired two-draft materializer.",
             type="scheduled",
             status="active",
             schedule="Every 2 hours",
@@ -144,13 +144,13 @@ def _project_launchd_automations() -> List[Automation]:
             metrics={
                 "workspace": "workspaces/linkedin-content-os",
                 "runtime": "local machine only",
-                "pipeline": "safe source intake -> market archive -> social feed -> strategy/drafts -> source intelligence -> BrainSignal intake",
-                "output": "plans/*.json + drafts/*.md",
+                "pipeline": "RSS/Reddit intake -> market archive -> social feed -> strategy -> source intelligence -> BrainSignal intake",
+                "output": "plans/*.json plus canonical integrated content lifecycle",
             },
             instructions=_instructions(
-                "Refresh safe FEEZIE source intake and rebuild the social feed artifacts",
+                "Refresh RSS/Reddit FEEZIE source intake and rebuild the social feed artifacts; leave YouTube to its dedicated scheduler",
                 "Regenerate weekly plan and reaction queue from the current workspace state",
-                "Materialize owner-review drafts so the workspace holds real draft files instead of only planning JSON",
+                "Route qualified opportunities into the canonical-post and on-demand-variant lifecycle",
                 "Register the refreshed source lane into Brain source intelligence and BrainSignal intake",
             ),
             notes="Runs on the local machine so generated drafts and plans remain durable in private workspace state.",
@@ -631,7 +631,7 @@ def _local_launchd_automations() -> List[Automation]:
         Automation(
             id="neo_guest",
             name="Neo Guest Conversation Worker",
-            description="Always-on local launchd daemon that serially claims invite-only Neo conversation jobs and answers deterministically from a versioned approved public knowledge pack. A Mac-local Ollama fallback is available only through explicit opt-in.",
+            description="Always-on local launchd daemon that serially claims invite-only Neo conversation jobs and answers deterministically from a versioned approved public knowledge pack. Llama-family generation is retired and cannot be enabled.",
             type="daemon",
             status="active",
             schedule="Always on",
@@ -652,9 +652,8 @@ def _local_launchd_automations() -> List[Automation]:
                 "launch_agent": "automations/launchd/com.neo.neo_guest.plist",
                 "execution_mode": "persistent_serial_queue_worker",
                 "idle_poll_seconds": "0.5-2.0",
-                "model_runtime": "approved_public_knowledge_packet",
-                "ollama_fallback": "disabled_by_default_explicit_opt_in",
-                "default_max_predict_tokens": "160",
+                "response_runtime": "approved_public_knowledge_packet",
+                "generative_model_path": "retired_removed",
                 "knowledge_pack_contract": "neo_public_knowledge_pack/v1",
                 "local_ledger_content": "metadata_only",
                 "capability": "write_capable_guest_response",
@@ -662,10 +661,10 @@ def _local_launchd_automations() -> List[Automation]:
             instructions=_instructions(
                 "Remain resident under launchd and claim one scoped Neo guest job at a time with bounded idle polling",
                 "Send only a query-selected subset of the versioned approved public professional knowledge pack and that guest's bounded conversation; never read raw Brain or private project memory",
-                "Write the bounded approved-pack response or failure back to the same claimed job; use loopback Ollama only when NEO_ENABLE_OLLAMA is explicitly enabled for a legacy packet",
+                "Write the bounded approved-pack response or failure back to the same claimed job; reject every retired Llama/Ollama generation switch before creating a session or claiming work",
                 "Record metadata-only completed or failed execution evidence in the local-first automation ledger before attempting its Railway mirror",
             ),
-            notes="Invite-only persistent guest worker with no next scheduled run. It cannot access operator routes or raw Brain/private project memory. Normal operation is independent of Ollama and model-provider APIs.",
+            notes="Invite-only persistent guest worker with no next scheduled run. It cannot access operator routes or raw Brain/private project memory and has no generative-model path.",
         ),
         Automation(
             id="city_event_scout",
@@ -880,6 +879,15 @@ def _codex_parity_automations() -> List[Automation]:
             "Publishes a local digest only when material Chronicle movement has landed.",
         ),
         (
+            "daily_integrated_cycle",
+            "Daily Integrated Cycle",
+            "Daily @ 06:15 ET",
+            "15 6 * * *",
+            "scripts/run_daily_integrated_cycle.py",
+            "ops/daily-integrated-cycle",
+            "Owns the ordered Dream readiness, Morning Brief, workspace stand-up, Ops conclusion, and bounded remote-projection dependency chain.",
+        ),
+        (
             "dream_cycle",
             "Dream Cycle",
             "Daily @ 06:15 ET",
@@ -896,6 +904,15 @@ def _codex_parity_automations() -> List[Automation]:
             "scripts/run_codex_memory_health.py",
             "brain/memory-health",
             "Verifies the SQLite durable-memory index and canonical memory source freshness.",
+        ),
+        (
+            "monthly_recovery_drill",
+            "Monthly Recovery Drill",
+            "Month day 1 @ 03:15 ET",
+            "15 3 1 * *",
+            "scripts/run_monthly_recovery_drill_scheduled.py",
+            "ops/recovery",
+            "Creates an encrypted off-site state backup and proves isolated restoration without touching live state.",
         ),
         (
             "memory_archive_sweep",
@@ -1092,8 +1109,19 @@ def _registry_automations() -> List[Automation]:
     normalized: List[Automation] = []
     for item in automations:
         metrics = dict(item.metrics)
-        intentionally_uninstalled = metrics.get("installation_state") == "intentionally_uninstalled"
+        retired_integrated_compatibility = item.id in RETIRED_INTEGRATED_COMPATIBILITY_IDS
+        intentionally_uninstalled = (
+            metrics.get("installation_state") == "intentionally_uninstalled"
+            or retired_integrated_compatibility
+        )
         configured = item.id in CONFIGURED_LAUNCHD_AUTOMATION_IDS
+        if retired_integrated_compatibility:
+            metrics.update(
+                {
+                    "retirement_state": "integrated_coordinator_replacement",
+                    "replacement_automation_id": "daily_integrated_cycle",
+                }
+            )
         metrics.update(
             {
                 "configuration_state": (

@@ -4,9 +4,10 @@ Perplexity API Client
 Client for interacting with Perplexity AI API for research and search.
 """
 
-import os
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+import os
+from typing import Any, Dict, Optional
+
 import requests
 
 
@@ -30,30 +31,53 @@ class PerplexityConfigurationError(PerplexityClientError):
 
 class PerplexityClient:
     """Client for Perplexity AI API."""
-    
+
     BASE_URL = "https://api.perplexity.ai/chat/completions"
-    
+    DEFAULT_SEARCH_MODEL = "sonar"
+    DEFAULT_RESEARCH_MODEL = "sonar-pro"
+
     def __init__(self):
         """Initialize the Perplexity client."""
         self.api_key = os.getenv("PERPLEXITY_API_KEY")
-        
+
         if not self.api_key:
             raise PerplexityConfigurationError(
                 "PERPLEXITY_API_KEY environment variable is not set. "
                 "Please configure your Perplexity API key."
             )
-    
-    def search(self, query: str, model: str = "llama-3.1-sonar-small-128k-online") -> Optional[PerplexityResponse]:
+        self.search_model = self._validated_model(
+            os.getenv("PERPLEXITY_SEARCH_MODEL", self.DEFAULT_SEARCH_MODEL)
+        )
+        self.research_model = self._validated_model(
+            os.getenv("PERPLEXITY_RESEARCH_MODEL", self.DEFAULT_RESEARCH_MODEL)
+        )
+
+    @staticmethod
+    def _validated_model(model: str) -> str:
+        """Reject retired Llama-family identities before any provider call."""
+
+        normalized = str(model or "").strip()
+        if not normalized or len(normalized) > 100 or any(char in normalized for char in "\r\n"):
+            raise PerplexityConfigurationError("Perplexity model configuration is invalid.")
+        lowered = normalized.lower()
+        if "llama" in lowered or "ollama" in lowered:
+            raise PerplexityConfigurationError(
+                "Llama-family generation is retired; configure a current Perplexity Sonar model."
+            )
+        return normalized
+
+    def search(self, query: str, model: Optional[str] = None) -> Optional[PerplexityResponse]:
         """
         Perform a search query using Perplexity.
         
         Args:
             query: The search query string
-            model: The Perplexity model to use
+            model: Optional current Perplexity model override
             
         Returns:
             PerplexityResponse with answer and citations, or None on error
         """
+        selected_model = self._validated_model(model or self.search_model)
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -61,7 +85,7 @@ class PerplexityClient:
             }
             
             payload = {
-                "model": model,
+                "model": selected_model,
                 "messages": [
                     {
                         "role": "user",
@@ -126,7 +150,7 @@ class PerplexityClient:
         topic: str,
         num_results: int = 5,
         include_comparison: bool = False,
-        model: str = "llama-3.1-sonar-large-128k-online"
+        model: Optional[str] = None,
     ) -> Optional[PerplexityResponse]:
         """
         Research a topic using Perplexity with more comprehensive analysis.
@@ -135,7 +159,7 @@ class PerplexityClient:
             topic: The topic to research
             num_results: Number of results to include (affects prompt)
             include_comparison: Whether to include comparative analysis
-            model: The Perplexity model to use (larger model for research)
+            model: Optional current Perplexity model override
             
         Returns:
             PerplexityResponse with comprehensive research, or None on error
@@ -148,7 +172,7 @@ class PerplexityClient:
         
         query += f" Provide detailed insights, key points, and relevant information."
         
-        return self.search(query=query, model=model)
+        return self.search(query=query, model=model or self.research_model)
 
 
 # Singleton instance

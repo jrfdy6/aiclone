@@ -70,10 +70,14 @@ def test_context_cache_accepts_fresh_current_version(tmp_path: Path) -> None:
         assert _load()["context_packet"]["prompt"] == "hello"
 
 
-def test_context_cache_rejects_prior_contract_version(tmp_path: Path) -> None:
+@pytest.mark.parametrize("prior_version", ["local-codex-context-v8", "local-codex-context-v3"])
+def test_context_cache_rejects_prior_contract_version(
+    tmp_path: Path,
+    prior_version: str,
+) -> None:
     _persist_payload(
         tmp_path,
-        _payload(created_at=datetime.now(timezone.utc).isoformat(), version="local-codex-context-v3"),
+        _payload(created_at=datetime.now(timezone.utc).isoformat(), version=prior_version),
     )
 
     with patch.object(service, "_store_dir", return_value=tmp_path):

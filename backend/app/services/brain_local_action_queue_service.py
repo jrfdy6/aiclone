@@ -14,7 +14,14 @@ from app.models import (
     BrainSignalReviewRequest,
     BrainSignalRouteRequest,
     BrainYouTubeWatchlistIngestRequest,
+    CanonicalDecisionActionRequest,
+    CanonicalDecisionCreateRequest,
     LinkedinPerformanceLocalActionRequest,
+    IntegratedContentVariantRequest,
+    IntegratedOwnerPostRequest,
+    IntegratedContentManualEditRequest,
+    IntegratedContentLearningRequest,
+    IntegratedPersonaReversalRequest,
     PMCard,
     PMCardCreate,
     PMCardUpdate,
@@ -37,6 +44,13 @@ BRAIN_LOCAL_ACTIONS = frozenset(
         "youtube_watchlist_ingest",
         "refresh_feezie_workspace",
         "refresh_persona_review",
+        "integrated_content_variant",
+        "integrated_owner_post",
+        "integrated_content_manual_edit",
+        "integrated_content_learning",
+        "integrated_persona_reversal",
+        "canonical_decision_create",
+        "canonical_decision_transition",
     }
 )
 
@@ -50,7 +64,39 @@ _ACTION_TITLES = {
     "youtube_watchlist_ingest": "Brain: ingest YouTube source locally",
     "refresh_feezie_workspace": "Brain: refresh FEEZIE workspace locally",
     "refresh_persona_review": "Brain: refresh persona review locally",
+    "integrated_content_variant": "Content: generate one linked variant locally",
+    "integrated_owner_post": "Content: create one owner-requested canonical post locally",
+    "integrated_content_manual_edit": "Content: persist one owner edit locally",
+    "integrated_content_learning": "Content: record one exact owner lifecycle action locally",
+    "integrated_persona_reversal": "Content: reverse one governed persona promotion locally",
+    "canonical_decision_create": "Ops: create one canonical decision locally",
+    "canonical_decision_transition": "Ops: transition one canonical decision locally",
 }
+
+_MODEL_GENERATING_ACTIONS = frozenset(
+    {
+        "integrated_content_variant",
+        "integrated_owner_post",
+    }
+)
+
+
+def _local_action_pm_reason(action: str) -> str:
+    if action in _MODEL_GENERATING_ACTIONS:
+        return (
+            "Authenticated owner content generation invokes governed saved-login Codex "
+            "generation over a closed remote-safe packet on the local host."
+        )
+    return "Authenticated Brain mutation requires deterministic execution on the local Codex host."
+
+
+def _local_action_execution_reason(action: str) -> str:
+    if action in _MODEL_GENERATING_ACTIONS:
+        return (
+            f"Run signed Brain local action `{action}` with governed saved-login Codex "
+            "generation over its validated remote-safe packet."
+        )
+    return f"Run signed Brain local action `{action}` deterministically without model invocation."
 
 
 def _now_iso() -> str:
@@ -144,7 +190,7 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
         else:
             source_limit = None
         normalized = {
-            "include_source_intelligence": bool(raw.get("include_source_intelligence", True)),
+            "include_source_intelligence": bool(raw.get("include_source_intelligence", False)),
             "include_workspace_attention": bool(raw.get("include_workspace_attention", True)),
             "include_automation_outputs": bool(raw.get("include_automation_outputs", True)),
             "source_limit": source_limit,
@@ -156,8 +202,18 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
             "request": _validated_model_payload(BrainLongFormIngestRequest, raw.get("request"), label="long_form_ingest request")
         }
     elif action == "linkedin_performance_record":
-        raw = _validate_exact_keys(parameters, {"request"}, label="linkedin_performance_record parameters")
+        raw = _validate_exact_keys(
+            parameters,
+            {"legacy_compatibility", "request"},
+            label="linkedin_performance_record parameters",
+        )
+        if raw.get("legacy_compatibility") is not True:
+            raise ValueError(
+                "linkedin_performance_record requires legacy_compatibility=true; "
+                "the historical JSONL writer is rollback-only."
+            )
         normalized = {
+            "legacy_compatibility": True,
             "request": _validated_model_payload(
                 LinkedinPerformanceLocalActionRequest,
                 raw.get("request"),
@@ -172,6 +228,77 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
                 raw.get("request"),
                 label="youtube_watchlist_ingest request",
             )
+        }
+    elif action == "integrated_content_variant":
+        raw = _validate_exact_keys(parameters, {"request"}, label="integrated_content_variant parameters")
+        normalized = {
+            "request": _validated_model_payload(
+                IntegratedContentVariantRequest,
+                raw.get("request"),
+                label="integrated_content_variant request",
+            )
+        }
+    elif action == "integrated_owner_post":
+        raw = _validate_exact_keys(parameters, {"request"}, label="integrated_owner_post parameters")
+        normalized = {"request": _validated_model_payload(IntegratedOwnerPostRequest, raw.get("request"), label="integrated_owner_post request")}
+    elif action == "integrated_content_manual_edit":
+        raw = _validate_exact_keys(
+            parameters, {"request"}, label="integrated_content_manual_edit parameters"
+        )
+        normalized = {
+            "request": _validated_model_payload(
+                IntegratedContentManualEditRequest,
+                raw.get("request"),
+                label="integrated_content_manual_edit request",
+            )
+        }
+    elif action == "integrated_content_learning":
+        raw = _validate_exact_keys(
+            parameters, {"request"}, label="integrated_content_learning parameters"
+        )
+        normalized = {
+            "request": _validated_model_payload(
+                IntegratedContentLearningRequest,
+                raw.get("request"),
+                label="integrated_content_learning request",
+            )
+        }
+    elif action == "integrated_persona_reversal":
+        raw = _validate_exact_keys(
+            parameters, {"request"}, label="integrated_persona_reversal parameters"
+        )
+        normalized = {
+            "request": _validated_model_payload(
+                IntegratedPersonaReversalRequest,
+                raw.get("request"),
+                label="integrated_persona_reversal request",
+            )
+        }
+    elif action == "canonical_decision_create":
+        raw = _validate_exact_keys(parameters, {"request"}, label="canonical_decision_create parameters")
+        normalized = {
+            "request": _validated_model_payload(
+                CanonicalDecisionCreateRequest,
+                raw.get("request"),
+                label="canonical_decision_create request",
+            )
+        }
+    elif action == "canonical_decision_transition":
+        raw = _validate_exact_keys(
+            parameters,
+            {"decision_id", "request"},
+            label="canonical_decision_transition parameters",
+        )
+        decision_id = str(raw.get("decision_id") or "").strip()
+        if not decision_id or len(decision_id) > 128:
+            raise ValueError("canonical_decision_transition requires a bounded decision_id.")
+        normalized = {
+            "decision_id": decision_id,
+            "request": _validated_model_payload(
+                CanonicalDecisionActionRequest,
+                raw.get("request"),
+                label="canonical_decision_transition request",
+            ),
         }
     elif action in {"refresh_feezie_workspace", "refresh_persona_review"}:
         _validate_exact_keys(parameters, set(), label=f"{action} parameters")
@@ -240,7 +367,7 @@ def build_brain_local_action_card_request(action: str, parameters: dict[str, Any
             "requested_by": "Neo",
             "trigger_origin": "brain_authenticated_control_plane",
             "trigger_key": trigger_key,
-            "reason": "Authenticated Brain mutation requires deterministic execution on the local Codex host.",
+            "reason": _local_action_pm_reason(envelope["action"]),
             "brain_local_action": envelope,
             "execution": {
                 "lane": "codex",
@@ -250,7 +377,7 @@ def build_brain_local_action_card_request(action: str, parameters: dict[str, Any
                 "execution_mode": "brain_local_action",
                 "requested_by": "Neo",
                 "assigned_runner": "codex_workspace_execution",
-                "reason": f"Run signed Brain local action `{envelope['action']}` without model invocation.",
+                "reason": _local_action_execution_reason(envelope["action"]),
                 "queued_at": now,
                 "last_transition_at": now,
                 "source": "brain_authenticated_control_plane",
@@ -357,6 +484,69 @@ def get_linkedin_performance_record_job(card_id: str) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def _get_integrated_content_job(card_id: str, expected_action: str) -> dict[str, Any]:
+    """Return bounded status for one signed local variant-generation action."""
+
+    card, _ = authorize_brain_local_action_card(card_id, expected_action)
+    payload = dict(card.payload or {})
+    execution = dict(payload.get("execution") or {})
+    latest_result = dict(payload.get("latest_execution_result") or {})
+    card_status = str(card.status or "todo").strip().lower()
+    executor_status = str(execution.get("executor_status") or "").strip().lower()
+    execution_state = str(execution.get("state") or "queued").strip().lower()
+    if card_status in {"done", "closed"} or latest_result.get("status") == "done":
+        status = "completed"
+    elif card_status in {"blocked", "failed"} or executor_status == "failed":
+        status = "failed"
+    elif executor_status == "running" or execution_state == "running":
+        status = "running"
+    else:
+        status = "queued"
+    return {
+        "job_id": card.id, "card_id": card.id, "status": status,
+        "created_at": card.created_at, "updated_at": card.updated_at,
+        "completed_at": execution.get("executor_finished_at"),
+        "message": sanitize_brain_text(str(latest_result.get("summary") or "")) or None,
+        "error": sanitize_brain_text(str(execution.get("executor_last_error") or "")) or None if status == "failed" else None,
+    }
+
+
+def get_integrated_content_variant_job(card_id: str) -> dict[str, Any]:
+    return _get_integrated_content_job(card_id, "integrated_content_variant")
+
+
+def get_integrated_owner_post_job(card_id: str) -> dict[str, Any]:
+    return _get_integrated_content_job(card_id, "integrated_owner_post")
+
+
+def get_integrated_content_owner_action_job(card_id: str) -> dict[str, Any]:
+    card = pm_card_service.get_card(card_id)
+    if card is None:
+        raise ValueError("Integrated content owner-action card not found.")
+    if not verify_execution_payload(card.id, dict(card.payload or {})):
+        raise ValueError("Integrated content owner-action card signature is invalid.")
+    action = validate_brain_local_action(dict(card.payload or {}).get("brain_local_action"))
+    if action["action"] not in {"integrated_content_manual_edit", "integrated_content_learning"}:
+        raise ValueError("Brain local-action PM card does not authorize a content owner action.")
+    return _get_integrated_content_job(card_id, action["action"])
+
+
+def get_integrated_persona_action_job(card_id: str) -> dict[str, Any]:
+    return _get_integrated_content_job(card_id, "integrated_persona_reversal")
+
+
+def get_canonical_decision_job(card_id: str) -> dict[str, Any]:
+    card = pm_card_service.get_card(card_id)
+    if card is None:
+        raise ValueError("Canonical decision action card not found.")
+    if not verify_execution_payload(card.id, dict(card.payload or {})):
+        raise ValueError("Canonical decision action card signature is invalid.")
+    action = validate_brain_local_action(dict(card.payload or {}).get("brain_local_action"))
+    if action["action"] not in {"canonical_decision_create", "canonical_decision_transition"}:
+        raise ValueError("Brain local-action PM card does not authorize canonical decision work.")
+    return _get_integrated_content_job(card_id, action["action"])
 
 
 def get_feezie_workspace_refresh_job(card_id: str) -> dict[str, Any]:

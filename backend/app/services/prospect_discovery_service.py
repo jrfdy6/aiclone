@@ -13,8 +13,12 @@ import logging
 import time
 import re
 import json
+import ipaddress
+import os
 import requests
+import socket
 from typing import List, Dict, Any, Optional
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 from app.models.prospect_discovery import (
@@ -29,10 +33,109 @@ from app.services.firecrawl_client import get_firecrawl_client
 from app.services.perplexity_client import get_perplexity_client
 from app.services.search_client import get_search_client
 from app.services.firestore_client import db
-from app.services.prospect_discovery.extractors.factory import extract_prospects_with_factory
+from app.services.firestore_prospect_authority_service import (
+    canonical_prospect_collection,
+    canonicalize_prospect_document,
+)
 from app.services.prospect_discovery.extractors.factory import extract_prospects_with_factory
 
 logger = logging.getLogger(__name__)
+
+_MAX_FREE_SCRAPE_BYTES = 2_000_000
+_MAX_FREE_SCRAPE_REDIRECTS = 3
+
+
+class UnsafeProspectDiscoveryUrl(ValueError):
+    """Raised when a local fallback fetch could reach a non-public target."""
+
+
+def _direct_fetch_enabled() -> bool:
+    """Return true only for an explicit operator-approved compatibility fetch.
+
+    DNS validation cannot pin the address that ``requests`` resolves later, so
+    it does not by itself eliminate DNS-rebinding risk. Connector-based capture
+    is the safe default and this direct-fetch fallback stays opt-in.
+    """
+
+    return str(os.getenv("PROSPECT_DISCOVERY_ENABLE_DIRECT_FETCH") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _validated_public_https_url(url: str) -> str:
+    """Validate scheme, credentials, DNS answers, and resolved address scope."""
+
+    value = str(url or "").strip()
+    parsed = urlparse(value)
+    hostname = str(parsed.hostname or "").rstrip(".").lower()
+    if parsed.scheme.lower() != "https" or not hostname or parsed.username or parsed.password:
+        raise UnsafeProspectDiscoveryUrl("Only public HTTPS targets without credentials are allowed")
+
+    try:
+        addresses = socket.getaddrinfo(
+            hostname,
+            parsed.port or 443,
+            type=socket.SOCK_STREAM,
+        )
+    except (OSError, ValueError) as exc:
+        raise UnsafeProspectDiscoveryUrl("Target DNS resolution failed") from exc
+    if not addresses:
+        raise UnsafeProspectDiscoveryUrl("Target DNS resolution returned no addresses")
+
+    for address_info in addresses:
+        raw_address = str(address_info[4][0]).split("%", 1)[0]
+        try:
+            address = ipaddress.ip_address(raw_address)
+        except ValueError as exc:
+            raise UnsafeProspectDiscoveryUrl("Target DNS answer was invalid") from exc
+        if not address.is_global:
+            raise UnsafeProspectDiscoveryUrl("Target resolved to a non-public address")
+    return value
+
+
+class _ProspectDiscoveryPrivacyFilter(logging.Filter):
+    """Keep remote discovery logs operational without retaining prospect PII."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        lowered = message.lower()
+        if record.levelno >= logging.WARNING:
+            if "scrap" in lowered:
+                category = "scrape_failed"
+            elif "search" in lowered:
+                category = "search_failed"
+            elif "extract" in lowered:
+                category = "extraction_failed"
+            else:
+                category = "operation_failed"
+            record.msg = f"Prospect discovery warning [{category}]"
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            return True
+
+        # Even an apparently harmless progress message can contain a person's
+        # name, contact details, a search query, or a provider response. Keep
+        # only an operational category and counts emitted by metrics elsewhere.
+        if "save" in lowered:
+            category = "save_progress"
+        elif "scrap" in lowered:
+            category = "scrape_progress"
+        elif "extract" in lowered:
+            category = "extraction_progress"
+        elif "search" in lowered:
+            category = "search_progress"
+        else:
+            category = "operation_progress"
+        record.msg = f"Prospect discovery event [{category}]"
+        record.args = ()
+        return True
+
+
+logger.addFilter(_ProspectDiscoveryPrivacyFilter())
 
 # =============================================================================
 # UNIVERSAL CREDENTIALS & TITLES (Layer 1)
@@ -302,20 +405,69 @@ class ProspectDiscoveryService:
     
     def _free_scrape(self, url: str) -> Optional[str]:
         """Free scraping fallback using requests + BeautifulSoup"""
+        if not _direct_fetch_enabled():
+            return None
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Encoding': 'gzip, deflate',
                 'DNT': '1',
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1',
             }
-            response = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
+            current_url = _validated_public_https_url(url)
+            response_body: bytes | None = None
+
+            for redirect_count in range(_MAX_FREE_SCRAPE_REDIRECTS + 1):
+                response = requests.get(
+                    current_url,
+                    headers=headers,
+                    timeout=(5, 10),
+                    allow_redirects=False,
+                    stream=True,
+                )
+                try:
+                    if 300 <= response.status_code < 400:
+                        location = response.headers.get("Location")
+                        if not location or redirect_count >= _MAX_FREE_SCRAPE_REDIRECTS:
+                            raise UnsafeProspectDiscoveryUrl("Redirect chain was invalid or too long")
+                        current_url = _validated_public_https_url(urljoin(current_url, location))
+                        continue
+
+                    response.raise_for_status()
+                    content_type = str(response.headers.get("Content-Type") or "").lower()
+                    if content_type and not any(
+                        allowed in content_type
+                        for allowed in ("text/html", "application/xhtml+xml", "text/plain")
+                    ):
+                        raise UnsafeProspectDiscoveryUrl("Target did not return supported text content")
+                    try:
+                        content_length = int(response.headers.get("Content-Length") or 0)
+                    except (TypeError, ValueError):
+                        content_length = 0
+                    if content_length > _MAX_FREE_SCRAPE_BYTES:
+                        raise UnsafeProspectDiscoveryUrl("Target response was too large")
+
+                    chunks: List[bytes] = []
+                    total = 0
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > _MAX_FREE_SCRAPE_BYTES:
+                            raise UnsafeProspectDiscoveryUrl("Target response exceeded the size limit")
+                        chunks.append(chunk)
+                    response_body = b"".join(chunks)
+                    break
+                finally:
+                    response.close()
+
+            if response_body is None:
+                raise UnsafeProspectDiscoveryUrl("Target did not produce a usable response")
+
+            soup = BeautifulSoup(response_body.decode("utf-8", errors="replace"), 'html.parser')
             
             # Remove script and style elements
             for script in soup(["script", "style", "nav", "footer", "header"]):
@@ -328,8 +480,8 @@ class ProspectDiscoveryService:
             text = re.sub(r'\s+', ' ', text)
             
             return text[:50000]  # Limit to 50k chars
-        except Exception as e:
-            logger.warning(f"Free scrape failed for {url}: {e}")
+        except Exception:
+            logger.warning("Free scrape failed")
             return None
     
     def _extract_organization(self, content: str, url: str) -> Optional[str]:
@@ -3229,13 +3381,6 @@ Important: Only return verified, publicly available contact information. Do not 
                 # Use name-based ID to prevent duplicates
                 doc_id = prospect.name.lower().replace(" ", "_").replace(".", "")
             
-            doc_ref = db.collection("users").document(user_id).collection("prospects").document(doc_id)
-            
-            # Check if already exists - skip if so
-            if doc_ref.get().exists:
-                logger.debug(f"Skipping duplicate prospect: {prospect.name}")
-                continue
-            
             prospect_doc = {
                 "name": prospect.name,
                 "title": prospect.title,
@@ -3252,13 +3397,20 @@ Important: Only return verified, publicly available contact information. Do not 
                 "bio_snippet": prospect.bio_snippet,
                 "created_at": time.time(),
             }
+            canonical_doc = canonicalize_prospect_document(prospect_doc, document_id=doc_id)
+            doc_ref = canonical_prospect_collection(db, user_id).document(canonical_doc["id"])
+
+            # Check if already exists - skip if so
+            if doc_ref.get().exists:
+                logger.debug(f"Skipping duplicate prospect: {prospect.name}")
+                continue
             
             # Track category
             category_tag = prospect.specialty[0] if prospect.specialty else "Unknown"
             category_counts[category_tag] = category_counts.get(category_tag, 0) + 1
             
             logger.info(f"[SAVE] {prospect.name} | Category: {category_tag} | Org: {prospect.organization} | Email: {prospect.contact.email or 'N/A'} | Phone: {prospect.contact.phone or 'N/A'}")
-            doc_ref.set(prospect_doc)
+            doc_ref.set(canonical_doc, merge=True)
             saved_count += 1
         
         duplicate_count = len(valid_prospects) - saved_count
@@ -3276,7 +3428,8 @@ Important: Only return verified, publicly available contact information. Do not 
         self,
         user_id: str,
         urls: List[str],
-        source_type: str = "direct_url"
+        source_type: str = "direct_url",
+        save_to_prospects: bool = False,
     ) -> ProspectDiscoveryResponse:
         """
         Scrape specific URLs for prospect data.
@@ -3338,6 +3491,9 @@ Important: Only return verified, publicly available contact information. Do not 
         
         doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
         doc_ref.set(doc_data)
+
+        if save_to_prospects and all_prospects:
+            self._save_to_prospects(user_id, all_prospects)
         
         return ProspectDiscoveryResponse(
             success=True,
@@ -3653,7 +3809,8 @@ Important: Only return verified, publicly available contact information. Do not 
         location: str,
         additional_context: Optional[str] = None,
         max_results: int = 10,
-        categories: List[str] = None
+        categories: List[str] = None,
+        save_to_prospects: bool = False,
     ) -> ProspectDiscoveryResponse:
         """
         Use Google Custom Search (FREE - 100/day) + Firecrawl to find prospects.
@@ -3901,8 +4058,9 @@ Important: Only return verified, publicly available contact information. Do not 
             doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
             doc_ref.set(doc_data)
             
-            # Save to main prospects collection so they show in pipeline
-            if all_prospects:
+            # Preview remains read-only with respect to the canonical pipeline.
+            # The owner-facing route must pass explicit save intent.
+            if save_to_prospects and all_prospects:
                 self._save_to_prospects(user_id, all_prospects)
             
             return ProspectDiscoveryResponse(
@@ -3930,7 +4088,8 @@ Important: Only return verified, publicly available contact information. Do not 
         specialty: str,
         location: str,
         additional_context: Optional[str] = None,
-        max_results: int = 10
+        max_results: int = 10,
+        save_to_prospects: bool = False,
     ) -> ProspectDiscoveryResponse:
         """
         Use Perplexity AI to find real prospects (PAID).
@@ -4007,6 +4166,9 @@ Only include real, verifiable professionals. Do not include generic descriptions
             
             doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
             doc_ref.set(doc_data)
+
+            if save_to_prospects and prospects:
+                self._save_to_prospects(user_id, prospects)
             
             return ProspectDiscoveryResponse(
                 success=True,

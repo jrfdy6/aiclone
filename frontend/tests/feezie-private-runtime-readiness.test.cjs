@@ -123,6 +123,6 @@ test('both FEEZIE post queues fail closed while unrelated comment and ingest act
   assert.match(postingSource, /privateRuntimeLoadState === 'live'\s*&& isFeeziePrivateRuntimeContextReady\(privateRuntimeStatus\)/s);
   assert.match(workspaceSource, /snapshotState === 'live'\s*&& snapshotError === null\s*&& isFeeziePrivateRuntimeContextReady/s);
   assert.match(postingSource, /initialQuery\.mode === 'comment'[\s\S]*?handleGenerateComment\(\);[\s\S]*?if \(!feezieGenerationReady\)/);
-  assert.match(postingSource, /onClick=\{\(\) => void handleGenerateComment\(\)\} disabled=\{commentLoading\}/);
+  assert.match(postingSource, /onClick=\{\(\) => void handleGenerateComment\(\)\} disabled=\{commentLoading \|\| !sourceCardAvailable\}/);
   assert.match(workspaceSource, /onClick=\{\(\) => void ingestSignal\(\)\} disabled=\{ingestLoading\}/);
 });

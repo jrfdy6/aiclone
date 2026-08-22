@@ -139,6 +139,58 @@ _BASE_SCHEMA_STATEMENTS = (
     """,
     "CREATE INDEX IF NOT EXISTS pm_cards_status_idx ON pm_cards(status)",
     """
+    CREATE TABLE IF NOT EXISTS pm_worker_heartbeats (
+        worker_id TEXT PRIMARY KEY
+            CHECK (worker_id ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$'),
+        runner_id TEXT NOT NULL
+            CHECK (runner_id = 'codex-workspace-execution'),
+        protocol_version TEXT NOT NULL
+            CHECK (protocol_version = 'pm_worker_heartbeat/v1'),
+        capabilities TEXT[] NOT NULL
+            CHECK (
+                cardinality(capabilities) BETWEEN 1 AND 16
+                AND array_position(capabilities, NULL) IS NULL
+                AND capabilities <@ ARRAY[
+                    'integrated_content_variant',
+                    'integrated_owner_post',
+                    'integrated_content_manual_edit',
+                    'integrated_content_learning',
+                    'integrated_persona_reversal',
+                    'canonical_decision_create',
+                    'canonical_decision_transition'
+                ]::TEXT[]
+            ),
+        poll_interval_seconds INT NOT NULL
+            CHECK (poll_interval_seconds BETWEEN 15 AND 120),
+        heartbeat_kind TEXT NOT NULL
+            CHECK (heartbeat_kind IN ('startup', 'poll')),
+        queue_depth INT
+            CHECK (queue_depth BETWEEN 0 AND 1000),
+        process_started_at TIMESTAMPTZ NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL,
+        last_poll_at TIMESTAMPTZ,
+        lease_expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (process_started_at <= last_seen_at),
+        CHECK (
+            (last_poll_at IS NULL AND lease_expires_at IS NULL)
+            OR (
+                last_poll_at IS NOT NULL
+                AND lease_expires_at IS NOT NULL
+                AND last_poll_at <= last_seen_at
+                AND lease_expires_at > last_poll_at
+            )
+        ),
+        CHECK (
+            (heartbeat_kind = 'startup' AND queue_depth IS NULL)
+            OR (heartbeat_kind = 'poll' AND queue_depth IS NOT NULL)
+        )
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS pm_worker_heartbeats_lease_idx ON pm_worker_heartbeats(runner_id, protocol_version, lease_expires_at DESC)",
+    "CREATE INDEX IF NOT EXISTS pm_worker_heartbeats_capabilities_idx ON pm_worker_heartbeats USING GIN(capabilities)",
+    """
     CREATE TABLE IF NOT EXISTS build_reviews (
         id UUID PRIMARY KEY,
         title TEXT NOT NULL,
@@ -171,12 +223,20 @@ _BASE_SCHEMA_STATEMENTS = (
         source TEXT,
         conversation_path TEXT,
         payload JSONB DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        retention_contract_version TEXT,
+        retention_resolved_at TIMESTAMPTZ,
+        retention_local_receipt_sha256 TEXT
     )
     """,
     "CREATE INDEX IF NOT EXISTS standups_owner_idx ON standups(owner)",
     "ALTER TABLE standups ADD COLUMN IF NOT EXISTS workspace_key TEXT DEFAULT 'shared_ops'",
     "ALTER TABLE standups ADD COLUMN IF NOT EXISTS payload JSONB DEFAULT '{}'::jsonb",
+    "ALTER TABLE standups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+    "ALTER TABLE standups ADD COLUMN IF NOT EXISTS retention_contract_version TEXT",
+    "ALTER TABLE standups ADD COLUMN IF NOT EXISTS retention_resolved_at TIMESTAMPTZ",
+    "ALTER TABLE standups ADD COLUMN IF NOT EXISTS retention_local_receipt_sha256 TEXT",
     "CREATE INDEX IF NOT EXISTS standups_workspace_idx ON standups(workspace_key, created_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS daily_briefs (
@@ -254,6 +314,108 @@ _BASE_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS automation_runs_automation_idx ON automation_runs(automation_id, run_at DESC)",
     "CREATE INDEX IF NOT EXISTS automation_runs_status_idx ON automation_runs(status, action_required, run_at DESC)",
     """
+    CREATE TABLE IF NOT EXISTS railway_retention_receipts (
+        receipt_id TEXT PRIMARY KEY,
+        lifecycle_status TEXT NOT NULL CHECK (lifecycle_status IN ('planned','applied','partially_applied','rolled_back','failed')),
+        as_of TIMESTAMPTZ NOT NULL,
+        backup_manifest_sha256 TEXT,
+        rules_sha256 TEXT NOT NULL,
+        plan_sha256 TEXT NOT NULL,
+        plan_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        before_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+        after_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        applied_at TIMESTAMPTZ,
+        rolled_back_at TIMESTAMPTZ
+    )
+    """,
+    "ALTER TABLE railway_retention_receipts ADD COLUMN IF NOT EXISTS plan_sha256 TEXT",
+    """
+    DO $$ BEGIN
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid='railway_retention_receipts'::regclass
+              AND conname='railway_retention_receipts_lifecycle_status_check'
+              AND POSITION('partially_applied' IN pg_get_constraintdef(oid))=0
+        ) THEN
+            ALTER TABLE railway_retention_receipts
+            DROP CONSTRAINT railway_retention_receipts_lifecycle_status_check;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid='railway_retention_receipts'::regclass
+              AND conname='railway_retention_receipts_lifecycle_status_check'
+        ) THEN
+            ALTER TABLE railway_retention_receipts
+            ADD CONSTRAINT railway_retention_receipts_lifecycle_status_check
+            CHECK (lifecycle_status IN ('planned','applied','partially_applied','rolled_back','failed'));
+        END IF;
+    END $$
+    """,
+    "CREATE INDEX IF NOT EXISTS railway_retention_receipts_status_idx ON railway_retention_receipts(lifecycle_status, created_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS automation_run_daily_receipts (
+        retention_receipt_id TEXT NOT NULL REFERENCES railway_retention_receipts(receipt_id) ON DELETE RESTRICT,
+        dimension_key TEXT NOT NULL,
+        bucket_date DATE NOT NULL,
+        automation_id TEXT NOT NULL,
+        automation_name TEXT NOT NULL,
+        normalized_status TEXT NOT NULL,
+        workspace_key TEXT,
+        source TEXT,
+        runtime TEXT,
+        run_count BIGINT NOT NULL CHECK (run_count > 0),
+        delivered_count BIGINT NOT NULL CHECK (delivered_count >= 0),
+        total_duration_ms BIGINT NOT NULL CHECK (total_duration_ms >= 0),
+        first_run_at TIMESTAMPTZ,
+        last_run_at TIMESTAMPTZ,
+        source_row_ids JSONB NOT NULL,
+        source_row_ids_sha256 TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (retention_receipt_id, dimension_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS automation_run_daily_receipts_date_idx ON automation_run_daily_receipts(bucket_date, automation_id)",
+    "CREATE INDEX IF NOT EXISTS automation_run_daily_receipts_source_ids_idx ON automation_run_daily_receipts USING GIN(source_row_ids)",
+    """
+    CREATE TABLE IF NOT EXISTS railway_retention_row_receipts (
+        retention_receipt_id TEXT NOT NULL REFERENCES railway_retention_receipts(receipt_id) ON DELETE RESTRICT,
+        rule_name TEXT NOT NULL,
+        table_name TEXT NOT NULL CHECK (table_name IN ('local_codex_jobs','standups','workspace_snapshots')),
+        row_identity TEXT NOT NULL,
+        mutation_kind TEXT NOT NULL CHECK (mutation_kind IN (
+            'compact_job_payload_and_delete_artifacts','compact_standup_payload',
+            'compact_workspace_snapshot_payload','delete'
+        )),
+        source_row_sha256 TEXT NOT NULL,
+        target_row_sha256 TEXT,
+        source_schema_sha256 TEXT NOT NULL,
+        source_bytes BIGINT NOT NULL CHECK (source_bytes >= 0),
+        local_migration_receipt_sha256 TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (retention_receipt_id, rule_name, row_identity)
+    )
+    """,
+    "ALTER TABLE railway_retention_row_receipts ADD COLUMN IF NOT EXISTS source_schema_sha256 TEXT",
+    "CREATE INDEX IF NOT EXISTS railway_retention_row_receipts_rule_idx ON railway_retention_row_receipts(retention_receipt_id, rule_name)",
+    """
+    CREATE TABLE IF NOT EXISTS railway_retention_rule_receipts (
+        retention_receipt_id TEXT NOT NULL REFERENCES railway_retention_receipts(receipt_id) ON DELETE RESTRICT,
+        rule_name TEXT NOT NULL,
+        lifecycle_status TEXT NOT NULL CHECK (lifecycle_status IN ('planned','applied','partially_applied','blocked','not_applicable','rolled_back')),
+        candidate_rows BIGINT NOT NULL CHECK (candidate_rows >= 0),
+        candidate_bytes BIGINT NOT NULL CHECK (candidate_bytes >= 0),
+        candidate_manifest_sha256 TEXT NOT NULL,
+        blocked_rows BIGINT NOT NULL CHECK (blocked_rows >= 0),
+        blocked_reason TEXT,
+        affected_rows BIGINT NOT NULL DEFAULT 0 CHECK (affected_rows >= 0),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (retention_receipt_id, rule_name)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS railway_retention_rule_receipts_status_idx ON railway_retention_rule_receipts(retention_receipt_id, lifecycle_status)",
+    """
     CREATE TABLE IF NOT EXISTS email_thread_state (
         provider_key TEXT PRIMARY KEY,
         provider TEXT NOT NULL,
@@ -283,12 +445,18 @@ _BASE_SCHEMA_STATEMENTS = (
         result_payload JSONB,
         artifacts JSONB DEFAULT '[]'::jsonb,
         idempotency_key TEXT,
+        retention_contract_version TEXT,
+        retention_resolved_at TIMESTAMPTZ,
+        retention_local_receipt_sha256 TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
     "CREATE INDEX IF NOT EXISTS local_codex_jobs_workspace_status_idx ON local_codex_jobs(workspace_slug, status, created_at)",
     "CREATE INDEX IF NOT EXISTS local_codex_jobs_idempotency_idx ON local_codex_jobs(idempotency_key)",
+    "ALTER TABLE local_codex_jobs ADD COLUMN IF NOT EXISTS retention_contract_version TEXT",
+    "ALTER TABLE local_codex_jobs ADD COLUMN IF NOT EXISTS retention_resolved_at TIMESTAMPTZ",
+    "ALTER TABLE local_codex_jobs ADD COLUMN IF NOT EXISTS retention_local_receipt_sha256 TEXT",
     """
     CREATE TABLE IF NOT EXISTS local_codex_job_artifacts (
         artifact_id TEXT PRIMARY KEY,

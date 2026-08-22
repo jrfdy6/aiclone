@@ -1,122 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { fetchResearchBySlug } from "@/lib/research-backend";
+import { safeJsonLd } from "@/lib/safe-json-ld";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function generateSlug(title: string, timestamp: number): string {
-  const date = new Date(timestamp * 1000);
-  const month = date.toLocaleString("en", { month: "short" }).toLowerCase();
-  const year = date.getFullYear();
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return `${slug}-${month}-${year}`;
-}
-
-async function fetchResearchBySlug(slug: string) {
-  // Check if Firebase is configured
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-    console.log("⚠️ FIREBASE_SERVICE_ACCOUNT not set - cannot fetch research");
-    return null;
-  }
-
-  try {
-    const { db } = await import("@/lib/firestore-server");
-    const userId = process.env.DEFAULT_USER_ID || "default-user";
-
-    // Try topic_intelligence first
-    const topicDocs = await db
-      .collection("users")
-      .doc(userId)
-      .collection("topic_intelligence")
-      .get();
-
-    for (const doc of topicDocs.docs) {
-      const data = doc.data();
-      const docSlug = generateSlug(
-        data.theme_display || data.theme,
-        data.created_at
-      );
-      if (docSlug === slug) {
-        return {
-          id: doc.id,
-          type: "Topic Intelligence",
-          title: data.theme_display || data.theme,
-          date: new Date(data.created_at * 1000).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          }),
-          summary: data.summary,
-          prospectIntelligence: data.prospect_intelligence,
-          outreachTemplates: data.outreach_templates,
-          contentIdeas: data.content_ideas,
-          opportunityInsights: data.opportunity_insights,
-          keywords: data.keywords,
-          trendingTopics: data.trending_topics,
-        };
-      }
-    }
-
-    // Try prospect_discoveries
-    const discoveryDocs = await db
-      .collection("users")
-      .doc(userId)
-      .collection("prospect_discoveries")
-      .get();
-
-    for (const doc of discoveryDocs.docs) {
-      const data = doc.data();
-      const docSlug = generateSlug(
-        `${data.source || "prospects"}-${data.location || "discovery"}`,
-        data.created_at
-      );
-      if (docSlug === slug) {
-        // Filter out PII from prospects
-        const prospects = (data.prospects || []).map((p: any) => ({
-          name: p.name || "Anonymous",
-          title: p.title,
-          specialty: p.specialty,
-          // EXCLUDE: email, phone, website
-        }));
-
-        return {
-          id: doc.id,
-          type: "Prospect Discovery",
-          title: `${data.source || "Prospect"} Discovery - ${data.location || "Unknown"}`,
-          date: new Date(data.created_at * 1000).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          }),
-          summary: `Found ${prospects.length} prospects in ${data.location || "unknown location"} using ${data.source || "unknown source"}.`,
-          prospects: prospects.slice(0, 10), // Limit to first 10 for crawling
-          keywords: [data.source, data.location, data.specialty].filter(Boolean),
-          source: data.source,
-          location: data.location,
-        };
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error("Error fetching research:", error);
-    return null;
-  }
-}
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params;
-  const research = await fetchResearchBySlug(slug);
+  const result = await fetchResearchBySlug(slug);
+  const research = result.research;
 
   return {
     title: research ? `${research.title} - Research` : "Research",
     description: research?.summary || "Research artifact from the owner",
-    robots: { index: true, follow: true },
+    robots: { index: false, follow: false },
     openGraph: {
       title: research ? research.title : "Research",
       description: research?.summary || "Research insights",
@@ -129,7 +30,30 @@ export default async function ResearchDetailPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-  const research = await fetchResearchBySlug(slug);
+  const result = await fetchResearchBySlug(slug);
+  const research = result.research;
+
+  if (result.state === "degraded" && !research) {
+    return (
+      <main style={{ maxWidth: "800px", margin: "0 auto", padding: "40px 24px", fontFamily: "system-ui, sans-serif" }}>
+        <article>
+          <header style={{ marginBottom: "24px" }}>
+            <h1 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "12px" }}>
+              Research Temporarily Unavailable
+            </h1>
+            <p role="status" style={{ color: "#92400e" }}>
+              The live research store could not be read. This is a degraded dependency state, not evidence that the requested research is missing.
+            </p>
+          </header>
+          <p>
+            <Link href="/kb/research" style={{ color: "#2563eb", textDecoration: "underline" }}>
+              ← Back to research library
+            </Link>
+          </p>
+        </article>
+      </main>
+    );
+  }
 
   if (!research) {
     return (
@@ -171,10 +95,15 @@ export default async function ResearchDetailPage(
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(schemaData) }}
       />
       <main style={{ maxWidth: "800px", margin: "0 auto", padding: "40px 24px", fontFamily: "system-ui, sans-serif", lineHeight: 1.6 }}>
         <article>
+          {result.state === "degraded" && (
+            <aside role="status" style={{ marginBottom: "24px", padding: "14px", border: "1px solid #f59e0b", background: "#fffbeb", color: "#92400e" }}>
+              This verified result loaded, but another research dependency is degraded. Reason codes: {result.reasonCodes.join(", ") || "backend_dependency_degraded"}.
+            </aside>
+          )}
           <header style={{ marginBottom: "32px" }}>
             <h1 style={{ fontSize: "32px", fontWeight: "bold", marginBottom: "8px" }}>
               {research.title}
@@ -197,39 +126,39 @@ export default async function ResearchDetailPage(
                 Prospect Intelligence
               </h2>
               
-              {research.prospectIntelligence.target_personas?.length > 0 && (
+              {(research.prospectIntelligence.target_personas?.length || 0) > 0 && (
                 <>
                   <h3 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
                     Target Personas
                   </h3>
                   <ul style={{ listStyle: "disc", paddingLeft: "24px", marginBottom: "16px" }}>
-                    {research.prospectIntelligence.target_personas.map((p: string, i: number) => (
+                    {(research.prospectIntelligence.target_personas || []).map((p: string, i: number) => (
                       <li key={i} style={{ marginBottom: "4px", color: "#333" }}>{p}</li>
                     ))}
                   </ul>
                 </>
               )}
 
-              {research.prospectIntelligence.pain_points?.length > 0 && (
+              {(research.prospectIntelligence.pain_points?.length || 0) > 0 && (
                 <>
                   <h3 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
                     Pain Points
                   </h3>
                   <ul style={{ listStyle: "disc", paddingLeft: "24px", marginBottom: "16px" }}>
-                    {research.prospectIntelligence.pain_points.map((p: string, i: number) => (
+                    {(research.prospectIntelligence.pain_points || []).map((p: string, i: number) => (
                       <li key={i} style={{ marginBottom: "4px", color: "#333" }}>{p}</li>
                     ))}
                   </ul>
                 </>
               )}
 
-              {research.prospectIntelligence.language_patterns?.length > 0 && (
+              {(research.prospectIntelligence.language_patterns?.length || 0) > 0 && (
                 <>
                   <h3 style={{ fontSize: "18px", fontWeight: "600", marginBottom: "8px" }}>
                     Language Patterns
                   </h3>
                   <ul style={{ listStyle: "disc", paddingLeft: "24px", marginBottom: "16px" }}>
-                    {research.prospectIntelligence.language_patterns.map((p: string, i: number) => (
+                    {(research.prospectIntelligence.language_patterns || []).map((p: string, i: number) => (
                       <li key={i} style={{ marginBottom: "4px", color: "#333" }}>{p}</li>
                     ))}
                   </ul>
@@ -270,7 +199,7 @@ export default async function ResearchDetailPage(
                     <strong>Platform:</strong> {idea.platform}
                   </p>
                   <p style={{ color: "#333" }}>{idea.description}</p>
-                  {i < research.contentIdeas.length - 1 && (
+                  {i < (research.contentIdeas?.length || 0) - 1 && (
                     <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "16px 0" }} />
                   )}
                 </div>
@@ -287,30 +216,6 @@ export default async function ResearchDetailPage(
                 {research.opportunityInsights.map((insight: any, i: number) => (
                   <li key={i} style={{ marginBottom: "8px", color: "#333" }}>
                     <strong>{insight.opportunity}:</strong> {insight.description}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {research.prospects && research.prospects.length > 0 && (
-            <section style={{ marginBottom: "32px" }}>
-              <h2 style={{ fontSize: "24px", fontWeight: "600", marginBottom: "16px" }}>
-                Sample Prospects (PII Filtered)
-              </h2>
-              <p style={{ color: "#666", fontSize: "14px", marginBottom: "16px" }}>
-                Showing first {research.prospects.length} prospects. Contact information removed for privacy.
-              </p>
-              <ul style={{ listStyle: "none", padding: 0 }}>
-                {research.prospects.map((prospect: any, i: number) => (
-                  <li key={i} style={{ marginBottom: "12px", padding: "12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                    <strong>{prospect.name}</strong>
-                    {prospect.title && <span style={{ color: "#666" }}> — {prospect.title}</span>}
-                    {prospect.specialty && (
-                      <p style={{ margin: "4px 0 0 0", fontSize: "14px", color: "#666" }}>
-                        Specialty: {prospect.specialty}
-                      </p>
-                    )}
                   </li>
                 ))}
               </ul>

@@ -37,8 +37,11 @@
     "release/public.README.md",
     "release/public_source_manifest.json",
     "scripts/build_public_release.py",
+    "scripts/codex_memory_index.py",
     "scripts/install_git_hooks.sh",
+    "scripts/run_integrated_owner_acceptance.py",
     "scripts/runtime_paths.py",
+    "scripts/verify_integrated_production_projection.py",
     "scripts/verify_public_release.sh"
   ],
   "file_mappings": {
@@ -46,7 +49,7 @@
     "release/public.package.json": "package.json",
     "release/public.README.md": "README.md"
   },
-  "inventory_sha256": "0e92f5207dec98052d9ecfae2e57d7bb23df511fa7d0138f34bd65fef1e2e222",
+  "inventory_sha256": "c634a53bde2c181f6058cfc1c3e75c75001fbabe59ff53a52a45355d438c1ac9",
   "excludes": [
     "**/.DS_Store",
     "**/.mypy_cache",
@@ -93,8 +96,11 @@
     "package.json",
     "release/public_source_manifest.json",
     "scripts/build_public_release.py",
+    "scripts/codex_memory_index.py",
     "scripts/install_git_hooks.sh",
+    "scripts/run_integrated_owner_acceptance.py",
     "scripts/runtime_paths.py",
+    "scripts/verify_integrated_production_projection.py",
     "scripts/verify_public_release.sh"
   ],
   "third_party_email_metadata_paths": [],

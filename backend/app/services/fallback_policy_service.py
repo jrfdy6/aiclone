@@ -23,7 +23,7 @@ _FALLBACK_POLICIES: tuple[dict[str, Any], ...] = (
         "source_refs": [
             "backend/app/routes/content_generation.py",
         ],
-        "notes": "Local and production defaults use configured cloud providers. Ollama participates only through an explicit provider-order opt-in.",
+        "notes": "Local and production defaults use configured cloud providers. Llama-family generation is retired: stale Ollama provider-order entries are ignored, Llama-named model settings are rejected, and the OpenAI provider cannot inherit an implicit local base URL.",
     },
     {
         "fallback_id": "content_signal_safe_lessons_to_reservoir",

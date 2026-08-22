@@ -24,6 +24,7 @@ type ExecutiveDecisionQueueProps = {
   onAction?: (decision: ExecutiveDecision, action: ExecutiveDecisionAction) => Promise<unknown>;
   onActionComplete?: (decision: ExecutiveDecision, action: ExecutiveDecisionAction) => Promise<void> | void;
   onOpenContext?: (decision: ExecutiveDecision, href: string) => boolean | void;
+  legacyOwnerReviewCompatibilityEnabled?: boolean;
 };
 
 type ActionResponse = {
@@ -41,16 +42,23 @@ async function loadExecutiveDecisions(): Promise<ExecutiveDecisionQueueResponse>
 async function runExecutiveDecisionAction(
   decision: ExecutiveDecision,
   action: ExecutiveDecisionAction,
+  legacyOwnerReviewCompatibilityEnabled: boolean,
 ): Promise<ActionResponse> {
-  return controlApiPost<ActionResponse>(executiveDecisionActionEndpoint(decision, action), {
+  const endpoint = executiveDecisionActionEndpoint(decision, action);
+  const compatibilityEndpoint =
+    legacyOwnerReviewCompatibilityEnabled && decision.source_type === 'workspace_review'
+      ? `${endpoint}?legacy_compatibility=true`
+      : endpoint;
+  return controlApiPost<ActionResponse>(compatibilityEndpoint, {
     confirmed: true,
   });
 }
 
 export function ExecutiveDecisionQueue({
-  onAction = runExecutiveDecisionAction,
+  onAction,
   onActionComplete,
   onOpenContext,
+  legacyOwnerReviewCompatibilityEnabled = false,
 }: ExecutiveDecisionQueueProps) {
   const headingId = useId();
   const [view, setView] = useState<QueueView>('today');
@@ -100,9 +108,23 @@ export function ExecutiveDecisionQueue({
       : { partial: false, failedSources: [], degradedSources: [] },
     [snapshot],
   );
-  const visibleItems = view === 'today' ? snapshot?.today ?? [] : snapshot?.all_pending ?? [];
-  const todayCount = snapshot?.today.length ?? 0;
-  const allCount = snapshot?.all_pending.length ?? 0;
+  const visibleTodayItems = useMemo(
+    () =>
+      (snapshot?.today ?? []).filter(
+        (decision) => legacyOwnerReviewCompatibilityEnabled || decision.source_type !== 'workspace_review',
+      ),
+    [legacyOwnerReviewCompatibilityEnabled, snapshot?.today],
+  );
+  const visibleAllItems = useMemo(
+    () =>
+      (snapshot?.all_pending ?? []).filter(
+        (decision) => legacyOwnerReviewCompatibilityEnabled || decision.source_type !== 'workspace_review',
+      ),
+    [legacyOwnerReviewCompatibilityEnabled, snapshot?.all_pending],
+  );
+  const visibleItems = view === 'today' ? visibleTodayItems : visibleAllItems;
+  const todayCount = visibleTodayItems.length;
+  const allCount = visibleAllItems.length;
 
   const handleAction = useCallback(async (decision: ExecutiveDecision, action: ExecutiveDecisionAction) => {
     if (
@@ -117,7 +139,11 @@ export function ExecutiveDecisionQueue({
     setFeedback(null);
     setError(null);
     try {
-      const result = await onAction(decision, action);
+      const result = await (
+        onAction
+          ? onAction(decision, action)
+          : runExecutiveDecisionAction(decision, action, legacyOwnerReviewCompatibilityEnabled)
+      );
       if (!mountedRef.current) return;
       const queueRefreshed = await refresh(true);
       if (!mountedRef.current) return;
@@ -160,7 +186,7 @@ export function ExecutiveDecisionQueue({
     } finally {
       if (mountedRef.current) setActioningKey(null);
     }
-  }, [onAction, onActionComplete, refresh]);
+  }, [legacyOwnerReviewCompatibilityEnabled, onAction, onActionComplete, refresh]);
 
   return (
     <section

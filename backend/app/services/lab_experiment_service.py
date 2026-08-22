@@ -3589,6 +3589,7 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
                     category=probe["category"],
                     tone=probe["tone"],
                     audience=probe["audience"],
+                    option_count=3,
                 )
                 response = await content_generation.run_content_generation(req)
                 diagnostics = response.diagnostics or {}

@@ -40,10 +40,17 @@ async def post_executive_decision_action(
     action_id: str,
     payload: ExecutiveDecisionActionRequest,
     response: Response,
+    legacy_compatibility: bool = False,
 ) -> ExecutiveDecisionActionResult:
     response.headers["Cache-Control"] = "no-store, max-age=0"
     try:
-        return await run_in_threadpool(execute_executive_decision_action, decision_id, action_id, payload)
+        return await run_in_threadpool(
+            execute_executive_decision_action,
+            decision_id,
+            action_id,
+            payload,
+            legacy_compatibility=legacy_compatibility,
+        )
     except ExecutiveDecisionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ExecutiveDecisionActionError as exc:

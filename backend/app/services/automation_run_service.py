@@ -11,6 +11,7 @@ except ImportError:  # pragma: no cover
 
 from app.models.automations import AutomationRun
 from app.services.automation_service import is_codex_run, list_automation_runs
+from app.services.railway_retention_service import RETENTION_LOCK_ID
 
 CODEX_RUN_SOURCES = ["codex_launchd_registry", "local_launchd_registry"]
 CODEX_RUN_RUNTIMES = ["launchd", "codex_exec"]
@@ -69,6 +70,8 @@ def sync_codex_run_ledger(limit: Optional[int] = None) -> int:
 
 
 def upsert_runs(runs: Iterable[AutomationRun]) -> int:
+    """Acknowledge every valid mirror row, including retained replay suppressions."""
+
     mirrored_runs = [run for run in runs if is_codex_run(run)]
     if not mirrored_runs:
         return 0
@@ -77,7 +80,17 @@ def upsert_runs(runs: Iterable[AutomationRun]) -> int:
         pool = _get_pool()
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(%s)", (RETENTION_LOCK_ID,))
+                acknowledged = 0
                 for run in mirrored_runs:
+                    cur.execute(
+                        """SELECT 1 FROM automation_run_daily_receipts
+                        WHERE source_row_ids @> jsonb_build_array(%s::text) LIMIT 1""",
+                        (run.id,),
+                    )
+                    if cur.fetchone():
+                        acknowledged += 1
+                        continue
                     cur.execute(
                         """
                         INSERT INTO automation_runs (
@@ -129,8 +142,9 @@ def upsert_runs(runs: Iterable[AutomationRun]) -> int:
                             Json(run.metadata or {}) if Json else (run.metadata or {}),
                         ),
                     )
+                    acknowledged += 1
             conn.commit()
-        return len(mirrored_runs)
+        return acknowledged
     except Exception as exc:
         raise AutomationRunMirrorError("Automation run mirror storage is unavailable.") from exc
 

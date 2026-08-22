@@ -20,6 +20,14 @@ test('Ops separates Today decisions from the detailed execution surface', () => 
   assert.match(opsSource, /<PortfolioPulseSection snapshot=\{portfolioPulse\}/);
 });
 
+test('Ops Today exposes the canonical final daily conclusion without creating a second authority', () => {
+  assert.match(opsSource, /import OpsStandupSummary from '@\/app\/workspace\/OpsStandupSummary'/);
+  const todayPanel = opsSource.match(/function TodayOpsPanel\([\s\S]*?\n}\n\nfunction PortfolioPulseSection/);
+  assert.ok(todayPanel, 'expected the bounded Today panel implementation');
+  assert.match(todayPanel[0], /<PortfolioPulseSection[\s\S]*<OpsStandupSummary \/>[\s\S]*<ExecutiveDecisionQueue/);
+  assert.equal((todayPanel[0].match(/<OpsStandupSummary \/>/g) ?? []).length, 1);
+});
+
 test('project cards and direct links keep the selected workspace in one shared state', () => {
   assert.match(opsSource, /const \[selectedWorkspaceId, setSelectedWorkspaceId\] = useState/);
   assert.match(opsSource, /searchParams\.get\('workspace'\)/);

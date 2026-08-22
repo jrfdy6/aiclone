@@ -25,6 +25,7 @@ from app.routes import brain as brain_routes
 from app.routes import content_generation
 from app.services import linkedin_owner_review_service as owner_review_service
 from app.services import (
+    local_content_generation_execution_service,
     neo_public_knowledge_service,
     persona_bundle_writer,
     voice_fidelity_service,
@@ -868,6 +869,26 @@ def _precomputed_public_result() -> dict:
     pair_sha = hashlib.sha256(
         json.dumps(option_hashes, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+    voice_contamination_receipt = {
+        "schema_version": "feezie_voice_exemplar_contamination/v2",
+        "passed": True,
+        "exemplar_count": 0,
+        "evaluated_option_count": len(PUBLIC_OPTIONS),
+        "blocked_option_count": 0,
+        "blocker_codes": [],
+        "pair_sha256": pair_sha,
+        "option_results": [
+            {
+                "option_index": option_index,
+                "option_sha256": option_hashes[option_index - 1],
+                "passed": True,
+                "blocker_codes": [],
+                "findings": [],
+            }
+            for option_index in (1, 2)
+        ],
+        "contains_exemplar_text": False,
+    }
     critic_sha = hashlib.sha256(
         json.dumps(
             critic_review,
@@ -905,6 +926,11 @@ def _precomputed_public_result() -> dict:
                 "failed_reasons": [],
                 "required_option_count": 2,
                 "evaluated_option_count": 2,
+                "draft_distinctness": {
+                    "passed": True,
+                    "reason": "The drafts use diagnosis and application treatments.",
+                },
+                "voice_exemplar_contamination": voice_contamination_receipt,
             },
             "technical_completion": {
                 "status": "completed",
@@ -1052,11 +1078,14 @@ def test_public_v2_quality_gate_admits_only_the_independently_ready_sibling() ->
 def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_effects() -> None:
     context_packet = _public_context_packet()
     result_payload = _precomputed_public_result()
+    server_quality_gate = deepcopy(result_payload["diagnostics"]["quality_gate"])
+    server_quality_gate.pop("voice_exemplar_contamination", None)
     captured_review_items: list[dict] = []
     lifecycle_requests: list[tuple[str, dict]] = []
     recorded_decisions: list[tuple[str, str]] = []
 
     def capture_owner_review(**kwargs) -> dict:
+        assert kwargs.pop("legacy_compatibility", None) is True
         item = owner_review_service._generated_owner_review_item(**kwargs)
         captured_review_items.append(deepcopy(item))
         return {
@@ -1103,6 +1132,13 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
             )
             stack.enter_context(
                 patch.object(content_generation, "build_content_generation_context", return_value=object())
+            )
+            stack.enter_context(
+                patch.object(
+                    local_content_generation_execution_service,
+                    "evaluate_local_quality",
+                    return_value=deepcopy(server_quality_gate),
+                )
             )
             stack.enter_context(
                 patch.object(
@@ -1287,6 +1323,42 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
                 assert created["evidence_readiness"]["ready"] is True
                 job_id = created["job_id"]
 
+                diagnostics = result_payload["diagnostics"]
+                blind_plan = content_generation._feezie_expected_blind_critic_plan(
+                    job_scope=f"{job_id}:initial",
+                    options=list(PUBLIC_OPTIONS),
+                )
+                blind_receipt = diagnostics["critic_review"]["blind_review_receipt"]
+                blind_receipt["job_scope_sha256"] = blind_plan["job_scope_sha256"]
+                blind_receipt["critic_order"] = blind_plan["critic_order"]
+                blind_receipt["mapping_commitment_sha256"] = hashlib.sha256(
+                    json.dumps(
+                        blind_plan["critic_order"],
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                option_ids = {
+                    canonical_index: critic_option_id
+                    for critic_option_id, canonical_index in blind_plan["option_id_to_index"].items()
+                }
+                for review in diagnostics["critic_review"]["reviews"]:
+                    review["critic_option_id"] = option_ids[int(review["option_index"])]
+                diagnostics["editorial_readiness"] = content_generation._build_feezie_editorial_readiness(
+                    critic_review=diagnostics["critic_review"],
+                    deterministic_quality_gate=diagnostics["quality_gate"],
+                )
+                critic_sha = hashlib.sha256(
+                    json.dumps(
+                        diagnostics["critic_review"],
+                        ensure_ascii=True,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                diagnostics["revision_execution"]["initial_critic_receipt_sha256"] = critic_sha
+                diagnostics["revision_execution"]["final_critic_receipt_sha256"] = critic_sha
+
                 pending_response = client.get(f"/api/content-generation/codex-jobs/{job_id}")
                 assert pending_response.status_code == 200
                 assert pending_response.json()["status"] == "pending"
@@ -1337,7 +1409,7 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
                 assert polled["result"]["diagnostics"]["llm_provider_trace"] == []
 
                 review_response = client.post(
-                    f"/api/content-generation/codex-jobs/{job_id}/send-to-review",
+                    f"/api/content-generation/codex-jobs/{job_id}/send-to-review?legacy_compatibility=true",
                     json={"option_index": 1},
                 )
                 assert review_response.status_code == 200, review_response.text
@@ -1350,6 +1422,7 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
             approved = owner_review_service._record_owner_decision_with_lifecycle_for_item(
                 deepcopy(selected_item),
                 "approve",
+                legacy_compatibility=True,
             )
             expected_selected_hash = linkedin_content_version_sha256(PUBLIC_OPTIONS[1])
             assert approved["owner_decision_receipt"]["exact_copy_bound"] is True
@@ -1372,6 +1445,7 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
             parked = owner_review_service._record_owner_decision_with_lifecycle_for_item(
                 sibling_item,
                 "park",
+                legacy_compatibility=True,
             )
             assert parked["owner_decision_receipt"]["decision"] == "park"
             assert parked["owner_decision_receipt"]["exact_copy_bound"] is True

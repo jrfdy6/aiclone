@@ -191,6 +191,16 @@ test('submits explicit confirmation while leaving actor identity to the server',
   assert.doesNotMatch(queueSource, /requested_by/);
 });
 
+test('hides historical workspace-review decisions unless rollback compatibility is explicit', () => {
+  assert.match(
+    queueSource,
+    /legacyOwnerReviewCompatibilityEnabled \|\| decision\.source_type !== 'workspace_review'/,
+  );
+  assert.match(queueSource, /decision\.source_type === 'workspace_review'/);
+  assert.match(queueSource, /\?legacy_compatibility=true/);
+  assert.match(opsSource, /legacyOwnerReviewCompatibilityEnabled=\{legacyOwnerReviewCompatibilityEnabled\}/);
+});
+
 test('defers workspace and canonical docs reads until their consuming panel is active', () => {
   assert.match(
     opsSource,

@@ -76,6 +76,17 @@ class LinkedinOwnerReviewConflictError(ValueError):
     """The requested decision conflicts with durable review or critic truth."""
 
 
+def _require_legacy_owner_review_compatibility(legacy_compatibility: bool) -> None:
+    """Fail closed before the retired owner-review lane can mutate any state."""
+
+    if legacy_compatibility is not True:
+        raise LinkedinOwnerReviewConflictError(
+            "The historical FEEZIE owner-review writer is disabled by default; "
+            "use the canonical integrated-content lifecycle or explicitly enable "
+            "the rollback-only compatibility path."
+        )
+
+
 def _is_owner_review_source(value: Any) -> bool:
     return str(value or "").strip() in {OWNER_REVIEW_CARD_SOURCE, LEGACY_OWNER_REVIEW_CARD_SOURCE}
 
@@ -1703,6 +1714,7 @@ def _build_owner_review_card_payload(
     payload.update(
         {
             "workspace_key": PM_WORKSPACE_KEY,
+            "legacy_owner_review_compatibility": True,
             "source_agent": "Neo",
             "front_door_agent": "Neo",
             "trigger_origin": "owner_review",
@@ -1812,6 +1824,7 @@ def _build_pending_owner_review_card_payload(
     payload.update(
         {
             "workspace_key": PM_WORKSPACE_KEY,
+            "legacy_owner_review_compatibility": True,
             "source_agent": "Neo",
             "front_door_agent": "Neo",
             "trigger_origin": "owner_review",
@@ -2272,6 +2285,7 @@ def _owner_review_cards_for_identity(identity_key: str) -> list[Any]:
 
 def ensure_generated_owner_review_item(
     *,
+    legacy_compatibility: bool = False,
     job_id: str,
     option_index: int,
     option_text: str,
@@ -2281,6 +2295,7 @@ def ensure_generated_owner_review_item(
 ) -> dict[str, Any]:
     """Persist one completed Codex option in the existing PM-backed FEEZIE review lane."""
 
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     item = _generated_owner_review_item(
         job_id=job_id,
         option_index=option_index,
@@ -2404,7 +2419,8 @@ def _auto_close_superseded_owner_review_cards(active_cards: list[Any]) -> list[s
     return closed_card_ids
 
 
-def sync_owner_review_pm_cards() -> dict[str, Any]:
+def sync_owner_review_pm_cards(*, legacy_compatibility: bool = False) -> dict[str, Any]:
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     active_cards = _list_active_owner_review_cards()
     closed_duplicate_card_ids = _auto_close_superseded_owner_review_cards(active_cards)
     active_cards = [card for card in active_cards if str(getattr(card, "id", "")) not in set(closed_duplicate_card_ids)]
@@ -2478,7 +2494,14 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
     }
 
 
-def record_owner_decision_for_pm_card(card_id: str, decision: str, notes: str | None = None) -> dict[str, Any]:
+def record_owner_decision_for_pm_card(
+    card_id: str,
+    decision: str,
+    notes: str | None = None,
+    *,
+    legacy_compatibility: bool = False,
+) -> dict[str, Any]:
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     card = pm_card_service.get_card(card_id)
     if card is None:
         raise LinkedinOwnerReviewNotFoundError(f"PM card not found: {card_id}")
@@ -2504,6 +2527,7 @@ def record_owner_decision_for_pm_card(card_id: str, decision: str, notes: str | 
         decision,
         notes,
         tolerate_missing_artifacts=True,
+        legacy_compatibility=True,
     )
     result["source_card_id"] = card_id
     return result
@@ -2774,7 +2798,9 @@ def _record_owner_decision_for_item(
     notes: str | None = None,
     *,
     tolerate_missing_artifacts: bool = False,
+    legacy_compatibility: bool = False,
 ) -> dict[str, Any]:
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     root = _linkedin_root()
     queue_path = _queue_path(root)
     packet_path = _latest_owner_packet(root)
@@ -2995,7 +3021,9 @@ def _queue_owner_review_lifecycle(
     reviewed_at: str,
     content_version_sha256: str,
     replay: bool,
+    legacy_compatibility: bool = False,
 ) -> dict[str, Any]:
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     idempotency_key = _owner_review_lifecycle_idempotency_key(
         queue_id=queue_id,
         content_version_sha256=content_version_sha256,
@@ -3032,7 +3060,7 @@ def _queue_owner_review_lifecycle(
         )
         card, disposition = enqueue_brain_local_action(
             "linkedin_performance_record",
-            {"request": request},
+            {"legacy_compatibility": True, "request": request},
         )
     except Exception as exc:
         return {
@@ -3070,7 +3098,9 @@ def _record_owner_decision_with_lifecycle_for_item(
     notes: str | None = None,
     *,
     tolerate_missing_artifacts: bool = False,
+    legacy_compatibility: bool = False,
 ) -> dict[str, Any]:
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     normalized_decision = str(decision or "").strip().lower()
     if normalized_decision not in STATUS_MAP:
         raise ValueError(f"Unsupported owner-review decision: {decision!r}")
@@ -3126,6 +3156,7 @@ def _record_owner_decision_with_lifecycle_for_item(
             normalized_decision,
             notes,
             tolerate_missing_artifacts=tolerate_missing_artifacts,
+            legacy_compatibility=True,
         )
         decision_receipt = (
             result.get("owner_decision_receipt")
@@ -3182,6 +3213,7 @@ def _record_owner_decision_with_lifecycle_for_item(
         reviewed_at=reviewed_at,
         content_version_sha256=content_version_sha256,
         replay=replay,
+        legacy_compatibility=True,
     )
     result["lifecycle_queue"] = lifecycle_queue
     if lifecycle_queue.get("status") == "queue_failed":
@@ -3191,12 +3223,24 @@ def _record_owner_decision_with_lifecycle_for_item(
     return result
 
 
-def record_owner_decision(queue_id: str, decision: str, notes: str | None = None) -> dict[str, Any]:
+def record_owner_decision(
+    queue_id: str,
+    decision: str,
+    notes: str | None = None,
+    *,
+    legacy_compatibility: bool = False,
+) -> dict[str, Any]:
+    _require_legacy_owner_review_compatibility(legacy_compatibility)
     item = _find_owner_review_item_for_decision(queue_id)
     if item is None:
         raise LinkedinOwnerReviewNotFoundError(f"Unknown queue item: {queue_id}")
     try:
-        return _record_owner_decision_with_lifecycle_for_item(item, decision, notes)
+        return _record_owner_decision_with_lifecycle_for_item(
+            item,
+            decision,
+            notes,
+            legacy_compatibility=True,
+        )
     except ValueError as exc:
         fallback_item = _find_pm_pending_owner_review_item(queue_id)
         if fallback_item is None or not _is_missing_owner_review_artifact_error(exc):
@@ -3206,4 +3250,5 @@ def record_owner_decision(queue_id: str, decision: str, notes: str | None = None
             decision,
             notes,
             tolerate_missing_artifacts=True,
+            legacy_compatibility=True,
         )

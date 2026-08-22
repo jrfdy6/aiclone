@@ -179,9 +179,16 @@ THEME_DORKS: Dict[IntelligenceTheme, List[str]] = {
 
 class TopicIntelligenceRequest(BaseModel):
     """Request to run topic intelligence pipeline"""
-    user_id: str = Field(..., description="User ID")
+    user_id: Optional[str] = Field(
+        None,
+        description="Compatibility owner ID; the API enforces DEFAULT_USER_ID",
+    )
     theme: IntelligenceTheme = Field(..., description="Intelligence theme to research")
-    custom_dorks: Optional[List[str]] = Field(None, description="Custom Google dorks to add")
+    custom_dorks: Optional[List[str]] = Field(
+        None,
+        max_length=20,
+        description="Custom Google dorks to add",
+    )
     max_urls: int = Field(20, description="Maximum URLs to scrape", ge=5, le=50)
     generate_content: bool = Field(True, description="Generate content suggestions")
     generate_outreach: bool = Field(True, description="Generate outreach templates")
@@ -304,4 +311,3 @@ THEME_SOURCES: Dict[IntelligenceTheme, List[Dict[str, str]]] = {
         {"source": "LinkedIn post roundups", "extracts": "Best performing styles"},
     ],
 }
-

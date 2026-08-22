@@ -102,7 +102,6 @@ export default function ProspectDiscoveryPage() {
       const response = await apiFetch('/api/prospect-discovery/search-free', {
         method: 'POST',
         body: JSON.stringify({
-          user_id: 'dev-user',
           specialty: specialty || '',
           location,
           additional_context: additionalContext || undefined,
@@ -144,7 +143,6 @@ export default function ProspectDiscoveryPage() {
       const response = await apiFetch('/api/prospect-discovery/ai-search', {
         method: 'POST',
         body: JSON.stringify({
-          user_id: 'dev-user',
           specialty,
           location,
           additional_context: additionalContext || undefined,
@@ -187,7 +185,6 @@ export default function ProspectDiscoveryPage() {
       const response = await apiFetch('/api/prospect-discovery/scrape-urls', {
         method: 'POST',
         body: JSON.stringify({
-          user_id: 'dev-user',
           urls: urlList,
           save_to_prospects: saveToProspects,
         }),
@@ -220,26 +217,31 @@ export default function ProspectDiscoveryPage() {
       const response = await apiFetch('/api/prospects/', {
         method: 'POST',
         body: JSON.stringify({
-          user_id: 'dev-user',
           prospects: prospectsToSave.map(p => ({
             name: p.name,
             company: p.organization,
             job_title: p.title,
             email: p.contact.email,
-            fit_score: p.fit_score / 100,
+            phone: p.contact.phone,
+            website: p.contact.website,
+            fit_score: p.fit_score,
             status: 'new',
             tags: p.specialty,
+            source: `discovery:${p.source}`,
             source_url: p.source_url,
+            location: p.location,
+            bio_snippet: p.bio_snippet,
           })),
         }),
       });
 
+      const data = await response.json() as { saved_count?: number };
       if (response.ok) {
-        setSavedMessage(`✓ ${selectedProspects.size} prospects saved to your pipeline`);
+        setSavedMessage(`✓ ${data.saved_count ?? selectedProspects.size} prospects saved to your pipeline`);
         setSelectedProspects(new Set());
       }
     } catch (err: any) {
-      setError('Failed to save prospects');
+      setError(err instanceof Error ? err.message : 'Failed to save prospects');
     } finally {
       setSaving(false);
     }

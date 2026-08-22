@@ -32,6 +32,15 @@ from .brain import (
     BrainYouTubeWatchlistIngestRequest,
     BrainYouTubeWatchlistSnapshotRequest,
     BrainWorkspaceSnapshotSyncRequest,
+    IntegratedContentProjectionSyncRequest,
+    OpsStandupProjectionSyncRequest,
+    IntegratedContentVariantRequest,
+    IntegratedOwnerPostRequest,
+    IntegratedContentManualEditRequest,
+    IntegratedContentLearningRequest,
+    IntegratedPersonaReversalRequest,
+    CanonicalDecisionCreateRequest,
+    CanonicalDecisionActionRequest,
 )
 from .brief_reactions import BriefReaction, BriefReactionCreate, BriefReactionCreateResponse, BriefReactionPersonaContext
 from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
@@ -124,6 +133,12 @@ __all__ = [
     "BrainYouTubeWatchlistIngestRequest",
     "BrainYouTubeWatchlistSnapshotRequest",
     "BrainWorkspaceSnapshotSyncRequest",
+    "IntegratedContentProjectionSyncRequest",
+    "OpsStandupProjectionSyncRequest",
+    "IntegratedContentVariantRequest",
+    "IntegratedOwnerPostRequest",
+    "CanonicalDecisionCreateRequest",
+    "CanonicalDecisionActionRequest",
     "BrainPersonaReviewRequest",
     "BrainPersonaRerouteRequest",
     "BrainSignal",

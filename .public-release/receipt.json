@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 423,
+    "file_count": 498,
     "files": [
       {
         "mode": 493,
@@ -36,8 +36,8 @@
       {
         "mode": 420,
         "path": "backend/.env.example",
-        "sha256": "c887dcb3f1039baf9bc037fb217a96e8674de30ba9e292b4b5e03cfd8628e880",
-        "size": 1666
+        "sha256": "4f4984da703d8a3beca78ae314e399e06ff32c3f709a6d776954f812a51a6316",
+        "size": 1869
       },
       {
         "mode": 420,
@@ -54,8 +54,8 @@
       {
         "mode": 420,
         "path": "backend/app/main.py",
-        "sha256": "bae0cf682c067e8697b2171fb8c7a1b447eab79aee704cd51b594897db366931",
-        "size": 10407
+        "sha256": "25a28f73c74e88c19e72d4ad809d7cdbe7319b7e87ac3077c01d646da09cb69e",
+        "size": 10711
       },
       {
         "mode": 420,
@@ -66,8 +66,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/__init__.py",
-        "sha256": "a7ea7c504fe03ab2fac4e7c6eb0488d461e06b5f4c5586e1268df9a93c3a02e5",
-        "size": 6434
+        "sha256": "de887aea702ba256e152231308fff12ad1647b5c6dac86377b9eb5c8606109e0",
+        "size": 7006
       },
       {
         "mode": 420,
@@ -96,8 +96,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/brain.py",
-        "sha256": "79b57168b6c4821d2c9aa6cd231061453ac00eb355cff781fcaaba896d8061cd",
-        "size": 25081
+        "sha256": "7eda3b886c94fe8050400ad728e35561bc4639c5de74765c6e2c4a5bc5b88a07",
+        "size": 34715
       },
       {
         "mode": 420,
@@ -126,8 +126,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/core.py",
-        "sha256": "ea8b7f915bba4fd4a307c787eccba7234862bbcd90f525af774abb71a7565699",
-        "size": 2800
+        "sha256": "19ceebd97a580c369b72945457d92c950da635314fd463d5e793289fd3f911ef",
+        "size": 3092
       },
       {
         "mode": 420,
@@ -234,8 +234,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/prospect_discovery.py",
-        "sha256": "f149aa3d3dc426184614d884d99d56a000a97eca8ffa241a4a7fc98b4a618235",
-        "size": 5939
+        "sha256": "4e3382b21446a3561fdad1f5742be439f0fb9ceb8207fc165521266a3b4e3f4b",
+        "size": 5998
       },
       {
         "mode": 420,
@@ -248,6 +248,12 @@
         "path": "backend/app/models/research_tasks.py",
         "sha256": "6a3cf5192354f71615ac51034b3e97c20eda99643fcaf5bbe6d41ad59bd12167",
         "size": 3
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/models/social_assist.py",
+        "sha256": "6bbf33e1578f1aa9c24b4ef07bc53e268eeece635e975dcb5c8b185d57e256ac",
+        "size": 924
       },
       {
         "mode": 420,
@@ -288,8 +294,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/topic_intelligence.py",
-        "sha256": "915196df7d6e0fcb85b1f8a98615c62bd0b828ad18be46672ebab1166053f573",
-        "size": 14233
+        "sha256": "a4464a7e0bf2a475660033a4ba889446551fcf78bf4295d5331a5e2c53549aa3",
+        "size": 14361
       },
       {
         "mode": 420,
@@ -312,8 +318,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/__init__.py",
-        "sha256": "f5116b9439c33f2599994bf1122d2fd99623d9422ed589c5f63247d2f95230d9",
-        "size": 513
+        "sha256": "ce062f1bdf95004c43a51a9c2bf5cbf26d0e585f2cf1777f8ebbb92dea4df553",
+        "size": 591
       },
       {
         "mode": 420,
@@ -330,8 +336,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/analytics.py",
-        "sha256": "ab7fd8e2ce3e6dbac03c713dd854096f1579fe884288d98dd150526ac1822590",
-        "size": 1848
+        "sha256": "2c4a850e72c6d1dd3647837dbf3c57324334d6b94b5c82605592cf42ef55cfba",
+        "size": 2289
       },
       {
         "mode": 420,
@@ -354,8 +360,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/brain.py",
-        "sha256": "86eeca01ce04b7c95a8ea98e02fe123fdd3e06fd66636513a9028f96ae55b8fb",
-        "size": 40850
+        "sha256": "eb31654817f2adac30cd9258bcf52f6bbc86fc8e2e5ac78f3395f275a95e2811",
+        "size": 44524
       },
       {
         "mode": 420,
@@ -402,8 +408,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/content_generation.py",
-        "sha256": "76d8fc716bc3b814a021f8e5d83db1eec1198440302ac990b75ec1f80ef8e0f0",
-        "size": 485949
+        "sha256": "a31fe01950c24cda3b628d403587085577f41c4c8356161c969d68195462266c",
+        "size": 545620
       },
       {
         "mode": 420,
@@ -438,8 +444,14 @@
       {
         "mode": 420,
         "path": "backend/app/routes/executive.py",
-        "sha256": "16109bcb60dc280e7d0456ecc989e0d5feac5f639053aa260d2b8ead3aebb543",
-        "size": 1950
+        "sha256": "13430a11c26ed4bceb0f0698c5caf823358448763107b7b99fdc258e68eb9122",
+        "size": 2104
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/routes/firestore_readiness.py",
+        "sha256": "78278206f461357f832bd3e09f4f9fec51f30b1b17980f6cc3615cd6d5c884ca",
+        "size": 838
       },
       {
         "mode": 420,
@@ -450,14 +462,14 @@
       {
         "mode": 420,
         "path": "backend/app/routes/ingest_drive.py",
-        "sha256": "60288cfff07700d85bff5e886386401976ade05cbb9bc8fa7c952bc7d3cb44c6",
-        "size": 943
+        "sha256": "d0f9f769030ae1dfee7ffb0483540ee61177f8f6c2c1aeca404249179613944c",
+        "size": 5683
       },
       {
         "mode": 420,
         "path": "backend/app/routes/knowledge.py",
-        "sha256": "3fbdf48cfb47f7f505f0a0495d118c37bf51d7c3e578c0fab1c540abb85b7ab7",
-        "size": 1535
+        "sha256": "5af857a26848e0ffc1704d89429307f6571e4194ac98e3f1720e9d1a700fb3b0",
+        "size": 3216
       },
       {
         "mode": 420,
@@ -540,14 +552,14 @@
       {
         "mode": 420,
         "path": "backend/app/routes/playbook.py",
-        "sha256": "a4a9a9c3fb21cdfa2b337ce213d2d0070105a25b6721c914ad9e96e03d483d13",
-        "size": 1157
+        "sha256": "9641de3c2fee1bbdc650feb0f1faef6fa1d4384bee5344f52fe64d27f8808cf9",
+        "size": 2837
       },
       {
         "mode": 420,
         "path": "backend/app/routes/pm_board.py",
-        "sha256": "c80db73b9336284f5f672b468e45a8b3825591c633da4ab7e239dd4db3388d8b",
-        "size": 9692
+        "sha256": "d1144d8b8861d17a36c5a3c112ac8531cbefa59737f897794158c54f20102877",
+        "size": 16161
       },
       {
         "mode": 420,
@@ -564,20 +576,26 @@
       {
         "mode": 420,
         "path": "backend/app/routes/prospect_discovery.py",
-        "sha256": "3b314b3ac6e4b329fe95f804de3953d01aedf2ec04ea8076cba87130c3590400",
-        "size": 10024
+        "sha256": "64d5b02a20f9f285caf5711e6c8ac4732f22fd5ac295ca8b0fde8d52727a7dbd",
+        "size": 23122
       },
       {
         "mode": 420,
         "path": "backend/app/routes/prospects.py",
-        "sha256": "069b8898d6d299b591427fb1bfba294bbbc0fb13dbfd7d99b27ddbaa6327fa30",
-        "size": 1097
+        "sha256": "d00fd29cea53e0614c98a08db47e6901228ad5b02d39fc1bf9350659104b4d16",
+        "size": 9888
       },
       {
         "mode": 420,
         "path": "backend/app/routes/prospects_manual.py",
-        "sha256": "a20f1ddfc0bf84de97ab9456f448c0ffac66d42ba8857dec910bd806e0886c0f",
-        "size": 635
+        "sha256": "59c4396c795da62cf90c602a2e83b45b47efa3199d20a145163224c32e254396",
+        "size": 2831
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/routes/railway_retention.py",
+        "sha256": "943c786beda08dedac758c35bcb431117f73a297ee3062d49296ce331c300c92",
+        "size": 844
       },
       {
         "mode": 420,
@@ -599,6 +617,12 @@
       },
       {
         "mode": 420,
+        "path": "backend/app/routes/social_assist.py",
+        "sha256": "dbcf8c76f307eb56054b7f73ebaac1d0d845adf43fac939a895c1dde9180dce7",
+        "size": 3879
+      },
+      {
+        "mode": 420,
         "path": "backend/app/routes/social_feedback.py",
         "sha256": "9df21c69f226cac6ef3c807b38b6d2e23a80f8a6a733ed84b91411a1cf76e26e",
         "size": 601
@@ -612,8 +636,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/system_logs.py",
-        "sha256": "b7e818276894f0dbe8172eaf771d1b1883665180b9c15d259c3c37aa44554b90",
-        "size": 1777
+        "sha256": "a3d93ddf2a675a6a523743d7e6d76080c9877a49de3946dd37255760207c8b5c",
+        "size": 2825
       },
       {
         "mode": 420,
@@ -630,8 +654,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/topic_intelligence.py",
-        "sha256": "c8072c370acc4e42f27f4043202086b83be71a5ea05e213bc55f898aa77b597d",
-        "size": 11762
+        "sha256": "5d01ca5bfe9e9173f7cbce130a3b5cbc2ee3e1d4d23f9f666052284684e8ba10",
+        "size": 20211
       },
       {
         "mode": 420,
@@ -654,8 +678,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/workspace.py",
-        "sha256": "f67702d052c78ccff0dc1982582c04fc546c8348c557700628cf134422dcc218",
-        "size": 20134
+        "sha256": "6e82144f503cf81ead16d52b424c16ced5544eb4d70c2133e061fc32ff35f3d1",
+        "size": 35013
       },
       {
         "mode": 420,
@@ -714,14 +738,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/automation_run_service.py",
-        "sha256": "6ab07dfff9bee9f5e409b478dd1814805385e957dd36d138fa202891156c9bd5",
-        "size": 6595
+        "sha256": "f87844459e5486ff517f4c802bb414b681e61bcbebb4ebac76e155e9677e14ff",
+        "size": 7265
       },
       {
         "mode": 420,
         "path": "backend/app/services/automation_service.py",
-        "sha256": "b73678d6973e19b6abf7711eaeb03b55181abcdbfcf0a1a63e674e8dc3e3b1ff",
-        "size": 59840
+        "sha256": "6687062f3a652a943611830783e5fb7f4be3c8505cbcfde3a62a26ebdeae3c1f",
+        "size": 61070
       },
       {
         "mode": 420,
@@ -744,14 +768,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/brain_local_action_queue_service.py",
-        "sha256": "3ce26e20af36ec708a9c4f7067dcb29cc57788722e8dbc650ef4ccbcddf4995c",
-        "size": 20554
+        "sha256": "9c4879ff0c79a9c45cd0853db86b769f2ef5371249cc722949b4cd9baa10254c",
+        "size": 29250
       },
       {
         "mode": 420,
         "path": "backend/app/services/brain_long_form_ingest_service.py",
-        "sha256": "679d9102170ca81691e71265361e801072f364247d45474c4cc0c74ad15a5df1",
-        "size": 19336
+        "sha256": "015848bba15173f141e5fa91d38af40b7f6b988af80484791ed6c967e9e297ee",
+        "size": 25748
       },
       {
         "mode": 420,
@@ -762,8 +786,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/brain_signal_intake_service.py",
-        "sha256": "9239728bfa278f4a5eaef45561be1132381d7a9e9a53faf9ef6abb8a8fe9cd9c",
-        "size": 25628
+        "sha256": "8c2c5e95630ad38bedbdbcac2412acbc995ee6c34ec62e72acae435d3971dcb7",
+        "size": 25629
       },
       {
         "mode": 420,
@@ -797,6 +821,12 @@
       },
       {
         "mode": 420,
+        "path": "backend/app/services/canonical_decision_service.py",
+        "sha256": "6c7ed65cd42211e4122f2d68614735ae6f992ce3cd2873c44cc57e7174dc786d",
+        "size": 16319
+      },
+      {
+        "mode": 420,
         "path": "backend/app/services/capture_service.py",
         "sha256": "dcb8997b187c96b948e332b858a8083bcc2f45cee982d3209e759c7b43c79c08",
         "size": 2909
@@ -804,8 +834,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/content_generation_context_service.py",
-        "sha256": "8ce2f47d021765bde89626a48f3b3c33ea94da3ad3445fb3c539faec81b588d6",
-        "size": 89340
+        "sha256": "f37467d05a1619c9157d6d1335c66309239ecf6901f2df2a87c608ee6891b174",
+        "size": 92919
       },
       {
         "mode": 420,
@@ -815,15 +845,39 @@
       },
       {
         "mode": 420,
+        "path": "backend/app/services/content_learning_service.py",
+        "sha256": "857ebc24b7a14d3b1d8925132f0f255bf70d70c3bd07d82ef3a7497569919009",
+        "size": 23676
+      },
+      {
+        "mode": 420,
         "path": "backend/app/services/content_library_service.py",
         "sha256": "6a3cf5192354f71615ac51034b3e97c20eda99643fcaf5bbe6d41ad59bd12167",
         "size": 3
       },
       {
         "mode": 420,
+        "path": "backend/app/services/content_lifecycle_service.py",
+        "sha256": "cbd3958498e57558bbfa90ab0106e6097b7168c64f422f496a9373b0b5a707aa",
+        "size": 55175
+      },
+      {
+        "mode": 420,
         "path": "backend/app/services/content_optimization_service.py",
         "sha256": "6a3cf5192354f71615ac51034b3e97c20eda99643fcaf5bbe6d41ad59bd12167",
         "size": 3
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/content_owner_action_service.py",
+        "sha256": "c0e998a99b87630e702384a8bd241e7c70f0fb66102377bd1275562509146f30",
+        "size": 4480
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/content_portfolio_selection_service.py",
+        "sha256": "6f90fcf084933ce34b9fc1b3e937b8750dccfffa99928a2fdb4bfe1c7910d734",
+        "size": 14596
       },
       {
         "mode": 420,
@@ -866,6 +920,12 @@
         "path": "backend/app/services/daily_brief_service.py",
         "sha256": "8095489890226a231c89cc5109f1b85800209d57680e6b92ecc01b342b26a729",
         "size": 21821
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/daily_portfolio_coordinator_service.py",
+        "sha256": "784a086b93c5e7681ae6852b91a57852c2efcc7ef53b5b7a543c769f109670fe",
+        "size": 5366
       },
       {
         "mode": 420,
@@ -924,20 +984,20 @@
       {
         "mode": 420,
         "path": "backend/app/services/execution_gate_service.py",
-        "sha256": "188ef46fb6b63b10171ea29566e0630ff853a77db8488d0f8e6a1821df218b48",
-        "size": 30717
+        "sha256": "0f4b3d2aa1e8c28037274edbbeb87c2c2a9929c37408f2e1bed63fe0489bfd0c",
+        "size": 32038
       },
       {
         "mode": 420,
         "path": "backend/app/services/executive_decision_service.py",
-        "sha256": "6d8e6ecfc4d78318a0d8734e7ebeea2bdce7092b8f5524a83fbfaa6d31425167",
-        "size": 62944
+        "sha256": "4f2cfb97533becbefc8406a111515f101abb0cfb2b65fe55cf4712561113d6e7",
+        "size": 63424
       },
       {
         "mode": 420,
         "path": "backend/app/services/fallback_policy_service.py",
-        "sha256": "ebc8a0b8edb80eaef61358157448b86196e67195be02ddf88ada85d2e96163da",
-        "size": 6935
+        "sha256": "05f0cf7177785b0516a8281db1b44919dc9fca49f2a9926a8cb9558611442456",
+        "size": 7060
       },
       {
         "mode": 420,
@@ -978,8 +1038,20 @@
       {
         "mode": 420,
         "path": "backend/app/services/firestore_client.py",
-        "sha256": "4f1d00bc861523d12b59e013f9c2f4e75a320c134b8fab3d0202ca0f9cc497c1",
-        "size": 2462
+        "sha256": "4c726c061a70db213ed98a4f25dee25fb0649476e323a577585638c0ebc76eec",
+        "size": 5647
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/firestore_prospect_authority_service.py",
+        "sha256": "0c8de20390295bffa42834fa689a612ceac190bb197802fecae44f3251b1d400",
+        "size": 16215
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/firestore_readiness_service.py",
+        "sha256": "23d319813d6b70c7b76851e0d5630434f81d2348ca331d68c625dc9ddcbdc49d",
+        "size": 13262
       },
       {
         "mode": 420,
@@ -1001,9 +1073,63 @@
       },
       {
         "mode": 420,
+        "path": "backend/app/services/integrated_content_projection_service.py",
+        "sha256": "1862468dc430bfcf403e1c82268c2b804555f3e7016faa2b49f9c0648cf9952c",
+        "size": 66870
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/integrated_controller_readiness_service.py",
+        "sha256": "44c5a29f1b1bea62d681ed6ab8411471cf6e124f7c9114f9d34ae801b86c0d1b",
+        "size": 3412
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/integrated_memory_readiness_service.py",
+        "sha256": "4b4b39c6ea4f3601662261ce3484be43f70a4d08869426fd74bf615b143ea854",
+        "size": 35437
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/integrated_persona_canon_writer.py",
+        "sha256": "94b2d47320ad0db93e8d8f6e0ecccd74e6de3da778703648bcfb24eff3f62ce2",
+        "size": 8871
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/integrated_production_generator_service.py",
+        "sha256": "6dee9bb84594442e3d84f9484da8b2b2e928c5cbbfacd28a27585a62bef31fe8",
+        "size": 48722
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/integrated_system_store.py",
+        "sha256": "636cf7f3dcde7ae6cc9c16832d38a2d57a8cca216b3fa564f5800c9aed57cec3",
+        "size": 43726
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/integrated_variant_generation_service.py",
+        "sha256": "ab42ded1aff57cfc9e48d1b429ff82d9865b9f700e66207e679a0be9c89d68db",
+        "size": 14358
+      },
+      {
+        "mode": 420,
         "path": "backend/app/services/lab_experiment_service.py",
-        "sha256": "f755c432d467045a1c48ca729667aaf00dbf15f95f776292e884cad372ea121d",
-        "size": 206803
+        "sha256": "174860b128bef905563606e4c4110b33129a71bd894fab0f60fb3758f61e5c46",
+        "size": 206839
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/launchd_policy.py",
+        "sha256": "5a458fd7d77cc691d623edc505c77dd4fe918a112e0783097b3fc7b0ff303dbc",
+        "size": 312
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/legacy_performance_migration_service.py",
+        "sha256": "6680978cbf9cb8322cdace31418233c6119b6873f55d7f184d3c4947c8edde83",
+        "size": 19004
       },
       {
         "mode": 420,
@@ -1014,8 +1140,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/linkedin_owner_review_service.py",
-        "sha256": "1c9fb7ca2616fe62cb4ac5f2fe6d6807049da28cdd504d62f97a7ebffd58858b",
-        "size": 141802
+        "sha256": "2a0dd222cd6fb8d7a20289e4ca5732f2ae06920440fe4cf2da6c3ede572d08c8",
+        "size": 143463
       },
       {
         "mode": 420,
@@ -1032,20 +1158,20 @@
       {
         "mode": 420,
         "path": "backend/app/services/local_codex_context_cache_service.py",
-        "sha256": "49ffe0dfcce838573b3711c64e36192e178c424a118d0c3c230b9b928b0737bd",
+        "sha256": "f73435385b6de08396ae30430eaab3af1dd1afa11c2276b959071fd6e33e1f56",
         "size": 13229
       },
       {
         "mode": 420,
         "path": "backend/app/services/local_codex_generation_service.py",
-        "sha256": "b96d1d912641ba979b61384eae2e8126444847541e82e1241a51fbd3d68e2b91",
-        "size": 19636
+        "sha256": "3ce445befdc8b21706e641e92eed18d9598962ecdd5c786c4f335f716df6708f",
+        "size": 21574
       },
       {
         "mode": 420,
         "path": "backend/app/services/local_content_generation_execution_service.py",
-        "sha256": "81fe543b767bf7b62083d4d777658e995cd27b0dd4c8dd85eef82dcd9cc80f0c",
-        "size": 73680
+        "sha256": "2f05526232acdccd44904c52cde542aaeafb78accb6d2f3ec7a6b018499664a3",
+        "size": 100278
       },
       {
         "mode": 420,
@@ -1086,8 +1212,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/open_brain_db.py",
-        "sha256": "cdeacff1d9655d15039f97e257b3f3671af5cee5f15efbd0f0fa16f9f6aca524",
-        "size": 23816
+        "sha256": "3f3271143632c1f63eb31d25f52063b55723e3ec6e86cbf32bcd34db15a425dc",
+        "size": 32401
       },
       {
         "mode": 420,
@@ -1112,6 +1238,18 @@
         "path": "backend/app/services/operator_story_signal_service.py",
         "sha256": "e9945d6d967aee199d035355f5645292448389e0472b3d7b3135ff3cb696ae25",
         "size": 27842
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/ops_standup_projection_service.py",
+        "sha256": "1295d9ca4e3fb3cbbb89519d679b9b236367a8b9e2fc655ae9e706238ef7f639",
+        "size": 10291
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/owner_requested_post_service.py",
+        "sha256": "6a1b3727aecbdc1c128b0b10c5254ed8119235739e2156c6ecb1327d19f8ecfa",
+        "size": 19106
       },
       {
         "mode": 420,
@@ -1146,8 +1284,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/perplexity_client.py",
-        "sha256": "22aa2052b43bcf2dce9fc84ff8db46de3623f86f1fc187a8af8124f7a974edd5",
-        "size": 5592
+        "sha256": "3df10039f93c889c54b95832aed17860f860f5dce150261d06b8a2284703b37c",
+        "size": 6655
       },
       {
         "mode": 420,
@@ -1169,9 +1307,21 @@
       },
       {
         "mode": 420,
+        "path": "backend/app/services/persona_learning_service.py",
+        "sha256": "0df478dbb3f2d619faa1396c3e0b2d25065473d8c357c08a3e814f9b45db5874",
+        "size": 27287
+      },
+      {
+        "mode": 420,
         "path": "backend/app/services/persona_profile_coverage_service.py",
         "sha256": "2f3e2173a02c3f5d50400c1e9753a44923430c330d2ca1f51114186779c1d036",
         "size": 3414
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/persona_promotion_coordinator_service.py",
+        "sha256": "656ca03e634a3074fbc7ead3ace7fd4ad3f99eec4bbd3343e757785700ef6b69",
+        "size": 3907
       },
       {
         "mode": 420,
@@ -1212,8 +1362,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/pm_card_service.py",
-        "sha256": "5d6e497efc5edd07dd8d1d8bfad75b659b5d6aacbfb9a1a0902c242ae39c72c0",
-        "size": 213822
+        "sha256": "9ce873dc343f384755872ea34f6fc67e1c54ca6bd2ec8b931ed53c6ecd2fc23b",
+        "size": 219120
       },
       {
         "mode": 420,
@@ -1244,6 +1394,24 @@
         "path": "backend/app/services/pm_work_request_service.py",
         "sha256": "56b927fc11b05375b6fad25d6515bbb345302ddc5dca844f6b37c7497abde7fc",
         "size": 7553
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/pm_worker_readiness_service.py",
+        "sha256": "035c7c2cfd1c15bd9c15b5184c96abcf04b6da14a74fef54de8432e216650f42",
+        "size": 17632
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/portfolio_cycle_service.py",
+        "sha256": "0f4e7c7e17ee428fa540865a70984dbfaa59eadcd0bb8f6f0e7c47b1f3523738",
+        "size": 18142
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/portfolio_selected_drafting_service.py",
+        "sha256": "448283b0e934f8b4fad25619097af84d2dd75ae4177dccb704952f474847d477",
+        "size": 52925
       },
       {
         "mode": 420,
@@ -1338,8 +1506,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/prospect_discovery/prospect_saver.py",
-        "sha256": "20e145f7bc19106324e02a87ac62a7b40684db14ef829d77454736243c0b1ac2",
-        "size": 4314
+        "sha256": "16f33742013f864ab10c0c177b38ef44856d470af5c9b935b0dc046bbad17ccf",
+        "size": 4526
       },
       {
         "mode": 420,
@@ -1362,8 +1530,32 @@
       {
         "mode": 420,
         "path": "backend/app/services/prospect_discovery_service.py",
-        "sha256": "87bb82e134782910a1bd21e243af74c8ca1ec7222429800efb7abbf1f835c66a",
-        "size": 206152
+        "sha256": "1e0a5434143bf4afa4fb0e5a6797682581ff34a48f49b8587070700c43fd0dad",
+        "size": 212734
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/railway_retention_archive_service.py",
+        "sha256": "0ed2487fea46c862dcece50b4e504f6ab25232e919982a726dd55f6a2518f4bb",
+        "size": 41895
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/railway_retention_rollback_service.py",
+        "sha256": "e9b7af5850749cd5c5dd1eaa2d635db2c231d7900a4a9932c8025cf5e946c554",
+        "size": 30639
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/railway_retention_service.py",
+        "sha256": "b2d4bf5ff828b1cdb7e54207366af3194ee0ab8fa358277c6f103c6dc3632cb6",
+        "size": 62387
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/railway_retention_status_service.py",
+        "sha256": "d8d53bc556ae33d61cd0b99173bda4ed5b588d957248cffc2402c353801b4f80",
+        "size": 26021
       },
       {
         "mode": 420,
@@ -1380,8 +1572,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/repo_surface_registry_service.py",
-        "sha256": "00c92f1a12ff7e8beb59de044611ab3813a3492129a9b8f63138952f0ab3de3c",
-        "size": 20951
+        "sha256": "2eb2dbd2deaddbcb58434aafcc120884ec8a6865662123e5ccdc0e90b0c3cf6d",
+        "size": 21127
       },
       {
         "mode": 420,
@@ -1422,8 +1614,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_belief_engine.py",
-        "sha256": "f2363dc9976fd16dd31865766c1dea4e318f10dd0d68099ea04eb9212efd1f77",
-        "size": 32677
+        "sha256": "37b8694226ef2a971bfec06162e92adf744514c4549f4eec7e2637c6fd136e96",
+        "size": 32763
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/social_engagement_assist_service.py",
+        "sha256": "0eb6bfef2edbeb33eeb9d4282879689ef49b17d09c95b8301adc2f6990411799",
+        "size": 23106
       },
       {
         "mode": 420,
@@ -1440,8 +1638,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_builder_service.py",
-        "sha256": "230a51c63b8edac8c2eb4746ebc3955375ade032847d1f482e7c6778432fff27",
-        "size": 29596
+        "sha256": "fe6664af8dde22b3789372c4c97857ba7b74ff4bfbb3ead844c062e8326c343f",
+        "size": 31344
       },
       {
         "mode": 420,
@@ -1524,8 +1722,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_source_fetch_service.py",
-        "sha256": "e185af8515b44b0d3b7fed80fe3edda37010e2d2bd4264c2d84e8ad430a6a06d",
-        "size": 29527
+        "sha256": "143f88083760841d89c2af44b8a66ced5d79cbbd90b6d708cadd3e4ac3e165a9",
+        "size": 47020
       },
       {
         "mode": 420,
@@ -1547,6 +1745,54 @@
       },
       {
         "mode": 420,
+        "path": "backend/app/services/source_content_intelligence_service.py",
+        "sha256": "5786a262c5e064c5749fef1709bd426eabdede10d25814015e65e9a42a09f156",
+        "size": 29196
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_evidence_interpretation_service.py",
+        "sha256": "2bfdc7053d7b5256d40b8375a5d8fd60bc7cca24637f28c9748bc31067446c81",
+        "size": 24228
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_intake_adapter_service.py",
+        "sha256": "11a63d3394e567f7c1c441e6b88ab45beabd658c5a5079423b337f58e0e9012f",
+        "size": 14312
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_intake_contract_service.py",
+        "sha256": "4f773862ae4092e09b07e7b525927ae38a2960c2ccc1b8b00f40680f9d66ec72",
+        "size": 9926
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_intake_execution_service.py",
+        "sha256": "a24ab317e3c52a723170229db54aca1cb6ad59b0f87273437abc3ec762bef62c",
+        "size": 6580
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_processing_service.py",
+        "sha256": "e16043fcc88f240d02ffa4bb54134e30db13676064d2a1f7b2bacb12084c15e7",
+        "size": 23367
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_sharing_classification_service.py",
+        "sha256": "9a55ca7764648ae51be4b785ca820218da66e9d8a7064b01d384dc77e37890a8",
+        "size": 28363
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/source_sharing_policy_service.py",
+        "sha256": "61f9abbac2e9365f472afbbbbb5a78e8982ad472f1ec7f0d79912aabe77e0974",
+        "size": 6152
+      },
+      {
+        "mode": 420,
         "path": "backend/app/services/standup_relevance_service.py",
         "sha256": "16ae178f4728446febcee1e3bb43c895e1b10a4aee67c577263aa2c850dc6107",
         "size": 20847
@@ -1554,8 +1800,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/standup_service.py",
-        "sha256": "9d72fdfd0fb91c981ef5b974c79d1289a42026f22df96e336721ea8432fc19cf",
-        "size": 18788
+        "sha256": "43da8650fb2ca28a2a1b56aee1598a8f573274add43baeb0a5efd7e3ab363b30",
+        "size": 19020
       },
       {
         "mode": 420,
@@ -1650,14 +1896,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_store.py",
-        "sha256": "cd627380d4a1e480a6b037ab88ac9cffc9c89e814588bb3babfd947a33f8a6a5",
-        "size": 7807
+        "sha256": "5c09677915dfd8a61bdbb6e7aa8898d82062ad534c304a5389aca600ab1a4a22",
+        "size": 8930
       },
       {
         "mode": 420,
         "path": "backend/app/services/youtube_watchlist_service.py",
-        "sha256": "dd8581e85c2c5e4d91ef78b2a187ebe60676a79bddaea865a1f92b94567e4b27",
-        "size": 56435
+        "sha256": "46d432235644da0ea24d7372932c5e29c293fb2e24263a33d08114128ef5711c",
+        "size": 82048
       },
       {
         "mode": 420,
@@ -1710,8 +1956,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
-        "sha256": "8339360e1781dca4ab58517a419ce01a89ef28d23aa1172b9d88a0bdea4282a1",
-        "size": 59392
+        "sha256": "372759791cd4fe9876b3b489633a420e86c5e4baf649052aab00512840c3ddc1",
+        "size": 62938
       },
       {
         "mode": 420,
@@ -1722,8 +1968,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_local_codex_context_cache_service.py",
-        "sha256": "00fdeed1e06f0b0ea120c1d6c2257a3d5e39b4f6957a825d9ed0fe2de0365c6a",
-        "size": 10663
+        "sha256": "ef4840d7fee27d362def4bbe705709efdaf7ac20870d4a6df99f0e50ce46db83",
+        "size": 10779
       },
       {
         "mode": 420,
@@ -1776,8 +2022,8 @@
       {
         "mode": 420,
         "path": "frontend/app/api/auth/login/route.ts",
-        "sha256": "4b79dba2ece38ab5f11ae52991217f5e7568308208a6d7cdda6893f7804896b8",
-        "size": 1509
+        "sha256": "ec5dba419d51eab02f363d662ae6bc77855fd79d3840baf0dec8ddb22418770c",
+        "size": 2095
       },
       {
         "mode": 420,
@@ -1920,50 +2166,44 @@
       {
         "mode": 420,
         "path": "frontend/app/jumpstart/page.tsx",
-        "sha256": "143febe0312da5684c9bf15d6e36383c3bcd7b2cdf804f4ab00a062645638dc5",
-        "size": 10807
+        "sha256": "2bbc3cde13b49e315639e438b7310c35e169cf1b212a8c0c78c3150be27b83b5",
+        "size": 7412
       },
       {
         "mode": 420,
         "path": "frontend/app/kb/[query]/page.tsx",
-        "sha256": "544289cad56d1ae1ddcf62f620b686bbf8ab1b33313e4181d43de96932a66abf",
-        "size": 7524
+        "sha256": "822b3b5724814749ac9696f82a63135c40cb93b98eea3d75bf7c8246c173d29a",
+        "size": 7575
       },
       {
         "mode": 420,
         "path": "frontend/app/kb/health/page.tsx",
-        "sha256": "a51d95c304414af9429a116651db5abaed9eb6b2ab35e961e8dabd6d34050e08",
-        "size": 878
-      },
-      {
-        "mode": 420,
-        "path": "frontend/app/kb/page-original.tsx",
-        "sha256": "517155bd95a0d8e60b7c80983d29b95af8f6fc87f213c2ec43306352d398bb0c",
-        "size": 8823
+        "sha256": "c8245cab7faf2389338cbfc786d408cefc6ef5a6def37a147aec6095ca764a3d",
+        "size": 1290
       },
       {
         "mode": 420,
         "path": "frontend/app/kb/page-simple.tsx",
-        "sha256": "571ee3c973e9ce53bff0bf7de81101a0d7fe88e4032a64dfe34a4e7ee07a281d",
-        "size": 2445
+        "sha256": "ab8cfd694d8f529ebc274d6116cadeab2c683d0317606b463a9d0a0b2086ac50",
+        "size": 2450
       },
       {
         "mode": 420,
         "path": "frontend/app/kb/page.tsx",
-        "sha256": "571ee3c973e9ce53bff0bf7de81101a0d7fe88e4032a64dfe34a4e7ee07a281d",
-        "size": 2445
+        "sha256": "ab8cfd694d8f529ebc274d6116cadeab2c683d0317606b463a9d0a0b2086ac50",
+        "size": 2450
       },
       {
         "mode": 420,
         "path": "frontend/app/kb/research/[slug]/page.tsx",
-        "sha256": "fe8ceac1cdf0033768453316d4f031a2e623e810258ce487aa42a50be04ef0f7",
-        "size": 13505
+        "sha256": "1eee8ae9bbdeb12aae3c04dad1c774a7f9293985891dee88c68f2c17cb9e0fa4",
+        "size": 10448
       },
       {
         "mode": 420,
         "path": "frontend/app/kb/research/page.tsx",
-        "sha256": "6671e1887a5dd21d908a0b7247d5c7e962e4cba977e8511d1a9128b5b8ba08af",
-        "size": 7155
+        "sha256": "41783b5c052c4d351b87295da811afb4763003e66827b915297389bd43f8520b",
+        "size": 5704
       },
       {
         "mode": 420,
@@ -2028,14 +2268,20 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/ExecutiveDecisionQueue.tsx",
-        "sha256": "556abbd1f3ef917ed43433ee30c5036491cca4f75d34ac602a674597ad0b644b",
-        "size": 16716
+        "sha256": "a80fe5fee8b28b425b1c3ea8ea25182099e63c5120eb881d5f4ea302bd3919eb",
+        "size": 17758
       },
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "2d680baa0b30a751a1359cbcf133ced51aa73891fb4c8d0d4dfec8ded48b28f3",
-        "size": 802413
+        "sha256": "edfe2345f16f05a64edc5d5371453d4bd47e6d5c04f25ec0fd4d69d495abf457",
+        "size": 811860
+      },
+      {
+        "mode": 420,
+        "path": "frontend/app/ops/RailwayRetentionHealthPanel.tsx",
+        "sha256": "d3fc22586005b45b80d38ad57969a44715d61a132b038be7bef0ece7bef87dc6",
+        "size": 10656
       },
       {
         "mode": 420,
@@ -2048,6 +2294,12 @@
         "path": "frontend/app/ops/page.tsx",
         "sha256": "44f2227ccf14d6edbd704622454e573f34accab998c1bc84b1efed38719cda47",
         "size": 24175
+      },
+      {
+        "mode": 420,
+        "path": "frontend/app/ops/railwayRetentionStatus.ts",
+        "sha256": "644b5827434912c76a07b3ceb9124aea92405c89765d938c701b9f677e0b4a0d",
+        "size": 17120
       },
       {
         "mode": 420,
@@ -2082,20 +2334,20 @@
       {
         "mode": 420,
         "path": "frontend/app/prospect-discovery/page.tsx",
-        "sha256": "377c069bbb16b4ec30583aabcc4d9a2ec1f487a8b91a8c31e865041e57ee4964",
-        "size": 27674
+        "sha256": "8c59c7526fad289d898da732757f0dc89c4ab74c97b675760e08a4f8ddc508bf",
+        "size": 27866
       },
       {
         "mode": 420,
         "path": "frontend/app/prospecting/page.tsx",
-        "sha256": "85a3335266c6a5b617afe51eb76ded3914b99adacc47a950a34798fef0f20d11",
-        "size": 20970
+        "sha256": "1a8b8d5e2a7fe22fa4571984133d50eba65c8bf7c05c02ff2cf5778e4664ca66",
+        "size": 206
       },
       {
         "mode": 420,
         "path": "frontend/app/prospects/page.tsx",
-        "sha256": "1a4a89234ac4423dd0166653f57c2e553e978fa1580d5731360a1155619a4119",
-        "size": 26865
+        "sha256": "25ffd29c11986964c2b261bf6eb2b51500f4e129d0e2b338b3e1ef4b001bd4ae",
+        "size": 28439
       },
       {
         "mode": 420,
@@ -2106,8 +2358,8 @@
       {
         "mode": 420,
         "path": "frontend/app/sitemap.ts",
-        "sha256": "63ef6c8310dfffb986ea107692476f8ee4d4534698487dfb452c535dcfb46386",
-        "size": 3511
+        "sha256": "5ccc9553b43158b457899bbf65027dd5f4955bdf1c5a426b3d677ba97967561e",
+        "size": 1236
       },
       {
         "mode": 420,
@@ -2124,8 +2376,8 @@
       {
         "mode": 420,
         "path": "frontend/app/topic-intelligence/page.tsx",
-        "sha256": "ce119612bf139ee53fddc459606b3f87282d867196a3a402dae8a3accce27c87",
-        "size": 16843
+        "sha256": "7ff86f9d65f2a6328bb74c5b118ccd1e9152b1b9580921234f8aa9d1d3213cc7",
+        "size": 16811
       },
       {
         "mode": 420,
@@ -2142,14 +2394,32 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/GenerationReceiptPanel.tsx",
-        "sha256": "8678d1126c53fcbb52ef04c9f502e33aac374e48ae6088f3e875f860a2bc1dcc",
-        "size": 18954
+        "sha256": "cac7525a698b080b00dc59d7eb538b15afcbda6ed2eb7a59bdf61a9c2ed6c32c",
+        "size": 19202
+      },
+      {
+        "mode": 420,
+        "path": "frontend/app/workspace/IntegratedContentPortfolio.tsx",
+        "sha256": "d3b3b8a9d1c21ab62ce37680752744d263f76dfea33657417a78ed0e5a67420a",
+        "size": 76793
       },
       {
         "mode": 420,
         "path": "frontend/app/workspace/LinkedinPerformanceRecorder.tsx",
-        "sha256": "a5623f037481bd33aaa7277000f70b103c9bf0f4dc4b1110b4dc25fcc18de08f",
-        "size": 48880
+        "sha256": "4e9cee5262827d2568566b6294f86e375cfc348d3a5c8166f976e85d341c722b",
+        "size": 49164
+      },
+      {
+        "mode": 420,
+        "path": "frontend/app/workspace/OpsStandupSummary.tsx",
+        "sha256": "d7053236a79fc03f9c3dfa5aaa3f554858994c98e84640759dcc037490daed36",
+        "size": 7826
+      },
+      {
+        "mode": 420,
+        "path": "frontend/app/workspace/OwnerDecisionSurface.tsx",
+        "sha256": "c1ea66725b444e6759d1d0ea2210d21d7f79ec78d1586bf32a1f27604491faf5",
+        "size": 20348
       },
       {
         "mode": 420,
@@ -2159,9 +2429,15 @@
       },
       {
         "mode": 420,
+        "path": "frontend/app/workspace/SocialEngagementAssist.tsx",
+        "sha256": "64b5e9bd7dffe046c98f613434db9b611df503e824a53c44aca5f4dfa619b732",
+        "size": 16622
+      },
+      {
+        "mode": 420,
         "path": "frontend/app/workspace/WorkspaceClient.tsx",
-        "sha256": "c6752956a5c890055850bbb7a7d195adc8a62cf1db83d0dc00e9a1b0e7b55527",
-        "size": 228740
+        "sha256": "f4d5084ef2d3b706e1c258b8168bbf757eaf7277f00e7872c1b5f82c37b37e51",
+        "size": 232292
       },
       {
         "mode": 420,
@@ -2184,8 +2460,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/posting/page.tsx",
-        "sha256": "7a2256a143e58de8f44386d38a42725f967f40a6bd62060c5a541c7bfc1b019e",
-        "size": 54409
+        "sha256": "4243759cd15b64bf0604f689b8f45f30424657b9445e36e8a1c03124806a2ca8",
+        "size": 61982
       },
       {
         "mode": 420,
@@ -2273,15 +2549,33 @@
       },
       {
         "mode": 420,
+        "path": "frontend/lib/canonical-decisions.ts",
+        "sha256": "6fd3f4dfbb795a0969511fec948b47a8064af8a9b532e98977530bbe91134178",
+        "size": 5597
+      },
+      {
+        "mode": 420,
         "path": "frontend/lib/client-error-reporting.ts",
         "sha256": "6ac16857e2e6afe1b2d9a0e5ab524fd2200f914ce9f367b92bd9c70294f08bc8",
         "size": 3973
       },
       {
         "mode": 420,
+        "path": "frontend/lib/content-generation-topology.ts",
+        "sha256": "a94183bfe7e7212e3a3e19b31a72a60c31ed60e4be30bf9b0871f4dcfd0b19d1",
+        "size": 764
+      },
+      {
+        "mode": 420,
         "path": "frontend/lib/control-api.ts",
-        "sha256": "3341225587fc779e73343b173553ccc4530df84a2919407872b298cceb4bab2a",
-        "size": 2322
+        "sha256": "c74693a5b9b018081c465bc965ba750fcee8b31d02a684c0d2ce214bb4229152",
+        "size": 5453
+      },
+      {
+        "mode": 420,
+        "path": "frontend/lib/control-cookie-policy.ts",
+        "sha256": "88ef0647ccbee7db6d13e0828f9119bf1ec6b1455fba110300b4feda7bd7483d",
+        "size": 1327
       },
       {
         "mode": 420,
@@ -2327,9 +2621,27 @@
       },
       {
         "mode": 420,
-        "path": "frontend/lib/firestore-server.ts",
-        "sha256": "d7e7a2153bebe647a8edaa305d7713ecdf03049742360d94ee2f002a99cdd8dc",
-        "size": 1884
+        "path": "frontend/lib/firestore-readiness.ts",
+        "sha256": "79e298da80e9e38125744153fe8fbfe3fe22645555c85b7f3afb28466fbfc250",
+        "size": 5350
+      },
+      {
+        "mode": 420,
+        "path": "frontend/lib/integrated-content-controls.ts",
+        "sha256": "5f9c28ede861e129776f1a7d0a76e0d66fd6c247e0cb0094a5b116bd4e830112",
+        "size": 1931
+      },
+      {
+        "mode": 420,
+        "path": "frontend/lib/integrated-content-job.ts",
+        "sha256": "f59f630a9795595590a039266bf5cd23ea5ec22689479826d2d7a54909607223",
+        "size": 7164
+      },
+      {
+        "mode": 420,
+        "path": "frontend/lib/integrated-content-owner-actions.ts",
+        "sha256": "3b48561f15ac1a04063ff03ce60dfc9318d3f01954138c67403d4f8c3bcf8deb",
+        "size": 8109
       },
       {
         "mode": 420,
@@ -2339,9 +2651,21 @@
       },
       {
         "mode": 420,
+        "path": "frontend/lib/ops-canonical-decision.ts",
+        "sha256": "c7fd9d3cde8efae5ddb00bdc78d1ea7bd8354a8f7944c827dbf7530c4f266078",
+        "size": 1290
+      },
+      {
+        "mode": 420,
         "path": "frontend/lib/public-profile.ts",
         "sha256": "ec296cf3f6576600b8fa0628297dd25b22c9e957c8d9c7dcb9b8acc4a4b70c8b",
         "size": 1085
+      },
+      {
+        "mode": 420,
+        "path": "frontend/lib/research-backend.ts",
+        "sha256": "7c4c303acbac0db4c9acc8f3768e2ff8707564410037839936ba1c132dc48246",
+        "size": 9016
       },
       {
         "mode": 420,
@@ -2351,9 +2675,21 @@
       },
       {
         "mode": 420,
+        "path": "frontend/lib/safe-json-ld.ts",
+        "sha256": "3d8b9c65a0f297dd111a00fbbb245fa6f17f2344a2ed15698b54c8392c56e574",
+        "size": 202
+      },
+      {
+        "mode": 420,
         "path": "frontend/lib/safe-navigation.ts",
         "sha256": "6d1e4c8290566bfec164108750febc5ea6534cba97e5d7157062d26db717e04a",
         "size": 897
+      },
+      {
+        "mode": 420,
+        "path": "frontend/lib/social-assist-actions.ts",
+        "sha256": "a7efb6f2355072c5e6a06d75ee34f0680d2f25b19cfe7dc6100efb884c1bf333",
+        "size": 1902
       },
       {
         "mode": 420,
@@ -2394,8 +2730,8 @@
       {
         "mode": 420,
         "path": "frontend/next.config.js",
-        "sha256": "8dafe183fc1b26730aafad6ce8e5210fb33e9a73484465925a9d3dcb05f5e805",
-        "size": 362
+        "sha256": "c3972dd2432ef4da5a43b93f767b9153fb3dd46689b7ccfe800128b933823308",
+        "size": 1496
       },
       {
         "mode": 420,
@@ -2406,14 +2742,14 @@
       {
         "mode": 420,
         "path": "frontend/package-lock.json",
-        "sha256": "35f6745f3a473b640298c1ba274ff0b2e29cfac0bbeb23c2d26b80e8af0c5bc8",
-        "size": 299023
+        "sha256": "931624771da8d3844df6f86e523957eec3682a7edeedfaa9ac34c9af41e38536",
+        "size": 228698
       },
       {
         "mode": 420,
         "path": "frontend/package.json",
-        "sha256": "a374ade2134cfadbabf95b0bb84b625b3219094449d4e9fae82948c8829dc1d5",
-        "size": 1167
+        "sha256": "40db4bb8bfd97efaa2f9b1f2f29e7bfc557e81bcd2971b60408dfbf41c47b04f",
+        "size": 1135
       },
       {
         "mode": 420,
@@ -2441,6 +2777,30 @@
       },
       {
         "mode": 420,
+        "path": "frontend/tests/canonical-decisions.test.cjs",
+        "sha256": "d57c1c48146051a858450686dbded54a12e3f839668654126e073fd68c36e557",
+        "size": 7317
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/content-generation-topology.test.cjs",
+        "sha256": "c7c6a12fe66a88e79b962aec826def07ea6ba030b62285f9d97308eb467779be",
+        "size": 4874
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/control-api.test.cjs",
+        "sha256": "084ab3d4509e2fc5e7470bdfb776582e37388de287d7956a0329e92a892a8f5b",
+        "size": 2860
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/control-cookie-policy.test.cjs",
+        "sha256": "7a7cd65ad2629a0a525ad2423b690c4ac92441ee1644d26fbba5a6455b008158",
+        "size": 2182
+      },
+      {
+        "mode": 420,
         "path": "frontend/tests/control-proxy-path.test.cjs",
         "sha256": "d361239371c3f4ffdd73e48e384294c719af9e4bed1d57fde39b8c802a31daa4",
         "size": 1535
@@ -2454,14 +2814,56 @@
       {
         "mode": 420,
         "path": "frontend/tests/executive-decisions.test.cjs",
-        "sha256": "4b0632e489c93bd2a39d188c90ed560311ec04758d29a7660a86d005d47ee837",
-        "size": 7565
+        "sha256": "24ddccb61d4598ca82febd02c08297e7d5149b21420ef17de1bccbda73a0b7e4",
+        "size": 8052
       },
       {
         "mode": 420,
         "path": "frontend/tests/feezie-private-runtime-readiness.test.cjs",
-        "sha256": "5fd91fccf7cf2f93ab4bd99897fa68e6e026de26c7f454e4bc684a0976435aee",
-        "size": 6060
+        "sha256": "0734bcd88bf5c847584d8f097e7908482965cc6156048e392e8fd27e731a1e3b",
+        "size": 6086
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/firestore-degraded-surfaces.test.cjs",
+        "sha256": "16529278204b20c600e96996b6b789cca5ead40fd4d738141cf4d8b7aaf9c922",
+        "size": 4046
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/firestore-readiness-health.test.cjs",
+        "sha256": "0404f12539a54efd6d2cc96af07514b32ed7aa3b516bbea41fbf1d77c33f2978",
+        "size": 2162
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/integrated-acceptance-harness.test.cjs",
+        "sha256": "92b521e86070c15c8fdb36406fbd50df4dba32bcd0b3b4b9735a9b85ceafb551",
+        "size": 2300
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/integrated-content-controls.test.cjs",
+        "sha256": "3a5b88f7b7b44626646f078b85281d63af7a8c04cb3a44f2a957a93754e6a4d5",
+        "size": 2712
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/integrated-content-job.test.cjs",
+        "sha256": "ab2316ea8b0bc3c8f4d225dfa4b4d1563ca20121b442ace2c0bcfa9e8536dad5",
+        "size": 7066
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/integrated-content-owner-actions.test.cjs",
+        "sha256": "d2d1e2521d5964e5a7539cf20d43cd84e9858fbe399fc280a12488e7807894f9",
+        "size": 6924
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/integrated-content-portfolio.test.cjs",
+        "sha256": "2283c5a3c9d363fbe739eac6eec73dbbe05265e3a71cb3225c221efaf36a2b16",
+        "size": 4735
       },
       {
         "mode": 420,
@@ -2472,8 +2874,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/linkedin-performance-recorder.test.cjs",
-        "sha256": "e60057ea1b0386b09b73c0dfc6057e5ea8cbc595a6bfb090e023e9c8d2a3b8f1",
-        "size": 4678
+        "sha256": "a962e8971256c42914b38283822e89f9f99baa9e454a5c954fd16c0d23e0ab6c",
+        "size": 4929
       },
       {
         "mode": 420,
@@ -2483,9 +2885,27 @@
       },
       {
         "mode": 420,
+        "path": "frontend/tests/ops-standup-summary.test.cjs",
+        "sha256": "fedcbfb93f8f89eb8463553da6be5e2b015d628d691639330b31da496fb389ba",
+        "size": 3394
+      },
+      {
+        "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "5989007fe553ae05b52bced15f6e66c39abecf88bffd255cf0d7c1e8b9ebde4b",
-        "size": 5806
+        "sha256": "aaa316956e65e1a2d191764d0425a47f3177cb9fd1d498311d48f053ac44ccc2",
+        "size": 6402
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/prospect-owner-contract.test.cjs",
+        "sha256": "3e762c033c8258221f56c0b31339fd2068bab9bfecf2794b81b407178a2241d1",
+        "size": 2305
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/railway-retention-health.test.cjs",
+        "sha256": "e61545f0d0dc054b2f1a1e0f4ff57710011020bd76e6f3e3659031dc57338946",
+        "size": 9978
       },
       {
         "mode": 420,
@@ -2495,9 +2915,21 @@
       },
       {
         "mode": 420,
+        "path": "frontend/tests/security-headers.test.cjs",
+        "sha256": "0a75c70ca5b1f7518b6583d253b85cc59af5bc0f107c0926f1e65ca1416da179",
+        "size": 1137
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/social-engagement-assist.test.cjs",
+        "sha256": "cabd3e7fb2bb0ce94375b55b51540b9b4bacd57257dc19938777f1c52da97535",
+        "size": 4601
+      },
+      {
+        "mode": 420,
         "path": "frontend/tests/workspace-control-plane.test.cjs",
-        "sha256": "b3ee7435b7cc2e25630312883cc05d4a8c7c94203f4e76efaca08c5c1ebc47d9",
-        "size": 44493
+        "sha256": "b00e1af30154c57ca2e7ab0781caff0f22ac438ba7236a5087ef248724d3d2b8",
+        "size": 47811
       },
       {
         "mode": 420,
@@ -2514,8 +2946,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "6026df547a9c2dbef335d9c685ebdb5efd71005043d3a147f0c2234ead3c5285",
-        "size": 3171
+        "sha256": "94bb73a0ee9057c2ab3cf46f5daf30fc0c6cf31f6d44ef5a06c953488eb3c32c",
+        "size": 3461
       },
       {
         "mode": 493,
@@ -2524,10 +2956,22 @@
         "size": 55706
       },
       {
+        "mode": 420,
+        "path": "scripts/codex_memory_index.py",
+        "sha256": "a20e4ccf7c2594ff18b88f20dc8dd67daf36dbbb7f6f71e5bab7974ec08aade3",
+        "size": 16106
+      },
+      {
         "mode": 493,
         "path": "scripts/install_git_hooks.sh",
         "sha256": "0c386298ee7335c874749c3d0a50e1d4a11af0aebe9d57eeac3122d17d9e6296",
         "size": 228
+      },
+      {
+        "mode": 493,
+        "path": "scripts/run_integrated_owner_acceptance.py",
+        "sha256": "8a79d837823422850f4d60f3d3a3f9c54c01ea2f6aa90f7d4f4dd5eeac7d03f9",
+        "size": 52818
       },
       {
         "mode": 420,
@@ -2536,21 +2980,27 @@
         "size": 11873
       },
       {
+        "mode": 420,
+        "path": "scripts/verify_integrated_production_projection.py",
+        "sha256": "a05c83c67f59eced718e11bf68518132c70f6dc5771ea39ffedd73aa18f36fd4",
+        "size": 21360
+      },
+      {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "dfbb500405a65f233d72a1727e7ef5d3599d15b14bfd8e441ace9f2b41c93963",
-        "size": 8832
+        "sha256": "f5ab30e9f4114e68807214cfe07166602ac18ec3437e85430e1c6b98260f79b1",
+        "size": 8680
       }
     ],
-    "tree_sha256": "e008eb4b0faa6837e07a5ec7c02b37c3444838fc71a54cfaf577902df26ecbb4"
+    "tree_sha256": "fba0297d1d54f9dfba7e47b633afbf1b37bf48ad1899a780e041a00afcaf8b32"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "6026df547a9c2dbef335d9c685ebdb5efd71005043d3a147f0c2234ead3c5285"
+    "sha256": "94bb73a0ee9057c2ab3cf46f5daf30fc0c6cf31f6d44ef5a06c953488eb3c32c"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "0e92f5207dec98052d9ecfae2e57d7bb23df511fa7d0138f34bd65fef1e2e222",
+    "inventory_sha256": "c634a53bde2c181f6058cfc1c3e75c75001fbabe59ff53a52a45355d438c1ac9",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

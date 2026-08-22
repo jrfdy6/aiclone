@@ -127,8 +127,10 @@ def update_standup(entry_id: str, payload: StandupUpdate) -> Optional[StandupEnt
     values.append(entry_id)
     query = f"""
         UPDATE standups
-        SET {', '.join(fields)}
+        SET {', '.join(fields)}, updated_at = NOW(), retention_contract_version = NULL,
+            retention_resolved_at = NULL, retention_local_receipt_sha256 = NULL
         WHERE id = %s
+          AND retention_contract_version IS DISTINCT FROM 'railway_retained_standup_receipt/v1'
         RETURNING id, owner, workspace_key, status, blockers, commitments, needs, source, conversation_path, payload, created_at
     """
 

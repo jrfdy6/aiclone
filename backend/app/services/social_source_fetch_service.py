@@ -21,6 +21,10 @@ import yaml
 from app.services.social_signal_archive_service import load_market_signal_archive_records, sync_market_signal_archive_entry
 from app.services.social_feed_builder_service import discover_linkedin_workspace_root
 from app.services.social_signal_extraction import social_signal_extraction_service
+from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.source_intake_adapter_service import reddit_discovery_envelope, rss_discovery_envelope
+from app.services.source_intake_execution_service import SourceIntakeExecutionService
+from app.services.source_sharing_policy_service import is_credential_free_public_url
 from app.utils.runtime_workspace_root import resolve_runtime_workspace_root
 
 
@@ -35,6 +39,27 @@ USER_AGENT = "AICloneSocialFeed/1.0 (+https://aiclone-frontend-production.up.rai
 DEFAULT_HTTP_TIMEOUT = 12
 DEFAULT_REDDIT_LIMIT = 2
 DEFAULT_RSS_LIMIT = 2
+
+
+def _configured_gate_state(source: dict[str, Any]) -> tuple[str, str, str]:
+    relevance = _clean_text(source.get("relevance_state")).lower() or "qualified"
+    admissibility = _clean_text(source.get("admissibility_state")).lower() or "admissible"
+    rights = _clean_text(source.get("rights_state")).lower() or "permitted"
+    if relevance not in {"qualified", "backlog", "rejected"}:
+        relevance = "backlog"
+    if admissibility not in {"admissible", "restricted", "blocked"}:
+        admissibility = "restricted"
+    if rights not in {"unknown", "permitted", "owner_controlled", "restricted", "blocked"}:
+        rights = "unknown"
+    return relevance, admissibility, rights
+
+
+def _run_disposition(*, changed: int, errors: int, gated_out: int) -> str:
+    if errors:
+        return "degraded" if changed or gated_out else "failed"
+    if gated_out:
+        return "degraded"
+    return "complete" if changed else "no_change"
 
 DEFAULT_WATCHLIST = {
     "sources": {
@@ -150,10 +175,10 @@ def _workspace_paths(workspace_root: Path | None = None) -> tuple[Path, Path, Pa
 
 def ensure_watchlist(workspace_root: Path | None = None) -> dict[str, Any]:
     _, signals_root, watchlist_path = _workspace_paths(workspace_root)
-    signals_root.mkdir(parents=True, exist_ok=True)
     if not watchlist_path.exists():
         if workspace_root is None:
             raise FileNotFoundError(f"Required FEEZIE source watchlist is missing: {watchlist_path}")
+        watchlist_path.parent.mkdir(parents=True, exist_ok=True)
         watchlist_path.write_text(yaml.dump(DEFAULT_WATCHLIST, sort_keys=False), encoding="utf-8")
         return DEFAULT_WATCHLIST
     with watchlist_path.open(encoding="utf-8") as fh:
@@ -255,7 +280,14 @@ def _load_existing_frontmatter(path: Path) -> dict[str, Any]:
     parts = text.split("---", 2)
     if len(parts) < 3:
         return {}
-    payload = yaml.safe_load(parts[1]) or {}
+    try:
+        payload = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        LOGGER.warning(
+            "Ignoring malformed historical market-signal frontmatter for %s; the next verified write will repair it.",
+            path.name,
+        )
+        return {}
     return payload if isinstance(payload, dict) else {}
 
 
@@ -388,10 +420,23 @@ def _build_reddit_feed_entry(source: dict[str, Any], entry: dict[str, str]) -> t
     return signal, raw_text, filename
 
 
-def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source: int = DEFAULT_REDDIT_LIMIT) -> list[Path]:
+def fetch_reddit_signals(
+    workspace_root: Path | None = None,
+    *,
+    limit_per_source: int = DEFAULT_REDDIT_LIMIT,
+    canonical_store: IntegratedSystemStore | None = None,
+    run_id: str | None = None,
+    write_compatibility_projection: bool = False,
+) -> list[Path]:
     _, signals_root, _ = _workspace_paths(workspace_root)
     watchlist = ensure_watchlist(workspace_root)
+    execution = SourceIntakeExecutionService(canonical_store or IntegratedSystemStore())
     written: list[Path] = []
+    registered = 0
+    reused = 0
+    captured = 0
+    gated_out = 0
+    errors: list[dict[str, Any]] = []
 
     for source in watchlist.get("reddit_sources", []):
         subreddit = _clean_text(source.get("subreddit"))
@@ -407,14 +452,79 @@ def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source
                 data = post_wrapper.get("data") or {}
                 if data.get("stickied") or not _clean_text(data.get("title")):
                     continue
-                entry, body, filename = _build_reddit_entry(source, data)
+                post_id = _clean_text(data.get("id"))
+                permalink = _clean_text(data.get("permalink"))
+                source_url = (
+                    f"https://www.reddit.com{permalink}"
+                    if permalink
+                    else _clean_text(data.get("url_overridden_by_dest") or data.get("url"))
+                )
+                relevance, admissibility, rights = _configured_gate_state(source)
+                try:
+                    prepared = execution.register_and_gate(
+                        reddit_discovery_envelope(
+                            subreddit=subreddit,
+                            reddit_id=post_id or source_url,
+                            canonical_url=source_url or None,
+                            title=_clean_text(data.get("title")) or None,
+                            author=_clean_text(data.get("author")) or None,
+                            discovery_surface="configured_subreddit_json",
+                            rights_state=rights,
+                            share_public_content=(
+                                rights == "permitted"
+                                and is_credential_free_public_url(source_url)
+                            ),
+                        ),
+                        relevance_state=relevance,
+                        admissibility_state=admissibility,
+                        reason="configured_reddit_watchlist_policy",
+                        policy_name="reddit_scheduled_intake_gate",
+                        capture_kind="raw",
+                    )
+                    registered += 1
+                    if not prepared["decision"].get("capture_required") and not prepared["decision"].get("existing_artifact_id"):
+                        gated_out += 1
+                        continue
+                    entry, body, filename = _build_reddit_entry(source, data)
+                    capture = execution.attach_or_reuse_text(
+                        prepared,
+                        text=body,
+                        capture_kind="raw",
+                        metadata={"capture_adapter": "reddit_permitted_feed", "capture_version": "1.0.0"},
+                    )
+                    reused += int(capture["reused"])
+                    captured += 1
+                    entry["source_metadata"] = {
+                        **dict(entry.get("source_metadata") or {}),
+                        "canonical_source_id": prepared["decision"]["source_id"],
+                        "canonical_capture_artifact_id": capture["artifact_id"],
+                    }
+                except Exception as exc:
+                    LOGGER.exception("Canonical Reddit intake failed for %s", source_url or post_id)
+                    errors.append(
+                        {
+                            "stage": "registration_gate_capture_or_projection",
+                            "source_ref": source_url or post_id,
+                            "reason": type(exc).__name__,
+                        }
+                    )
+                    continue
                 keep_filenames.add(filename)
-                written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
+                if write_compatibility_projection:
+                    written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
             if posts:
-                _prune_source_family(signals_root, family_pattern, keep_filenames)
+                if write_compatibility_projection:
+                    _prune_source_family(signals_root, family_pattern, keep_filenames)
                 continue
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
             LOGGER.warning("Reddit JSON fetch failed for %s, falling back to RSS: %s", subreddit, exc)
+            errors.append(
+                {
+                    "stage": "reddit_json_fetch_or_parse",
+                    "source_ref": f"r/{subreddit}",
+                    "reason": type(exc).__name__,
+                }
+            )
 
         try:
             raw_feed = _http_get(_reddit_rss_url(subreddit), accept="application/rss+xml, application/atom+xml, text/xml, application/xml")
@@ -422,15 +532,95 @@ def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source
             entries = _iter_feed_entries(root)
         except (HTTPError, URLError, TimeoutError, ET.ParseError) as exc:
             LOGGER.warning("Skipping reddit source %s: %s", subreddit, exc)
+            errors.append(
+                {
+                    "stage": "reddit_rss_fetch_or_parse",
+                    "source_ref": f"r/{subreddit}",
+                    "reason": type(exc).__name__,
+                }
+            )
             continue
 
         for feed_entry in entries[:limit_per_source]:
             if not _clean_text(feed_entry.get("title")):
                 continue
-            entry, body, filename = _build_reddit_feed_entry(source, feed_entry)
+            source_url = _clean_text(feed_entry.get("link")) or _reddit_rss_url(subreddit)
+            entry_id = _clean_text(feed_entry.get("guid")) or source_url
+            relevance, admissibility, rights = _configured_gate_state(source)
+            try:
+                prepared = execution.register_and_gate(
+                    reddit_discovery_envelope(
+                        subreddit=subreddit,
+                        reddit_id=entry_id,
+                        canonical_url=source_url or None,
+                        title=_clean_text(feed_entry.get("title")) or None,
+                        author=_clean_text(feed_entry.get("author")) or None,
+                        discovery_surface="configured_subreddit_rss_fallback",
+                        rights_state=rights,
+                        share_public_content=(
+                            rights == "permitted"
+                            and is_credential_free_public_url(source_url)
+                        ),
+                    ),
+                    relevance_state=relevance,
+                    admissibility_state=admissibility,
+                    reason="configured_reddit_watchlist_policy",
+                    policy_name="reddit_scheduled_intake_gate",
+                    capture_kind="raw",
+                )
+                registered += 1
+                if not prepared["decision"].get("capture_required") and not prepared["decision"].get("existing_artifact_id"):
+                    gated_out += 1
+                    continue
+                entry, body, filename = _build_reddit_feed_entry(source, feed_entry)
+                capture = execution.attach_or_reuse_text(
+                    prepared,
+                    text=body,
+                    capture_kind="raw",
+                    metadata={"capture_adapter": "reddit_rss_fallback", "capture_version": "1.0.0"},
+                )
+                reused += int(capture["reused"])
+                captured += 1
+                entry["source_metadata"] = {
+                    **dict(entry.get("source_metadata") or {}),
+                    "canonical_source_id": prepared["decision"]["source_id"],
+                    "canonical_capture_artifact_id": capture["artifact_id"],
+                }
+            except Exception as exc:
+                LOGGER.exception("Canonical Reddit RSS intake failed for %s", source_url or entry_id)
+                errors.append(
+                    {
+                        "stage": "registration_gate_capture_or_projection",
+                        "source_ref": source_url or entry_id,
+                        "reason": type(exc).__name__,
+                    }
+                )
+                continue
             keep_filenames.add(filename)
-            written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
-        _prune_source_family(signals_root, family_pattern, keep_filenames)
+            if write_compatibility_projection:
+                written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
+        if write_compatibility_projection:
+            _prune_source_family(signals_root, family_pattern, keep_filenames)
+    disposition = _run_disposition(changed=max(0, captured - reused), errors=len(errors), gated_out=gated_out)
+    execution.record_run_receipt(
+        run_kind="reddit_feed",
+        disposition=disposition,
+        counts={
+            "registered": registered,
+            "captured": captured,
+            "written": len(written),
+            "reused": reused,
+            "gated_out": gated_out,
+            "errors": len(errors),
+        },
+        errors=errors,
+        run_id=run_id,
+        provenance={
+            "trigger": "local_scheduler",
+            "network_mode": "permitted_feed",
+            "compatibility_projection": write_compatibility_projection,
+        },
+    )
     return written
 
 
@@ -605,10 +795,23 @@ def _build_rss_entry(
     return signal, raw_text, filename
 
 
-def fetch_rss_signals(workspace_root: Path | None = None, *, limit_per_source: int = DEFAULT_RSS_LIMIT) -> list[Path]:
+def fetch_rss_signals(
+    workspace_root: Path | None = None,
+    *,
+    limit_per_source: int = DEFAULT_RSS_LIMIT,
+    canonical_store: IntegratedSystemStore | None = None,
+    run_id: str | None = None,
+    write_compatibility_projection: bool = False,
+) -> list[Path]:
     _, signals_root, _ = _workspace_paths(workspace_root)
     watchlist = ensure_watchlist(workspace_root)
+    execution = SourceIntakeExecutionService(canonical_store or IntegratedSystemStore())
     written: list[Path] = []
+    registered = 0
+    reused = 0
+    captured = 0
+    gated_out = 0
+    errors: list[dict[str, Any]] = []
 
     for source in watchlist.get("rss_sources", []):
         label = _clean_text(source.get("label")) or "rss-feed"
@@ -619,25 +822,128 @@ def fetch_rss_signals(workspace_root: Path | None = None, *, limit_per_source: i
             root = ET.fromstring(raw)
         except (HTTPError, URLError, TimeoutError, ET.ParseError) as exc:
             LOGGER.warning("Skipping RSS source %s: %s", label, exc)
+            errors.append(
+                {
+                    "stage": "feed_fetch_or_parse",
+                    "source_ref": _clean_text(source.get("url")),
+                    "reason": type(exc).__name__,
+                }
+            )
             continue
 
         entries = _iter_feed_entries(root)
         for entry in entries[:limit_per_source]:
             if not _clean_text(entry.get("title")):
                 continue
-            article_preview = _article_preview_for_url(entry.get("link") or "")
-            signal, body, filename = _build_rss_entry(source, entry, article_preview=article_preview)
+            entry_url = _clean_text(entry.get("link"))
+            entry_id = _clean_text(entry.get("guid")) or entry_url or _clean_text(entry.get("title"))
+            relevance, admissibility, rights = _configured_gate_state(source)
+            try:
+                prepared = execution.register_and_gate(
+                    rss_discovery_envelope(
+                        feed_url=_clean_text(source.get("url")),
+                        entry_url=entry_url or None,
+                        entry_id=entry_id,
+                        title=_clean_text(entry.get("title")) or None,
+                        publisher=_clean_text(entry.get("author")) or label,
+                        published_at=_clean_text(entry.get("published_at")) or None,
+                        rights_state=rights,
+                        share_public_content=(
+                            rights == "permitted"
+                            and is_credential_free_public_url(entry_url)
+                        ),
+                    ),
+                    relevance_state=relevance,
+                    admissibility_state=admissibility,
+                    reason="configured_rss_watchlist_policy",
+                    policy_name="rss_scheduled_intake_gate",
+                    capture_kind="raw",
+                )
+                registered += 1
+                decision = prepared["decision"]
+                existing_artifact_id = _clean_text(decision.get("existing_artifact_id"))
+                if existing_artifact_id:
+                    article_preview = {"text": execution.captured_text(existing_artifact_id)}
+                elif decision.get("capture_required"):
+                    # Deep article capture happens only after canonical duplicate,
+                    # relevance, admissibility, and rights gates have passed.
+                    article_preview = _article_preview_for_url(entry_url)
+                else:
+                    gated_out += 1
+                    continue
+                signal, body, filename = _build_rss_entry(source, entry, article_preview=article_preview)
+                capture = execution.attach_or_reuse_text(
+                    prepared,
+                    text=str(signal.get("raw_text") or body),
+                    capture_kind="raw",
+                    metadata={"capture_adapter": "rss_article_capture", "capture_version": "1.0.0"},
+                )
+                reused += int(capture["reused"])
+                captured += 1
+                signal["source_metadata"] = {
+                    **dict(signal.get("source_metadata") or {}),
+                    "canonical_source_id": decision["source_id"],
+                    "canonical_capture_artifact_id": capture["artifact_id"],
+                }
+            except Exception as exc:
+                LOGGER.exception("Canonical RSS intake failed for %s", entry_url or entry_id)
+                errors.append(
+                    {
+                        "stage": "registration_gate_capture_or_projection",
+                        "source_ref": entry_url or entry_id,
+                        "reason": type(exc).__name__,
+                    }
+                )
+                continue
             keep_filenames.add(filename)
-            written.append(_write_signal(signals_root / filename, signal, f"# {signal['title']}\n\n{body}"))
-        _prune_source_family(signals_root, family_pattern, keep_filenames)
+            if write_compatibility_projection:
+                written.append(_write_signal(signals_root / filename, signal, f"# {signal['title']}\n\n{body}"))
+        if write_compatibility_projection:
+            _prune_source_family(signals_root, family_pattern, keep_filenames)
+    disposition = _run_disposition(changed=max(0, captured - reused), errors=len(errors), gated_out=gated_out)
+    execution.record_run_receipt(
+        run_kind="rss_feed",
+        disposition=disposition,
+        counts={
+            "registered": registered,
+            "captured": captured,
+            "written": len(written),
+            "reused": reused,
+            "gated_out": gated_out,
+            "errors": len(errors),
+        },
+        errors=errors,
+        run_id=run_id,
+        provenance={
+            "trigger": "local_scheduler",
+            "network_mode": "permitted_feed",
+            "compatibility_projection": write_compatibility_projection,
+        },
+    )
     return written
 
 
-def backfill_article_signal_sources(workspace_root: Path | None = None, *, force: bool = False) -> dict[str, Any]:
+def backfill_article_signal_sources(
+    workspace_root: Path | None = None,
+    *,
+    force: bool = False,
+    canonical_store: IntegratedSystemStore | None = None,
+    run_id: str | None = None,
+    compatibility_projection: bool = False,
+) -> dict[str, Any]:
+    if not compatibility_projection:
+        raise RuntimeError(
+            "Legacy article-signal backfill is rollback-only; "
+            "set compatibility_projection=True explicitly."
+        )
     resolved_root, _, _ = _workspace_paths(workspace_root)
+    execution = SourceIntakeExecutionService(canonical_store or IntegratedSystemStore())
     restored: list[str] = []
     updated: list[str] = []
     skipped: list[str] = []
+    errors: list[dict[str, Any]] = []
+    registered = 0
+    reused = 0
 
     for record in load_market_signal_archive_records(resolved_root):
         if not isinstance(record, dict):
@@ -657,9 +963,49 @@ def backfill_article_signal_sources(workspace_root: Path | None = None, *, force
             skipped.append(signal_path.name)
             continue
 
-        article_preview = _article_preview_for_url(source_url)
-        if not article_preview.get("text"):
-            skipped.append(Path(source_path).name)
+        source_metadata = existing_meta.get("source_metadata") or record.get("source_metadata") or {}
+        feed_url = _clean_text(source_metadata.get("feed_url")) or source_url
+        entry_id = _clean_text(source_metadata.get("entry_guid")) or source_url
+        try:
+            prepared = execution.register_and_gate(
+                rss_discovery_envelope(
+                    feed_url=feed_url,
+                    entry_url=source_url,
+                    entry_id=entry_id,
+                    title=_clean_text(existing_meta.get("title") or record.get("title")) or None,
+                    publisher=_clean_text(existing_meta.get("author") or record.get("author")) or None,
+                    published_at=_clean_text(existing_meta.get("published_at") or record.get("published_at")) or None,
+                    rights_state="permitted",
+                    share_public_content=is_credential_free_public_url(source_url),
+                ),
+                relevance_state="qualified",
+                admissibility_state="admissible",
+                reason="previously_selected_article_backfill",
+                policy_name="rss_article_backfill_gate",
+                capture_kind="raw",
+            )
+            registered += 1
+            decision = prepared["decision"]
+            existing_artifact_id = _clean_text(decision.get("existing_artifact_id"))
+            if existing_artifact_id:
+                article_preview = {"text": execution.captured_text(existing_artifact_id)}
+            elif decision.get("capture_required"):
+                article_preview = _article_preview_for_url(source_url)
+            else:
+                skipped.append(Path(source_path).name)
+                continue
+            if not article_preview.get("text"):
+                skipped.append(Path(source_path).name)
+                continue
+        except Exception as exc:
+            LOGGER.exception("Canonical RSS article backfill failed for %s", source_url)
+            errors.append(
+                {
+                    "stage": "registration_gate_or_capture",
+                    "source_ref": source_url,
+                    "reason": type(exc).__name__,
+                }
+            )
             continue
 
         base_entry = {
@@ -685,6 +1031,29 @@ def backfill_article_signal_sources(workspace_root: Path | None = None, *, force
             "engagement": existing_meta.get("engagement") or record.get("engagement") or {},
         }
         entry, body = _article_entry_from_existing(base_entry, article_preview=article_preview)
+        try:
+            capture = execution.attach_or_reuse_text(
+                prepared,
+                text=str(entry.get("raw_text") or body),
+                capture_kind="raw",
+                metadata={"capture_adapter": "rss_article_backfill", "capture_version": "1.0.0"},
+            )
+            reused += int(capture["reused"])
+            entry["source_metadata"] = {
+                **dict(entry.get("source_metadata") or {}),
+                "canonical_source_id": prepared["decision"]["source_id"],
+                "canonical_capture_artifact_id": capture["artifact_id"],
+            }
+        except Exception as exc:
+            LOGGER.exception("Canonical RSS article capture failed for %s", source_url)
+            errors.append(
+                {
+                    "stage": "canonical_capture",
+                    "source_ref": source_url,
+                    "reason": type(exc).__name__,
+                }
+            )
+            continue
         _write_signal(signal_path, entry, f"# {entry['title']}\n\n{body}")
         if signal_path.exists() and source_path:
             if _clean_text(record.get("source_path")) and not existing_meta:
@@ -692,10 +1061,29 @@ def backfill_article_signal_sources(workspace_root: Path | None = None, *, force
             else:
                 updated.append(signal_path.name)
 
+    changed = len(restored) + len(updated)
+    disposition = _run_disposition(changed=changed, errors=len(errors), gated_out=len(skipped))
+    receipt = execution.record_run_receipt(
+        run_kind="rss_article_backfill",
+        disposition=disposition,
+        counts={
+            "registered": registered,
+            "restored": len(restored),
+            "updated": len(updated),
+            "reused": reused,
+            "skipped": len(skipped),
+            "errors": len(errors),
+        },
+        errors=errors,
+        run_id=run_id,
+        provenance={"trigger": "local_backfill", "force": force},
+    )
     return {
         "restored": restored,
         "restored_count": len(restored),
         "updated": updated,
         "updated_count": len(updated),
         "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "receipt": {"event_id": receipt["event_id"], "disposition": disposition},
     }

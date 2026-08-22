@@ -417,6 +417,9 @@ function NumberField({
 }
 
 export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRecorderProps) {
+  const verifiedLifecyclePublishedAt = props.verifiedLifecycle?.publishedAt;
+  const onJobCompleted = props.onJobCompleted;
+  const pollIntervalMs = props.pollIntervalMs;
   const externalSeed = requestedSeed(props);
   const externalSeedToken = JSON.stringify(externalSeed);
   const appliedSeedToken = useRef(externalSeedToken);
@@ -467,7 +470,7 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
     const seed = JSON.parse(externalSeedToken) as ReturnType<typeof requestedSeed>;
     const seedIdentity = identityKey(seed.contentId ?? '', seed.digest ?? '');
     const lifecyclePublishedAt = seedIdentity && seedIdentity === verifiedIdentity
-      ? props.verifiedLifecycle?.publishedAt
+      ? verifiedLifecyclePublishedAt
       : undefined;
     appliedSeedToken.current = externalSeedToken;
     setForm((current) => ({
@@ -495,16 +498,16 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
     setJob(null);
     setSubmittedContext(null);
     setError(null);
-  }, [externalSeedToken, inFlight, props.verifiedLifecycle?.publishedAt, verifiedIdentity]);
+  }, [externalSeedToken, inFlight, verifiedLifecyclePublishedAt, verifiedIdentity]);
 
   useEffect(() => {
-    const publishedAt = props.verifiedLifecycle?.publishedAt;
+    const publishedAt = verifiedLifecyclePublishedAt;
     if (!publishedAt || !currentIdentity || verifiedIdentity !== currentIdentity) return;
     const normalized = localDateTimeValue(publishedAt);
     setForm((current) => current.referencePublishedAt === normalized
       ? current
       : { ...current, referencePublishedAt: normalized });
-  }, [currentIdentity, props.verifiedLifecycle?.publishedAt, verifiedIdentity]);
+  }, [currentIdentity, verifiedLifecyclePublishedAt, verifiedIdentity]);
 
   useEffect(() => {
     const cardId = job?.card_id ?? job?.job_id;
@@ -529,7 +532,7 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
             setObservedPublicationKey(submittedContext.identity);
             setForm((current) => ({ ...current, referencePublishedAt: submittedContext.publishedAt }));
           }
-          props.onJobCompleted?.(submittedContext.eventType, next);
+          onJobCompleted?.(submittedContext.eventType, next);
         }
       } catch (pollError) {
         if (!cancelled) {
@@ -539,7 +542,7 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
     };
 
     void poll();
-    const timer = window.setInterval(() => void poll(), Math.max(1_500, props.pollIntervalMs ?? 3_000));
+    const timer = window.setInterval(() => void poll(), Math.max(1_500, pollIntervalMs ?? 3_000));
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -548,8 +551,8 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
     job?.card_id,
     job?.job_id,
     job?.status,
-    props.onJobCompleted,
-    props.pollIntervalMs,
+    onJobCompleted,
+    pollIntervalMs,
     submittedContext,
   ]);
 
@@ -707,7 +710,7 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
     });
     try {
       const response = await controlApiPost<QueueResponse>(
-        '/api/workspace/linkedin-performance/events',
+        '/api/workspace/linkedin-performance/events?legacy_compatibility=true',
         { ...buildPayload(), idempotency_key: stableIdempotencyKey },
         { timeoutMs: 20_000 },
       );
@@ -954,13 +957,13 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
       <header style={{ display: 'grid', gap: 7 }}>
         <div style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
           <div>
-            <p style={{ color: '#38bdf8', fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', margin: 0, textTransform: 'uppercase' }}>FEEZIE evidence ledger</p>
-            <h3 style={{ color: '#f8fafc', fontSize: 18, margin: '4px 0 0' }}>Record LinkedIn performance truth</h3>
+            <p style={{ color: '#38bdf8', fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', margin: 0, textTransform: 'uppercase' }}>Legacy FEEZIE evidence compatibility</p>
+            <h3 style={{ color: '#f8fafc', fontSize: 18, margin: '4px 0 0' }}>Record evidence for a legacy banked post</h3>
           </div>
-          <span style={{ border: '1px solid #34d39944', borderRadius: 999, color: '#86efac', fontSize: 10, fontWeight: 750, padding: '5px 9px' }}>PRIVATE CANON · SIGNED TRANSPORT</span>
+          <span style={{ border: '1px solid #f59e0b55', borderRadius: 999, color: '#fcd34d', fontSize: 10, fontWeight: 750, padding: '5px 9px' }}>ROLLBACK-ONLY · SIGNED TRANSPORT</span>
         </div>
         <p style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.55, margin: 0 }}>
-          This records evidence only. It cannot draft, schedule, or publish a LinkedIn post. Raw post copy and private notes are never accepted or sent from this surface.
+          Canonical posts record learning in the integrated content portfolio. This records evidence only for the explicitly enabled legacy compatibility lane. It cannot draft, schedule, or publish a LinkedIn post. Raw post copy and private notes are never accepted or sent from this surface.
         </p>
       </header>
 

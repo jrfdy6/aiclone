@@ -17,6 +17,13 @@ except Exception:  # pragma: no cover
     get_pool = None  # type: ignore
 
 
+_RETAINED_SNAPSHOT_CONTRACT = "railway_retained_workspace_snapshot_receipt/v1"
+_CLEAR_ARCHIVE_PROOF_SQL = """COALESCE(workspace_snapshots.metadata, '{}'::jsonb)
+    - 'local_archive_verified' - 'local_archive_receipt_sha256' - 'retention_contract'
+    - 'retention_row_identity' - 'retention_workspace_key' - 'retention_snapshot_type'
+    - 'retention_replacement_schema_version'"""
+
+
 def _maybe_pool():
     if get_pool is None or dict_row is None or Jsonb is None:
         return None
@@ -107,8 +114,9 @@ def delete_snapshot_types(
                 """
                 DELETE FROM workspace_snapshots
                 WHERE workspace_key = %s AND snapshot_type = ANY(%s)
+                  AND COALESCE(metadata->>'retained_contract','') <> %s
                 """,
-                (workspace_key, cleaned),
+                (workspace_key, cleaned, _RETAINED_SNAPSHOT_CONTRACT),
             )
             deleted = int(cur.rowcount or 0)
         conn.commit()
@@ -133,8 +141,9 @@ def upsert_snapshot(
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (workspace_key, snapshot_type) DO UPDATE
                 SET payload = EXCLUDED.payload,
-                    metadata = COALESCE(workspace_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+                    metadata = (""" + _CLEAR_ARCHIVE_PROOF_SQL + """) || EXCLUDED.metadata,
                     updated_at = NOW()
+                WHERE COALESCE(workspace_snapshots.metadata->>'retained_contract','') <> %s
                 RETURNING id, workspace_key, snapshot_type, payload, metadata, created_at, updated_at
                 """,
                 (
@@ -143,9 +152,12 @@ def upsert_snapshot(
                     snapshot_type,
                     Jsonb(payload),
                     Jsonb(metadata or {}),
+                    _RETAINED_SNAPSHOT_CONTRACT,
                 ),
             )
             row = cur.fetchone()
+            if row is None:
+                raise ValueError("Archived workspace snapshot is immutable; restore it before replacement.")
         conn.commit()
     return _row_to_snapshot(row) if row else None
 
@@ -179,9 +191,10 @@ def upsert_snapshot_monotonic(
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (workspace_key, snapshot_type) DO UPDATE
                 SET payload = EXCLUDED.payload,
-                    metadata = COALESCE(workspace_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+                    metadata = (""" + _CLEAR_ARCHIVE_PROOF_SQL + """) || EXCLUDED.metadata,
                     updated_at = NOW()
-                WHERE CASE
+                WHERE COALESCE(workspace_snapshots.metadata->>'retained_contract','') <> %s
+                  AND CASE
                     WHEN COALESCE(workspace_snapshots.payload->>'generated_at', '') ~
                          '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
                     THEN (workspace_snapshots.payload->>'generated_at')::timestamptz
@@ -195,6 +208,7 @@ def upsert_snapshot_monotonic(
                     snapshot_type,
                     Jsonb(payload),
                     Jsonb(effective_metadata),
+                    _RETAINED_SNAPSHOT_CONTRACT,
                     normalized_generated_at,
                 ),
             )
@@ -209,6 +223,8 @@ def upsert_snapshot_monotonic(
                     (workspace_key, snapshot_type),
                 )
                 current = cur.fetchone()
+                if current and str((current.get("metadata") or {}).get("retained_contract") or "") == _RETAINED_SNAPSHOT_CONTRACT:
+                    raise ValueError("Archived workspace snapshot is immutable; restore it before replacement.")
             else:
                 current = None
         conn.commit()

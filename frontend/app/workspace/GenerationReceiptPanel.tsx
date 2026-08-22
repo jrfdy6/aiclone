@@ -173,6 +173,11 @@ function ReceiptBadge({ label, tone = '#94a3b8' }: { label: string; tone?: strin
 }
 
 export function isOptionEditoriallyReady(diagnostics: GeneratedContentDiagnostics | undefined, optionIndex: number) {
+  if (
+    diagnostics?.editorial_readiness?.ready !== true
+    || normalizedStatus(diagnostics.editorial_readiness.status) !== 'ready'
+    || diagnostics.editorial_readiness.semantic_distinctness_passed !== true
+  ) return false;
   const review = criticReviewForOption(diagnostics?.editorial_readiness, optionIndex);
   if (review?.editorially_ready !== true) return false;
   if (diagnostics?.revision_contract?.schema_version === 'feezie_critic_guided_revision_contract/v1') {
@@ -337,7 +342,7 @@ export function OptionCriticReceipt({
       </div>
     );
   }
-  const ready = review.editorially_ready === true;
+  const ready = isOptionEditoriallyReady(diagnostics, optionIndex);
   const tone = ready ? '#34d399' : review.verdict === 'blocked' ? '#f87171' : '#fbbf24';
   const dimensions = Object.entries(review.dimension_scores ?? {});
   const expectedHooks = diagnostics?.draft_contract?.hook_variants_per_option ?? 8;

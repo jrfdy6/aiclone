@@ -53,6 +53,7 @@ const {
   buildCriticCoverageLabel,
   buildCriticReceiptState,
   deterministicPlanDraftBlockers,
+  isOptionEditoriallyReady,
 } = loadedGenerationReceipt.exports;
 const compiledFeedRefreshPolling = ts.transpileModule(feedRefreshPollingSource, {
   compilerOptions: {
@@ -363,7 +364,38 @@ test('workspace exposes the bounded critic-guided revision receipt without copy'
   assert.match(generationReceiptSource, /No option can advance without an admissible final critic receipt/);
   assert.match(generationReceiptSource, /Original preserved/);
   assert.match(generationReceiptSource, /Revised once/);
+  assert.match(generationReceiptSource, /const ready = isOptionEditoriallyReady\(diagnostics, optionIndex\)/);
   assert.doesNotMatch(generationReceiptSource, /original_post_sha256|final_post_sha256|revision_prompt_sha256/);
+});
+
+test('pair-distinctness failure cannot render an editorially ready option badge', () => {
+  const review = {
+    option_index: 1,
+    verdict: 'ready',
+    score: 9,
+    editorially_ready: true,
+    hook_variants: Array.from({ length: 8 }, (_, index) => `Hook ${index + 1}`),
+  };
+  const diagnostics = {
+    draft_contract: {
+      schema_version: 'feezie_draft_contract/v1',
+      hook_variants_per_option: 8,
+    },
+    draft_distinctness: { passed: false },
+    critic_review: {
+      status: 'completed',
+      draft_distinctness: { passed: false },
+    },
+    editorial_readiness: {
+      ready: false,
+      status: 'revision_required',
+      critic_status: 'completed',
+      semantic_distinctness_passed: false,
+      option_reviews: [review],
+    },
+  };
+
+  assert.equal(isOptionEditoriallyReady(diagnostics, 0), false);
 });
 
 test('generation receipt separates deterministic plan and draft blockers from critic availability', () => {
@@ -562,7 +594,8 @@ test('both FEEZIE composers show the same aggregate private-runtime readiness re
   assert.doesNotMatch(privateRuntimeStatusSource, /raw_context|persona_chunks|proof_records|filename|filepath|absolute_path|excerpt/);
 });
 
-test('banked posts seed the privacy-safe performance recorder without sending copy', () => {
+test('legacy banked posts seed the privacy-safe performance recorder only behind rollback compatibility', () => {
+  assert.match(workspaceSource, /legacyTwoOptionCompatibilityEnabled \? \(\s*<section id="linkedin-performance-recorder" data-legacy-performance-compatibility="true"/s);
   assert.match(workspaceSource, /Track evidence/);
   assert.match(workspaceSource, /first_pass_draft\?\.replace\(\/\\r\\n\/g, '\\n'\)\.replace\(\/\\r\/g, '\\n'\)\.trim\(\)/);
   assert.match(workspaceSource, /window\.crypto\.subtle\.digest\('SHA-256'/);
@@ -845,6 +878,28 @@ test('uses the shared handoff parser and returns to the originating Brain view',
   assert.match(postingSource, /initialQuery\.ownerReaction/);
 });
 
+test('dedicated composer distinguishes manual ideas from source-backed drafting', () => {
+  assert.match(postingSource, /function isHttpSourceUrl/);
+  assert.match(postingSource, /That link is a source, not a manual topic/);
+  assert.match(postingSource, /Open source intake/);
+  assert.match(postingSource, /manualTopicIsSourceUrl \|\| postLoading/);
+  assert.match(postingSource, /disabled=\{commentLoading \|\| !sourceCardAvailable\}/);
+  assert.match(postingSource, /hidden=\{activeMode !== 'post'\}/);
+  assert.match(postingSource, /hidden=\{activeMode !== 'comment'\}/);
+  assert.match(postingSource, /planner manages the rolling 4\/4\/2 topic mix/);
+  assert.match(postingSource, /Category sets this post&apos;s 9:1:1 intent/);
+  assert.match(postingSource, /readOnly=\{topicSourceMode === 'source_card'\}/);
+  assert.match(postingSource, /disabled=\{topicSourceMode === 'source_card'\}/);
+  assert.match(postingSource, /Source-card mode keeps the attached source identity and uses selected-source grounding/);
+  assert.match(postingSource, /initialQuery\.canonicalPillar/);
+  assert.match(postingSource, /initialQuery\.careerSignal/);
+  assert.match(postingSource, /initialQuery\.employerSafety/);
+  assert.match(postingSource, /initialQuery\.proofPosture/);
+  assert.match(postingSource, /initialQuery\.audienceConsequence/);
+  assert.match(postingSource, /initialQuery\.distinctThesis/);
+  assert.match(postingSource, /initialQuery\.whyNow/);
+});
+
 test('attaches the source card to both local Codex queue requests only while source-card mode is active', () => {
   const queueRequests = postingSource.match(
     /controlApiPost<LocalCodexJobCreateResponse>\('\/api\/content-generation\/codex-jobs'/g,
@@ -891,8 +946,21 @@ test('both FEEZIE composers fail closed into one-question evidence clarification
     assert.match(source, /concrete action, exact problem, and observable lesson/);
     assert.match(source, /searching AI Clone \/ FEEZIE records/);
     assert.match(source, /tone: 'conversational'/);
+    assert.match(source, /Generalize employer-linked names, systems, and metrics before submitting/);
+    assert.doesNotMatch(source, /anonymized server-side/);
     assert.doesNotMatch(source, /topicToSend:\s*topic\s*\|\|\s*'operator insight'/);
   }
+});
+
+test('both FEEZIE composers expose truthful process and recovery receipts', () => {
+  for (const source of [postingSource, workspaceSource]) {
+    assert.match(source, /Process trace:/);
+    assert.match(source, /Job ID: \{codexJobId\}/);
+    assert.doesNotMatch(source, /Model trace:/);
+  }
+  assert.match(postingSource, /Check evidence \+ queue/);
+  assert.match(postingSource, /Executed by Codex CLI/);
+  assert.doesNotMatch(postingSource, /Escalated to Codex Terminal/);
 });
 
 test('Brain weekly-plan handoff carries the complete recommendation receipt', () => {
@@ -957,7 +1025,7 @@ test('generated owner review captures exact edits as a local-only download witho
   assert.match(workspaceSource, /This field is browser-local feedback/);
 
   const ownerDecisionRequest = workspaceSource.match(
-    /controlApiPost<OwnerReviewPayload>\(`\/api\/workspace\/linkedin-os-owner-review\/\$\{item\.queue_id\}`,[\s\S]{0,260}?\}\);/,
+    /controlApiPost<OwnerReviewPayload>\(`\/api\/workspace\/linkedin-os-owner-review\/\$\{item\.queue_id\}\?legacy_compatibility=true`,[\s\S]{0,260}?\}\);/,
   );
   assert.ok(ownerDecisionRequest, 'expected the existing owner-review request');
   assert.doesNotMatch(ownerDecisionRequest[0], /editedText|edited_text|generatedText|generated_text|voice/);
@@ -982,7 +1050,7 @@ test('a changed browser-local voice edit fails closed before exact-copy approval
 
   const guardIndex = workspaceSource.indexOf("decision === 'approve'");
   const ownerDecisionPostIndex = workspaceSource.indexOf(
-    'controlApiPost<OwnerReviewPayload>(`/api/workspace/linkedin-os-owner-review/${item.queue_id}`',
+    'controlApiPost<OwnerReviewPayload>(`/api/workspace/linkedin-os-owner-review/${item.queue_id}?legacy_compatibility=true`',
   );
   assert.ok(guardIndex >= 0, 'expected an exact-copy guard in the owner-review submit handler');
   assert.ok(ownerDecisionPostIndex > guardIndex, 'the exact-copy guard must run before the Railway owner-review request');

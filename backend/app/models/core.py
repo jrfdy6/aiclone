@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,9 @@ class KnowledgeDoc(BaseModel):
     summary: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     source_path: str
+    origin: Optional[str] = None
+    external_id: Optional[str] = None
+    content_hash: Optional[str] = None
     updated_at: Optional[datetime] = None
 
 
@@ -56,7 +59,7 @@ class LogEntry(BaseModel):
 class IngestJob(BaseModel):
     id: str
     folder_id: Optional[str] = None
-    target_collection: str = "knowledge"
+    target_collection: Literal["knowledge_docs"] = "knowledge_docs"
     tags: List[str] = Field(default_factory=list)
     status: str = "queued"
     started_at: datetime = Field(default_factory=datetime.utcnow)
@@ -66,9 +69,10 @@ class IngestJob(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    folder_id: Optional[str] = None
-    target_collection: str = "knowledge"
-    tags: List[str] = Field(default_factory=list)
+    folder_id: str = Field(min_length=10, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
+    target_collection: Literal["knowledge_docs"] = "knowledge_docs"
+    tags: List[str] = Field(default_factory=list, max_length=50)
+    max_files: int = Field(default=25, ge=1, le=100)
     dry_run: bool = False
 
 
