@@ -115,3 +115,12 @@ test('shared Workspace/Ops surface wires only assisted capture and preparation a
   assert.match(componentSource, /never scrapes, publishes, comments, messages, reposts, likes, or follows/);
   assert.doesNotMatch(componentSource, /action:\s*['"](?:publish|comment|message|repost|like|follow)['"]/);
 });
+
+test('assisted capture fields cannot force the workspace wider than a narrow phone', () => {
+  assert.match(componentSource, /const inputStyle = \{\s*width: '100%',\s*minWidth: 0,\s*boxSizing: 'border-box'/);
+  assert.match(componentSource, /gridTemplateColumns: 'repeat\(auto-fit, minmax\(min\(100%, 180px\), 1fr\)\)'/);
+  assert.match(componentSource, /gridTemplateColumns: 'repeat\(auto-fit, minmax\(min\(100%, 290px\), 1fr\)\)'/);
+  assert.match(componentSource, /gridColumn: '1 \/ -1'/);
+  assert.match(componentSource, /key=\{opportunity\.opportunity_id\}[^\n]+minWidth: 0[^\n]+width: '100%'[^\n]+overflowWrap: 'anywhere'/);
+  assert.match(componentSource, /whiteSpace: 'pre-wrap', overflowWrap: 'anywhere'/);
+});

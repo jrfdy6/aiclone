@@ -155,8 +155,8 @@ export function RuntimePage({
         }}
       >
         <div style={{ maxWidth, margin: '0 auto', padding: '14px clamp(14px, 4vw, 24px) 0' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px 16px', marginBottom: '12px', minWidth: 0, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
               <Link href="/ops" style={{ color: 'white', fontSize: '22px', fontWeight: 700, textDecoration: 'none', letterSpacing: '-0.02em' }}>
                 AI Clone
               </Link>
@@ -176,7 +176,7 @@ export function RuntimePage({
                 {module}
               </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#94a3b8', fontSize: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#94a3b8', fontSize: '12px', minWidth: 0 }}>
               <BookIcon size={14} />
               <span>Control surfaces</span>
             </div>

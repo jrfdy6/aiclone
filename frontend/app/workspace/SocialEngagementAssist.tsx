@@ -67,6 +67,8 @@ function compactDate(value: string) {
 
 const inputStyle = {
   width: '100%',
+  minWidth: 0,
+  boxSizing: 'border-box',
   borderRadius: '10px',
   border: '1px solid #334155',
   backgroundColor: '#020617',
@@ -221,6 +223,9 @@ export default function SocialEngagementAssist() {
         padding: '20px',
         display: 'grid',
         gap: '16px',
+        minWidth: 0,
+        width: '100%',
+        boxSizing: 'border-box',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -238,16 +243,16 @@ export default function SocialEngagementAssist() {
         </span>
       </div>
 
-      <form onSubmit={(event) => void captureOpportunity(event)} style={{ display: 'grid', gap: '10px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px' }}>
+      <form onSubmit={(event) => void captureOpportunity(event)} style={{ display: 'grid', gap: '10px', minWidth: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '10px', minWidth: 0 }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0 }}>
             Platform
             <select value={platform} onChange={(event) => setPlatform(event.target.value as AssistedSocialPlatform)} style={inputStyle}>
               <option value="linkedin">LinkedIn</option>
               <option value="instagram">Instagram</option>
             </select>
           </label>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px' }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0 }}>
             Intended use
             <select value={engagementType} onChange={(event) => setEngagementType(event.target.value as EngagementType)} style={inputStyle}>
               <option value="comment">Comment draft</option>
@@ -255,7 +260,7 @@ export default function SocialEngagementAssist() {
               <option value="post">Post draft</option>
             </select>
           </label>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', gridColumn: 'span 2' }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0, gridColumn: '1 / -1' }}>
             Exact native URL
             <input
               type="url"
@@ -266,21 +271,21 @@ export default function SocialEngagementAssist() {
               style={inputStyle}
             />
           </label>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px' }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0 }}>
             Visible author
             <input value={sourceAuthor} onChange={(event) => setSourceAuthor(event.target.value)} maxLength={300} style={inputStyle} />
           </label>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px' }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0 }}>
             Source title or label
             <input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} maxLength={500} style={inputStyle} />
           </label>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '10px' }}>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 290px), 1fr))', gap: '10px', minWidth: 0 }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0 }}>
             Exact visible item text
             <textarea required value={visibleText} onChange={(event) => setVisibleText(event.target.value)} rows={7} maxLength={20_000} style={{ ...inputStyle, resize: 'vertical' }} />
           </label>
-          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px' }}>
+          <label style={{ color: '#cbd5e1', fontSize: '12px', display: 'grid', gap: '5px', minWidth: 0 }}>
             Prepared draft for your review
             <textarea required value={draftText} onChange={(event) => setDraftText(event.target.value)} rows={7} maxLength={10_000} style={{ ...inputStyle, resize: 'vertical' }} />
           </label>
@@ -309,9 +314,9 @@ export default function SocialEngagementAssist() {
         {opportunities.map((opportunity) => {
           const acting = actingId === opportunity.opportunity_id;
           return (
-            <article key={opportunity.opportunity_id} style={{ borderRadius: '14px', border: '1px solid #1e293b', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px' }}>
+            <article key={opportunity.opportunity_id} style={{ borderRadius: '14px', border: '1px solid #1e293b', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px', minWidth: 0, width: '100%', boxSizing: 'border-box', overflowWrap: 'anywhere' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <div>
+                <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                   <p style={{ color: 'white', fontSize: '14px', fontWeight: 800, margin: 0 }}>{opportunity.source_title || `${platformLabel(opportunity.platform)} visible item`}</p>
                   <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
                     {opportunity.source_author || 'Author not supplied'} · {opportunity.engagement_type} · {compactDate(opportunity.created_at)}
@@ -320,13 +325,13 @@ export default function SocialEngagementAssist() {
                 <span style={{ color: '#86efac', fontSize: '11px', fontWeight: 700 }}>{platformLabel(opportunity.platform)} · draft ready</span>
               </div>
               <a href={opportunity.source_url} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc', fontSize: '12px', overflowWrap: 'anywhere' }}>{opportunity.source_url}</a>
-              <div style={{ borderLeft: '2px solid #334155', paddingLeft: '10px' }}>
+              <div style={{ borderLeft: '2px solid #334155', paddingLeft: '10px', minWidth: 0, overflowWrap: 'anywhere' }}>
                 <p style={{ color: '#64748b', fontSize: '10px', fontWeight: 800, letterSpacing: '0.12em', margin: '0 0 5px', textTransform: 'uppercase' }}>Prepared draft</p>
-                <p style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap' }}>{opportunity.draft_text}</p>
+                <p style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{opportunity.draft_text}</p>
               </div>
-              <details>
+              <details style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                 <summary style={{ color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}>Visible source text and provenance</summary>
-                <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{opportunity.visible_text}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{opportunity.visible_text}</p>
                 <p style={{ color: '#64748b', fontSize: '10px', margin: 0 }}>
                   {opportunity.provenance?.capture_method || 'owner_supplied_visible_item'} · {opportunity.provenance?.discovery_route || 'canonical intake'} · owner-attested authenticated session · no scraping
                 </p>

@@ -89,6 +89,16 @@ test('FEEZIE opens with a bounded Today’s Distribution decision surface', () =
   assert.match(workspaceSource, /Use it/);
   assert.match(workspaceSource, /Edit it/);
   assert.match(workspaceSource, /Not for me/);
+  assert.match(workspaceSource, /repeat\(auto-fit, minmax\(min\(100%, 290px\), 1fr\)\)/);
+});
+
+test('runtime header can wrap without widening a narrow phone viewport', () => {
+  assert.match(runtimeChromeSource, /justifyContent: 'space-between'[^\n]+minWidth: 0[^\n]+flexWrap: 'wrap'/);
+  assert.match(runtimeChromeSource, /display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0/);
+});
+
+test('Today’s Distribution cards contain long source identifiers on a narrow phone', () => {
+  assert.match(workspaceSource, /const workspaceFileCardStyle = \{[^}]+minWidth: 0,[^}]+width: '100%',[^}]+boxSizing: 'border-box',[^}]+overflowWrap: 'anywhere'/s);
 });
 
 test('workspace presents the owner as evidence-led, not a finished expert', () => {

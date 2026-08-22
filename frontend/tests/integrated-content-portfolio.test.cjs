@@ -86,4 +86,5 @@ test('content lineage stays inside a phone viewport even when canonical identifi
   assert.match(component, /const cardStyle = \{[^\n]+minWidth: 0/);
   assert.match(component, /const nestedCardStyle = \{[^\n]+minWidth: 0[^\n]+overflowWrap: 'anywhere'/);
   assert.match(component, /const compactListStyle = \{[^\n]+minWidth: 0[^\n]+overflowWrap: 'anywhere'/);
+  assert.match(component, /const selectStyle = \{[^\n]+width: 'min\(100%, 240px\)'[^\n]+maxWidth: '100%'[^\n]+minWidth: 0[^\n]+boxSizing: 'border-box'/);
 });

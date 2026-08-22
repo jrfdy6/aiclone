@@ -776,7 +776,7 @@ export default function IntegratedContentPortfolio() {
                   ) : ownerPostResolution.mode === 'blocked' ? (
                     <p role="alert" style={{ ...noticeStyle, color: '#fecaca' }}>{ownerPostResolution.blocker}</p>
                   ) : (
-                    <input aria-label={`Manual thesis for ${source.title}`} value={sourceThesis[source.source_id] ?? ''} onChange={(event) => setSourceThesis((current) => ({ ...current, [source.source_id]: event.target.value }))} placeholder="No synthesis exists yet. Add the thesis this source should support." style={{ ...selectStyle, maxWidth: 'none' }} />
+                    <input aria-label={`Manual thesis for ${source.title}`} value={sourceThesis[source.source_id] ?? ''} onChange={(event) => setSourceThesis((current) => ({ ...current, [source.source_id]: event.target.value }))} placeholder="No synthesis exists yet. Add the thesis this source should support." style={{ ...selectStyle, width: '100%', maxWidth: 'none' }} />
                   )}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <button
@@ -1357,7 +1357,7 @@ const pillStyle = { padding: '4px 7px', border: '1px solid rgba(148,163,184,0.22
 const headingStyle = { margin: '4px 0 0', color: '#e2e8f0', fontSize: '14px' };
 const cardStyle = { padding: '13px', borderRadius: '10px', border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(2,6,23,0.52)', display: 'grid', gap: '10px', minWidth: 0 };
 const cardHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' as const };
-const selectStyle = { maxWidth: '240px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.28)', background: '#0f172a', color: '#e2e8f0', padding: '7px' };
+const selectStyle = { width: 'min(100%, 240px)', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' as const, borderRadius: '7px', border: '1px solid rgba(148,163,184,0.28)', background: '#0f172a', color: '#e2e8f0', padding: '7px' };
 const copyStyle = { margin: 0, padding: '12px', maxHeight: '320px', overflow: 'auto', whiteSpace: 'pre-wrap' as const, overflowWrap: 'anywhere' as const, borderRadius: '8px', background: 'rgba(15,23,42,0.9)', color: '#e2e8f0', fontFamily: 'inherit', fontSize: '13px', lineHeight: 1.6 };
 const lineageGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '9px', minWidth: 0 };
 const nestedCardStyle = { padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.16)', background: 'rgba(15,23,42,0.52)', display: 'grid', gap: '5px', minWidth: 0, overflowWrap: 'anywhere' as const };

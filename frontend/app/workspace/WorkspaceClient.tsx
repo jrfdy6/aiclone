@@ -2945,7 +2945,7 @@ export function LinkedinWorkspaceSurface({
             <InlinePill label={`${todaysCreateItems.length} create · ${todaysEngageItems.length} engage`} tone="#38bdf8" />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 290px), 1fr))', gap: '14px' }}>
             <div style={{ display: 'grid', alignContent: 'start', gap: '10px' }}>
               <div>
                 <p style={sectionLabelStyle('#f59e0b')}>Create · max 2</p>
@@ -4972,6 +4972,10 @@ const workspaceFileCardStyle = {
   border: '1px solid #1f2937',
   backgroundColor: '#030712',
   padding: '12px',
+  minWidth: 0,
+  width: '100%',
+  boxSizing: 'border-box',
+  overflowWrap: 'anywhere',
 } as const;
 
 const emptyMessageStyle = {

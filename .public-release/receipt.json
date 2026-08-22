@@ -2400,8 +2400,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/IntegratedContentPortfolio.tsx",
-        "sha256": "e22990a59d35ec67e31bbe462dad19af520961b62d127854723539f1a4d97b5b",
-        "size": 77130
+        "sha256": "6514fdfa76942097c68dbe9351f6e46d9e8b3b731ca42bd75a005e7a43a3956a",
+        "size": 77218
       },
       {
         "mode": 420,
@@ -2430,14 +2430,14 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/SocialEngagementAssist.tsx",
-        "sha256": "64b5e9bd7dffe046c98f613434db9b611df503e824a53c44aca5f4dfa619b732",
-        "size": 16622
+        "sha256": "6f1af004b7f02bd31c001ae3a9f3e431382abd04ad5dbf20a174ee568d7d033e",
+        "size": 17163
       },
       {
         "mode": 420,
         "path": "frontend/app/workspace/WorkspaceClient.tsx",
-        "sha256": "f4d5084ef2d3b706e1c258b8168bbf757eaf7277f00e7872c1b5f82c37b37e51",
-        "size": 232292
+        "sha256": "b2c326e4536be5635be8b204a28cf83b6bf37227050451f37cd9d35671288649",
+        "size": 232390
       },
       {
         "mode": 420,
@@ -2532,8 +2532,8 @@
       {
         "mode": 420,
         "path": "frontend/components/runtime/RuntimeChrome.tsx",
-        "sha256": "515b6c8adcb328d690052f86c9bb744195a3dc18953ae20998eefec0a7af6fee",
-        "size": 9362
+        "sha256": "d979c161fffc032ea01969ced8b899126b9ca87cb19a461adba38b9dc4d3fffe",
+        "size": 9424
       },
       {
         "mode": 420,
@@ -2862,8 +2862,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/integrated-content-portfolio.test.cjs",
-        "sha256": "a4bd044d0fb79758b31e562ad7617cc463f8b4eb9cfdbe8fd3638b1c42ecefbd",
-        "size": 5267
+        "sha256": "e1b04263f71e1b076d3fde745f916b69eb9076ffb4130dbf14c2b2d6482d0109",
+        "size": 5421
       },
       {
         "mode": 420,
@@ -2922,14 +2922,14 @@
       {
         "mode": 420,
         "path": "frontend/tests/social-engagement-assist.test.cjs",
-        "sha256": "cabd3e7fb2bb0ce94375b55b51540b9b4bacd57257dc19938777f1c52da97535",
-        "size": 4601
+        "sha256": "645752c7ef7173b8c5dae892fff9c7abd933ff002c9ee107145d0057edcb4773",
+        "size": 5322
       },
       {
         "mode": 420,
         "path": "frontend/tests/workspace-control-plane.test.cjs",
-        "sha256": "b00e1af30154c57ca2e7ab0781caff0f22ac438ba7236a5087ef248724d3d2b8",
-        "size": 47811
+        "sha256": "e120d1ebea9e6b8e85dc0c5fa5254056538a964daa6e902280562d6dcc609d98",
+        "size": 48467
       },
       {
         "mode": 420,
@@ -2992,7 +2992,7 @@
         "size": 8680
       }
     ],
-    "tree_sha256": "75fc59d50e954efca65e99d43ce8c80808dae212eac278ef17a6450e063677a7"
+    "tree_sha256": "d68e861390d2c29b7b99a09db99889405ceb0b0057778e44b3d05f35ce72f917"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
