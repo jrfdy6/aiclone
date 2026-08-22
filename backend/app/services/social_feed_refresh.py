@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,7 +48,9 @@ class InvalidRefreshState(Exception):
 def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     if not SCRIPT_PATH.exists():
         raise FileNotFoundError("Social feed refresh script is unavailable in this deployment.")
-    cmd = ["python3", str(SCRIPT_PATH)]
+    # Use the interpreter that loaded the API so the refresh sees the exact
+    # dependency environment installed for the Railway backend image.
+    cmd = [sys.executable, str(SCRIPT_PATH)]
     if skip_fetch:
         cmd.append("--skip-fetch")
     cmd.append("--skip-brain-context-sync")

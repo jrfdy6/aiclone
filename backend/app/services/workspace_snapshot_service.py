@@ -2180,12 +2180,17 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
 
 def _build_reaction_queue_payload() -> dict[str, Any] | None:
     linkedin_root = _discover_linkedin_root()
+    generated_root = PRIVATE_STATE_ROOT / "workspaces" / CANONICAL_FEEZIE_WORKSPACE_KEY
     script_path = _find_file(
         "backend/scripts/personal-brand/generate_linkedin_reaction_queue.py",
         "scripts/personal-brand/generate_linkedin_reaction_queue.py",
     )
     module = _load_module("generate_linkedin_reaction_queue_runtime", script_path) if script_path else None
-    if module is None or not linkedin_root.exists():
+    # A privacy-reduced Railway checkout intentionally has no reviewed owner
+    # workspace tree.  The safe-feed refresh materializes its derived inputs
+    # under private generated state, which is sufficient for the queue
+    # builder; absence of both roots still fails closed.
+    if module is None or (not linkedin_root.exists() and not generated_root.exists()):
         return None
     items = module.load_market_signal_items(linkedin_root)[:8]
     return module.queue_payload(linkedin_root, items)

@@ -1650,8 +1650,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_refresh.py",
-        "sha256": "b13909d13194e187edb320e55fb3fb71fb0166aeed2579f0d6fd5f18d64ca633",
-        "size": 5070
+        "sha256": "a6060ff9f1ed76d11579003deeb62d05f5cf7e6091d32e13c494698d544e7ea6",
+        "size": 5232
       },
       {
         "mode": 420,
@@ -1890,8 +1890,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "9b0c1cbd0112a720bd7cd7848e9c7f47e6fb465c326df84cc257237b32cc4adb",
-        "size": 183736
+        "sha256": "75bc948d35c04071091b5b1418f75aaeba2e85daa8b0786283650d0199a9bf47",
+        "size": 184140
       },
       {
         "mode": 420,
@@ -1955,6 +1955,60 @@
       },
       {
         "mode": 420,
+        "path": "backend/scripts/personal-brand/build_social_feed.py",
+        "sha256": "fa6bc861e17a2f2fd99d0d6afe82daa92fffe62deb9c431920254615dd326d39",
+        "size": 1341
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/fetch_reddit_signals.py",
+        "sha256": "ae2dfeb86238f69425553fe37b6fde0e8bca13e6fbdfed58eac0f54dbdc1706b",
+        "size": 945
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/fetch_rss_signals.py",
+        "sha256": "e183bbc572e22835a3a4e73c8b5a2ec16c53a11bcb7fb4866f1730f30265c9a7",
+        "size": 936
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/generate_linkedin_reaction_queue.py",
+        "sha256": "b9667b1d50069c9e31300a0856c4fec6adbc5b90dcb3d2026c4b2b04c0ae951b",
+        "size": 18724
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/linkedin_idea_qualification.py",
+        "sha256": "46fca484d4646d273fd37cb8524b62cf55b19c15a68dad4766bea629445fd507",
+        "size": 59235
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/linkedin_strategy_utils.py",
+        "sha256": "68cc90ab4300f92d50d774a037022aba039ad5b5ad67ecca6ed3e1797adba722",
+        "size": 16133
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/refresh_social_feed.py",
+        "sha256": "312abdda61139c15e90ffe6b5c9998d6768d96f34f28e5a07f37476f61fd4dea",
+        "size": 14427
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/personal-brand/sync_market_signal_archive.py",
+        "sha256": "21cd60a45a605b679319bae96e7d10a4d96d59c30ef302c4309e168a9497e70e",
+        "size": 1310
+      },
+      {
+        "mode": 420,
+        "path": "backend/scripts/runtime_http.py",
+        "sha256": "a25bc801ab4b1d8631e55cd3b838f723bdb595f155b675c1198d33fc8adf1e7d",
+        "size": 3893
+      },
+      {
+        "mode": 420,
         "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
         "sha256": "372759791cd4fe9876b3b489633a420e86c5e4baf649052aab00512840c3ddc1",
         "size": 62938
@@ -1974,14 +2028,14 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_release_builder.py",
-        "sha256": "a1476cc1492afa6886b628b207f25b19ade501f0b51d53968c63e0b278b6c5c3",
-        "size": 26792
+        "sha256": "ea70bc08fb86af46c8cd5bf475d3eebde4f807ae0e151a065698b17ffbf3c3e0",
+        "size": 27832
       },
       {
         "mode": 420,
         "path": "backend/tests/test_public_social_feed_runtime.py",
-        "sha256": "699ad641f09358abcfa4b6f236109988bd9cf770271720077b1b595a97d6ecbd",
-        "size": 4180
+        "sha256": "a710ff4439dac064e649813f93fbff5c41bfe7685fa590acdef83423bf6305e1",
+        "size": 10558
       },
       {
         "mode": 420,
@@ -2952,8 +3006,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "c3140b41b00ff436db28d67414b238e599d6cdef1ce8c901cd1d2099daf96b8c",
-        "size": 4541
+        "sha256": "70dece2cbc76cdc1ecf4d622aaf99d2d280259ade9d1a6846760e384448d439f",
+        "size": 5617
       },
       {
         "mode": 493,
@@ -2974,64 +3028,10 @@
         "size": 228
       },
       {
-        "mode": 420,
-        "path": "scripts/personal-brand/build_social_feed.py",
-        "sha256": "9cff3d7085c2ceea43a4b1fe7f35946cab2efcf8859b089246d7823e75f0c0ae",
-        "size": 1025
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/fetch_reddit_signals.py",
-        "sha256": "ae2dfeb86238f69425553fe37b6fde0e8bca13e6fbdfed58eac0f54dbdc1706b",
-        "size": 945
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/fetch_rss_signals.py",
-        "sha256": "e183bbc572e22835a3a4e73c8b5a2ec16c53a11bcb7fb4866f1730f30265c9a7",
-        "size": 936
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/generate_linkedin_reaction_queue.py",
-        "sha256": "b9667b1d50069c9e31300a0856c4fec6adbc5b90dcb3d2026c4b2b04c0ae951b",
-        "size": 18724
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/linkedin_idea_qualification.py",
-        "sha256": "46fca484d4646d273fd37cb8524b62cf55b19c15a68dad4766bea629445fd507",
-        "size": 59235
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/linkedin_strategy_utils.py",
-        "sha256": "55b913c7de7b92fb30f56db679d048eea769a73512674aaa9691ba1731b0fb6d",
-        "size": 15717
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/refresh_social_feed.py",
-        "sha256": "312abdda61139c15e90ffe6b5c9998d6768d96f34f28e5a07f37476f61fd4dea",
-        "size": 14427
-      },
-      {
-        "mode": 420,
-        "path": "scripts/personal-brand/sync_market_signal_archive.py",
-        "sha256": "21cd60a45a605b679319bae96e7d10a4d96d59c30ef302c4309e168a9497e70e",
-        "size": 1310
-      },
-      {
         "mode": 493,
         "path": "scripts/run_integrated_owner_acceptance.py",
         "sha256": "8a79d837823422850f4d60f3d3a3f9c54c01ea2f6aa90f7d4f4dd5eeac7d03f9",
         "size": 52818
-      },
-      {
-        "mode": 420,
-        "path": "scripts/runtime_http.py",
-        "sha256": "a25bc801ab4b1d8631e55cd3b838f723bdb595f155b675c1198d33fc8adf1e7d",
-        "size": 3893
       },
       {
         "mode": 420,
@@ -3052,15 +3052,15 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "bcb941f175842cbbb79b2a8e04c3e7ebc2adedb05cb15aba0bc92801c28a641e"
+    "tree_sha256": "c19f99fa47736a51b84d4dc5dc7d36b3afb822b9dd6cd14484c5ef53978d006f"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "c3140b41b00ff436db28d67414b238e599d6cdef1ce8c901cd1d2099daf96b8c"
+    "sha256": "70dece2cbc76cdc1ecf4d622aaf99d2d280259ade9d1a6846760e384448d439f"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "1a22a0e5288965add3cc7559a7660558fbe56c005e7483d29db9baeaf6a0d9f9",
+    "inventory_sha256": "cc0805e937485c562f4158d2f5817fef2e0558daa7b0b34a8019d2a6418f0192",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

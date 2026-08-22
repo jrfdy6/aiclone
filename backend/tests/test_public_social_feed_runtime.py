@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -19,8 +23,7 @@ from app.services import social_source_fetch_service as fetch_module  # noqa: E4
 from app.services import workspace_snapshot_service as snapshot_module  # noqa: E402
 
 
-REQUIRED_RUNTIME_PATHS = {
-    "scripts/runtime_http.py",
+REQUIRED_SOURCE_RUNTIME_PATHS = {
     "scripts/runtime_paths.py",
     "scripts/personal-brand/build_social_feed.py",
     "scripts/personal-brand/fetch_reddit_signals.py",
@@ -31,10 +34,28 @@ REQUIRED_RUNTIME_PATHS = {
     "scripts/personal-brand/refresh_social_feed.py",
     "scripts/personal-brand/sync_market_signal_archive.py",
 }
+DEPLOYMENT_FILE_MAPPINGS = {
+    "scripts/runtime_http.py": "backend/scripts/runtime_http.py",
+    **{
+        path: f"backend/{path}"
+        for path in REQUIRED_SOURCE_RUNTIME_PATHS
+        if path.startswith("scripts/personal-brand/")
+    },
+}
 
 
 def test_public_checkout_contains_the_safe_feed_runtime() -> None:
-    missing = sorted(path for path in REQUIRED_RUNTIME_PATHS if not (PUBLIC_ROOT / path).is_file())
+    manifest = json.loads((PUBLIC_ROOT / "release" / "public_source_manifest.json").read_text(encoding="utf-8"))
+    mappings = manifest.get("file_mappings") or {}
+    assert {path: mappings.get(path) for path in DEPLOYMENT_FILE_MAPPINGS} == DEPLOYMENT_FILE_MAPPINGS
+
+    projected_tree = (PUBLIC_ROOT / ".public-release" / "receipt.json").is_file()
+    required = (
+        {"scripts/runtime_paths.py", *DEPLOYMENT_FILE_MAPPINGS.values()}
+        if projected_tree
+        else {"scripts/runtime_http.py", *REQUIRED_SOURCE_RUNTIME_PATHS}
+    )
+    missing = sorted(path for path in required if not (PUBLIC_ROOT / path).is_file())
     assert missing == []
 
 
@@ -92,7 +113,9 @@ def test_snapshot_builder_reads_the_generated_feed_not_the_absent_workspace_tree
 
 
 def test_public_refresh_fetchers_materialize_ephemeral_feed_inputs() -> None:
-    script_path = PUBLIC_ROOT / "scripts" / "personal-brand" / "refresh_social_feed.py"
+    script_path = PUBLIC_ROOT / "backend" / "scripts" / "personal-brand" / "refresh_social_feed.py"
+    if not script_path.is_file():
+        script_path = PUBLIC_ROOT / "scripts" / "personal-brand" / "refresh_social_feed.py"
     spec = importlib.util.spec_from_file_location("public_refresh_social_feed", script_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -106,3 +129,122 @@ def test_public_refresh_fetchers_materialize_ephemeral_feed_inputs() -> None:
         "--include-legacy-workspace-projection",
         compact_output=True,
     )
+
+
+def _materialize_backend_service_root(service_root: Path) -> None:
+    shutil.copytree(
+        BACKEND_ROOT,
+        service_root,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+    )
+    if (service_root / "scripts" / "personal-brand" / "refresh_social_feed.py").is_file():
+        return
+    for source_relative, target_relative in DEPLOYMENT_FILE_MAPPINGS.items():
+        target = service_root / Path(target_relative).relative_to("backend")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(PUBLIC_ROOT / source_relative, target)
+
+
+def test_backend_only_service_root_runs_safe_feed_and_reaction_builders_without_owner_workspace(
+    tmp_path: Path,
+) -> None:
+    service_root = tmp_path / "backend-service"
+    state_root = tmp_path / "private-state"
+    _materialize_backend_service_root(service_root)
+
+    plan_root = state_root / "workspaces" / "feezie-os" / "plans"
+    plan_root.mkdir(parents=True)
+    (plan_root / "social_feed.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-08-21T12:00:00+00:00",
+                "workspace": "linkedin-content-os",
+                "strategy_mode": "production",
+                "items": [
+                    {
+                        "id": "rss__public-safe-runtime",
+                        "platform": "rss",
+                        "source_type": "article",
+                        "source_class": "short_form",
+                        "unit_kind": "full_post",
+                        "response_modes": ["comment", "post"],
+                        "source_lane": "market_signal",
+                        "capture_method": "saved_signal",
+                        "title": "Visible decision gates improve execution clarity",
+                        "author": "Public Runtime Fixture",
+                        "source_url": "https://example.com/public-safe-runtime",
+                        "published_at": "2026-08-21T11:30:00+00:00",
+                        "captured_at": "2026-08-21T12:00:00+00:00",
+                        "summary": "Visible decision gates help operators coordinate work without guessing.",
+                        "standout_lines": ["Explicit ownership makes the next authorized action easier to see."],
+                        "engagement": {"likes": 0, "comments": 0, "shares": 0},
+                        "ranking": {"total": 80.0},
+                        "lenses": ["ops-pm"],
+                        "comment_draft": "Visible ownership is the part that makes this useful in practice.",
+                        "repost_draft": "A decision gate works only when the next owner can see it.",
+                        "lens_variants": {
+                            "ops-pm": {
+                                "comment": "Visible ownership is the part that makes this useful in practice.",
+                                "repost": "A decision gate works only when the next owner can see it.",
+                            }
+                        },
+                        "why_it_matters": "Synthetic public-safe deployment evidence.",
+                        "core_claim": "Visible decision gates improve execution clarity.",
+                        "supporting_claims": ["Explicit ownership makes the next authorized action easier to see."],
+                        "topic_tags": ["operations", "leadership"],
+                        "source_metadata": {"extraction_method": "saved_signal"},
+                        "belief_assessment": {"stance": "translate", "role_safety": "safe"},
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    probe = """
+import json
+from pathlib import Path
+
+from app.services import social_feed_refresh as refresh
+from app.services import workspace_snapshot_service as snapshots
+
+service_root = Path.cwd().resolve()
+assert refresh.ROOT == service_root
+assert refresh.SCRIPT_PATH == service_root / "scripts" / "personal-brand" / "refresh_social_feed.py"
+assert refresh.SCRIPT_PATH.is_file()
+assert not (service_root / "workspaces" / "linkedin-content-os").exists()
+
+refresh._run_command(skip_fetch=True, sources="safe")
+social_feed = snapshots._build_social_feed_payload()
+reaction_queue = snapshots._build_reaction_queue_payload()
+assert social_feed is not None
+assert snapshots._snapshot_is_usable(snapshots.SNAPSHOT_SOCIAL_FEED, social_feed)
+assert reaction_queue is not None
+assert snapshots._snapshot_is_usable(snapshots.SNAPSHOT_REACTION_QUEUE, reaction_queue)
+print(json.dumps({"feed_items": len(social_feed["items"]), "reaction_queue_ready": True}))
+"""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "AI_CLONE_ROOT": str(service_root),
+            "AI_CLONE_STATE_ROOT": str(state_root),
+            "PYTHONPATH": str(service_root),
+        }
+    )
+    for name in ("DATABASE_URL", "CONTROL_PLANE_SERVICE_TOKEN", "AI_CLONE_SECRETS_ROOT"):
+        environment.pop(name, None)
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=service_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    receipt = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert receipt == {"feed_items": 1, "reaction_queue_ready": True}

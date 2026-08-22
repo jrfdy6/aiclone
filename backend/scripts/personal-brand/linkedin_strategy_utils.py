@@ -18,12 +18,22 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.runtime_paths import (  # noqa: E402
-    resolve_workspace_read_path,
-    seed_workspace_state_file,
-    workspace_read_candidates,
-    workspace_state_path,
-)
+try:
+    from scripts.runtime_paths import (  # noqa: E402
+        resolve_workspace_read_path,
+        seed_workspace_state_file,
+        workspace_read_candidates,
+        workspace_state_path,
+    )
+except ModuleNotFoundError:
+    # The Railway backend service is built from ``backend/`` alone.  Its
+    # portable runtime helper therefore lives at ``runtime_paths.py``.
+    from runtime_paths import (  # type: ignore[no-redef]  # noqa: E402
+        resolve_workspace_read_path,
+        seed_workspace_state_file,
+        workspace_read_candidates,
+        workspace_state_path,
+    )
 
 ROLE_ALIGNMENT_BY_LANE = {
     "ai": "ai_intrapreneur",

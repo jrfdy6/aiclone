@@ -15,7 +15,13 @@ for candidate in (ROOT / "backend", ROOT):
         break
 
 from app.services.social_feed_builder_service import build_feed, discover_linkedin_workspace_root, write_feed_artifacts
-from scripts.runtime_paths import workspace_state_root
+try:
+    from scripts.runtime_paths import workspace_state_root
+except ModuleNotFoundError:
+    # Railway deploys this runtime below its configured ``backend`` service
+    # root.  In that flattened layout the portable helper is importable as a
+    # top-level backend module rather than through the repository package.
+    from runtime_paths import workspace_state_root
 
 
 def main() -> None:

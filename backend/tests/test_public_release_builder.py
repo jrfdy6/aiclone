@@ -514,6 +514,15 @@ def test_repository_manifest_is_a_strict_public_app_allowlist() -> None:
         "release/public.gitignore": ".gitignore",
         "release/public.package.json": "package.json",
         "release/public.README.md": "README.md",
+        "scripts/runtime_http.py": "backend/scripts/runtime_http.py",
+        "scripts/personal-brand/build_social_feed.py": "backend/scripts/personal-brand/build_social_feed.py",
+        "scripts/personal-brand/fetch_reddit_signals.py": "backend/scripts/personal-brand/fetch_reddit_signals.py",
+        "scripts/personal-brand/fetch_rss_signals.py": "backend/scripts/personal-brand/fetch_rss_signals.py",
+        "scripts/personal-brand/generate_linkedin_reaction_queue.py": "backend/scripts/personal-brand/generate_linkedin_reaction_queue.py",
+        "scripts/personal-brand/linkedin_idea_qualification.py": "backend/scripts/personal-brand/linkedin_idea_qualification.py",
+        "scripts/personal-brand/linkedin_strategy_utils.py": "backend/scripts/personal-brand/linkedin_strategy_utils.py",
+        "scripts/personal-brand/refresh_social_feed.py": "backend/scripts/personal-brand/refresh_social_feed.py",
+        "scripts/personal-brand/sync_market_signal_archive.py": "backend/scripts/personal-brand/sync_market_signal_archive.py",
     }
 
 
