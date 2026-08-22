@@ -1650,8 +1650,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_refresh.py",
-        "sha256": "545d44720ab7be789bbe84fc3fb8aec2eafc7400e398e749877857f9b852ce0a",
-        "size": 6950
+        "sha256": "37bce6eddb9d733c1bce6d2f1e65c93d5dfacc41407e9491bf8ec2204aabb978",
+        "size": 7256
       },
       {
         "mode": 420,
@@ -2034,8 +2034,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_social_feed_runtime.py",
-        "sha256": "fa1ef3c83d4074cebb90d9e6f11cd69a1c47b64c10f24ac6ca21be10c787dd67",
-        "size": 12897
+        "sha256": "21163b3a838d32d6da8a0c0b1f8afb7654bcd8ba3e1c0b83cf8b76bb8fcc2601",
+        "size": 14022
       },
       {
         "mode": 420,
@@ -3052,7 +3052,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "c175e543cad287b399411ea7ef4ccf946b4a23ee08f084cd95dbd1c04565337a"
+    "tree_sha256": "003f4289ea8b6cfacc8e8e89a5821f86d7bfc5896aef022e33d274339a3b98b2"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

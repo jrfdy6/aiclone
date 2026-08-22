@@ -119,6 +119,37 @@ def test_public_refresh_state_cannot_succeed_after_persistence_failure() -> None
     assert status["completed_at"] >= status["started_at"]
 
 
+def test_public_background_refresh_contains_an_already_recorded_failure() -> None:
+    idle_state = {
+        "running": False,
+        "state": "idle",
+        "run_id": None,
+        "queued_at": None,
+        "last_run": None,
+        "started_at": None,
+        "completed_at": None,
+        "error": None,
+    }
+    with patch.dict(refresh_module._state, idle_state, clear=True), patch.object(
+        refresh_module,
+        "_run_command",
+        side_effect=RuntimeError("bounded background failure"),
+    ), patch.object(refresh_module, "_persist_workspace_snapshots") as persist:
+        queued = refresh_module.social_feed_refresh_service.queue_refresh()
+        refresh_module.social_feed_refresh_service.run_refresh_background(
+            str(queued["run_id"]),
+            skip_fetch=True,
+            sources="safe",
+        )
+        status = refresh_module.social_feed_refresh_service.get_status()
+
+    persist.assert_not_called()
+    assert status["state"] == "failed"
+    assert status["running"] is False
+    assert status["last_run"] is None
+    assert status["completed_at"] >= status["started_at"]
+
+
 def test_privacy_reduced_checkout_uses_the_public_safe_watchlist() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)

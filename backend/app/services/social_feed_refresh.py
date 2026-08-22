@@ -189,7 +189,11 @@ class SocialFeedRefreshService:
     ) -> None:
         try:
             self.run_refresh(skip_fetch, sources, run_id=run_id)
-        except InvalidRefreshState:
+        except Exception:
+            # ``run_refresh`` has already logged the failure and committed the
+            # exact terminal state.  Background-task failures happen after the
+            # queued HTTP response has been sent, so letting them escape only
+            # mislabels an honestly degraded run as an unhandled request error.
             pass
 
     def get_status(self) -> dict[str, None | bool | datetime | str]:
