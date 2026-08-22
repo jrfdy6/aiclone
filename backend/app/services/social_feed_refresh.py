@@ -45,6 +45,10 @@ class InvalidRefreshState(Exception):
     pass
 
 
+class SocialFeedPersistenceError(RuntimeError):
+    """Raised when a refresh does not produce and durably store a usable feed."""
+
+
 def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     if not SCRIPT_PATH.exists():
         raise FileNotFoundError("Social feed refresh script is unavailable in this deployment.")
@@ -81,9 +85,46 @@ def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
 
 
 def _persist_workspace_snapshots() -> None:
-    from app.services.workspace_snapshot_service import workspace_snapshot_service
+    from app.services import workspace_snapshot_service as snapshot_module
+    from app.services import workspace_snapshot_store
 
-    workspace_snapshot_service.refresh_persisted_social_feed_state()
+    refreshed = snapshot_module.workspace_snapshot_service.refresh_persisted_social_feed_state(
+        require_usable_feed=True,
+        require_durable=True,
+    )
+    refreshed_feed = refreshed.get(snapshot_module.SNAPSHOT_SOCIAL_FEED)
+    if not isinstance(refreshed_feed, dict) or not snapshot_module._snapshot_is_usable(
+        snapshot_module.SNAPSHOT_SOCIAL_FEED,
+        refreshed_feed,
+    ):
+        raise SocialFeedPersistenceError(
+            "Social feed refresh did not produce a usable feed for durable storage."
+        )
+
+    persisted = workspace_snapshot_store.get_snapshot(
+        snapshot_module.WORKSPACE_KEY,
+        snapshot_module.SNAPSHOT_SOCIAL_FEED,
+    )
+    persisted_payload = (persisted or {}).get("payload")
+    persisted_metadata = (persisted or {}).get("metadata")
+    expected_generated_at = refreshed_feed.get("generated_at")
+    if (
+        not (persisted or {}).get("id")
+        or not isinstance(persisted_payload, dict)
+        or not snapshot_module._snapshot_is_usable(
+            snapshot_module.SNAPSHOT_SOCIAL_FEED,
+            persisted_payload,
+        )
+        or persisted_payload != refreshed_feed
+        or not isinstance(persisted_metadata, dict)
+        or not expected_generated_at
+        or persisted_payload.get("generated_at") != expected_generated_at
+        or persisted_metadata.get("source") != "social_feed_refresh"
+        or persisted_metadata.get("payload_generated_at") != expected_generated_at
+    ):
+        raise SocialFeedPersistenceError(
+            "Social feed refresh could not verify the durable feed snapshot."
+        )
 
 
 class SocialFeedRefreshService:

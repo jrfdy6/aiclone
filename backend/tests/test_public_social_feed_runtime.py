@@ -66,6 +66,59 @@ def test_missing_refresh_entrypoint_fails_closed() -> None:
             refresh_module._run_command(skip_fetch=False, sources="safe")
 
 
+def test_public_strict_refresh_rejects_empty_feed_before_any_snapshot_write() -> None:
+    with patch.object(
+        snapshot_module,
+        "_runtime_snapshot_payload",
+        return_value=None,
+    ), patch.object(
+        snapshot_module.workspace_snapshot_service,
+        "refresh_persisted_source_grounding_state",
+    ) as refresh_grounding, patch.object(snapshot_module, "_persist_snapshot") as persist:
+        with pytest.raises(RuntimeError, match="did not produce a usable feed"):
+            snapshot_module.workspace_snapshot_service.refresh_persisted_social_feed_state(
+                require_usable_feed=True,
+                require_durable=True,
+            )
+
+    refresh_grounding.assert_not_called()
+    persist.assert_not_called()
+
+
+def test_public_refresh_state_cannot_succeed_after_persistence_failure() -> None:
+    idle_state = {
+        "running": False,
+        "state": "idle",
+        "run_id": None,
+        "queued_at": None,
+        "last_run": None,
+        "started_at": None,
+        "completed_at": None,
+        "error": None,
+    }
+    with patch.dict(refresh_module._state, idle_state, clear=True), patch.object(
+        refresh_module,
+        "_run_command",
+    ), patch.object(
+        refresh_module,
+        "_persist_workspace_snapshots",
+        side_effect=refresh_module.SocialFeedPersistenceError("bounded persistence failure"),
+    ):
+        queued = refresh_module.social_feed_refresh_service.queue_refresh()
+        with pytest.raises(refresh_module.SocialFeedPersistenceError):
+            refresh_module.social_feed_refresh_service.run_refresh(
+                skip_fetch=True,
+                sources="safe",
+                run_id=str(queued["run_id"]),
+            )
+        status = refresh_module.social_feed_refresh_service.get_status()
+
+    assert status["state"] == "failed"
+    assert status["running"] is False
+    assert status["last_run"] is None
+    assert status["completed_at"] >= status["started_at"]
+
+
 def test_privacy_reduced_checkout_uses_the_public_safe_watchlist() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)

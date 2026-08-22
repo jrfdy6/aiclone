@@ -3021,7 +3021,13 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
     return None
 
 
-def _persist_snapshot(snapshot_type: str, payload: dict[str, Any], source: str) -> dict[str, Any]:
+def _persist_snapshot(
+    snapshot_type: str,
+    payload: dict[str, Any],
+    source: str,
+    *,
+    require_durable: bool = False,
+) -> dict[str, Any]:
     if snapshot_type in {SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES}:
         payload = _privacy_safe_inventory_payload(snapshot_type, payload)
     payload_for_storage = payload
@@ -3037,7 +3043,7 @@ def _persist_snapshot(snapshot_type: str, payload: dict[str, Any], source: str) 
         if snapshot_type in {SNAPSHOT_PUBLICATION_PERFORMANCE, SNAPSHOT_PUBLICATION_PERFORMANCE_STATUS}
         else WORKSPACE_KEY
     )
-    upsert_snapshot(
+    stored = upsert_snapshot(
         workspace_key,
         snapshot_type,
         payload_for_storage,
@@ -3046,6 +3052,8 @@ def _persist_snapshot(snapshot_type: str, payload: dict[str, Any], source: str) 
             "payload_generated_at": payload_for_storage.get("generated_at"),
         },
     )
+    if require_durable and stored is None:
+        raise RuntimeError("Durable workspace snapshot storage is unavailable.")
     return payload
 
 
@@ -4153,10 +4161,15 @@ class WorkspaceSnapshotService:
             redacted += 1
         return {"checked": checked, "redacted": redacted, "already_safe": already_safe}
 
-    def refresh_persisted_source_grounding_state(self) -> dict[str, Any]:
+    def refresh_persisted_source_grounding_state(
+        self,
+        *,
+        require_durable: bool = False,
+    ) -> dict[str, Any]:
         """Refresh the bounded, no-fetch source projections used by FEEZIE."""
 
         refreshed: dict[str, Any] = {}
+        durable_kwargs = {"require_durable": True} if require_durable else {}
         source_assets = _runtime_snapshot_payload(SNAPSHOT_SOURCE_ASSETS)
         if source_assets:
             persisted_source_assets = get_snapshot_payload(WORKSPACE_KEY, SNAPSHOT_SOURCE_ASSETS)
@@ -4165,6 +4178,7 @@ class WorkspaceSnapshotService:
                     SNAPSHOT_SOURCE_ASSETS,
                     source_assets,
                     "source_grounding_refresh",
+                    **durable_kwargs,
                 )
 
         content_reservoir = _runtime_snapshot_payload(SNAPSHOT_CONTENT_RESERVOIR)
@@ -4179,6 +4193,7 @@ class WorkspaceSnapshotService:
                     SNAPSHOT_CONTENT_RESERVOIR,
                     content_reservoir,
                     "source_grounding_refresh",
+                    **durable_kwargs,
                 )
 
         long_form_routes = _runtime_snapshot_payload(SNAPSHOT_LONG_FORM_ROUTES)
@@ -4193,6 +4208,7 @@ class WorkspaceSnapshotService:
                     SNAPSHOT_LONG_FORM_ROUTES,
                     long_form_routes,
                     "source_grounding_refresh",
+                    **durable_kwargs,
                 )
 
         return refreshed
@@ -4252,14 +4268,42 @@ class WorkspaceSnapshotService:
             },
         }
 
-    def refresh_persisted_social_feed_state(self) -> dict[str, Any]:
+    def refresh_persisted_social_feed_state(
+        self,
+        *,
+        require_usable_feed: bool = False,
+        require_durable: bool = False,
+    ) -> dict[str, Any]:
         """Refresh only the cloud-safe feed, reaction, and source projections."""
 
-        refreshed = self.refresh_persisted_source_grounding_state()
-        for snapshot_type in (SNAPSHOT_REACTION_QUEUE, SNAPSHOT_SOCIAL_FEED):
-            payload = _runtime_snapshot_payload(snapshot_type)
-            if payload:
-                refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "social_feed_refresh")
+        social_feed = None
+        if require_usable_feed:
+            social_feed = _runtime_snapshot_payload(SNAPSHOT_SOCIAL_FEED)
+            if not social_feed or not _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, social_feed):
+                raise RuntimeError("Social feed refresh did not produce a usable feed.")
+
+        if require_durable:
+            refreshed = self.refresh_persisted_source_grounding_state(require_durable=True)
+        else:
+            refreshed = self.refresh_persisted_source_grounding_state()
+        durable_kwargs = {"require_durable": True} if require_durable else {}
+        reaction_queue = _runtime_snapshot_payload(SNAPSHOT_REACTION_QUEUE)
+        if reaction_queue:
+            refreshed[SNAPSHOT_REACTION_QUEUE] = _persist_snapshot(
+                SNAPSHOT_REACTION_QUEUE,
+                reaction_queue,
+                "social_feed_refresh",
+                **durable_kwargs,
+            )
+        if social_feed is None:
+            social_feed = _runtime_snapshot_payload(SNAPSHOT_SOCIAL_FEED)
+        if social_feed:
+            refreshed[SNAPSHOT_SOCIAL_FEED] = _persist_snapshot(
+                SNAPSHOT_SOCIAL_FEED,
+                social_feed,
+                "social_feed_refresh",
+                **durable_kwargs,
+            )
         return refreshed
 
     def refresh_persisted_linkedin_os_state(

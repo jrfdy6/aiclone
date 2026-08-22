@@ -1650,8 +1650,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_refresh.py",
-        "sha256": "a6060ff9f1ed76d11579003deeb62d05f5cf7e6091d32e13c494698d544e7ea6",
-        "size": 5232
+        "sha256": "545d44720ab7be789bbe84fc3fb8aec2eafc7400e398e749877857f9b852ce0a",
+        "size": 6950
       },
       {
         "mode": 420,
@@ -1890,8 +1890,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "37489beb42fb41c0d8243a9221730a53c56abf43d50b865e9555065207cea5ad",
-        "size": 187131
+        "sha256": "f1d911739a73e84644b75c0996a16eb391202dffb2c89723c93742f22f738eac",
+        "size": 188626
       },
       {
         "mode": 420,
@@ -2034,8 +2034,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_social_feed_runtime.py",
-        "sha256": "be721224808cd1702abc9da30c96e3e070d8668beb399b1d57db635eb31e22f5",
-        "size": 10917
+        "sha256": "fa1ef3c83d4074cebb90d9e6f11cd69a1c47b64c10f24ac6ca21be10c787dd67",
+        "size": 12897
       },
       {
         "mode": 420,
@@ -3052,7 +3052,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "fa954cb7f458744f7181d5eba2efb0fc72d0d5f3e2c3e616503e160517800415"
+    "tree_sha256": "c175e543cad287b399411ea7ef4ccf946b4a23ee08f084cd95dbd1c04565337a"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
