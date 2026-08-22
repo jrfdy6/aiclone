@@ -80,3 +80,10 @@ test('published posts cannot queue unusable variants and explain the lifecycle b
   assert.match(component, /disabled=\{generationBusy \|\| !variantGenerationReady\}/);
   assert.match(component, /cannot select or reject new post-publication revisions/);
 });
+
+test('content lineage stays inside a phone viewport even when canonical identifiers are long', () => {
+  assert.match(component, /const panelStyle = \{[^\n]+minWidth: 0[^\n]+width: '100%'[^\n]+boxSizing: 'border-box'[^\n]+overflowWrap: 'anywhere'/);
+  assert.match(component, /const cardStyle = \{[^\n]+minWidth: 0/);
+  assert.match(component, /const nestedCardStyle = \{[^\n]+minWidth: 0[^\n]+overflowWrap: 'anywhere'/);
+  assert.match(component, /const compactListStyle = \{[^\n]+minWidth: 0[^\n]+overflowWrap: 'anywhere'/);
+});

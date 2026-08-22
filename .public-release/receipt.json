@@ -2400,8 +2400,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/IntegratedContentPortfolio.tsx",
-        "sha256": "d3b3b8a9d1c21ab62ce37680752744d263f76dfea33657417a78ed0e5a67420a",
-        "size": 76793
+        "sha256": "e22990a59d35ec67e31bbe462dad19af520961b62d127854723539f1a4d97b5b",
+        "size": 77130
       },
       {
         "mode": 420,
@@ -2862,8 +2862,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/integrated-content-portfolio.test.cjs",
-        "sha256": "2283c5a3c9d363fbe739eac6eec73dbbe05265e3a71cb3225c221efaf36a2b16",
-        "size": 4735
+        "sha256": "a4bd044d0fb79758b31e562ad7617cc463f8b4eb9cfdbe8fd3638b1c42ecefbd",
+        "size": 5267
       },
       {
         "mode": 420,
@@ -2992,7 +2992,7 @@
         "size": 8680
       }
     ],
-    "tree_sha256": "fba0297d1d54f9dfba7e47b633afbf1b37bf48ad1899a780e041a00afcaf8b32"
+    "tree_sha256": "75fc59d50e954efca65e99d43ce8c80808dae212eac278ef17a6450e063677a7"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

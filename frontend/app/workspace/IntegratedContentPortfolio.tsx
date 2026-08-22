@@ -1346,25 +1346,25 @@ export default function IntegratedContentPortfolio() {
   );
 }
 
-const panelStyle = { padding: '20px', borderRadius: '14px', border: '1px solid rgba(56,189,248,0.24)', background: 'rgba(15,23,42,0.82)', display: 'grid', gap: '16px' };
+const panelStyle = { padding: '20px', borderRadius: '14px', border: '1px solid rgba(56,189,248,0.24)', background: 'rgba(15,23,42,0.82)', display: 'grid', gap: '16px', minWidth: 0, width: '100%', boxSizing: 'border-box' as const, overflowWrap: 'anywhere' as const };
 const eyebrowStyle = { margin: 0, color: '#38bdf8', fontSize: '11px', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase' as const };
-const helperStyle = { margin: '4px 0 0', color: '#94a3b8', fontSize: '12px', lineHeight: 1.55 };
+const helperStyle = { margin: '4px 0 0', color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, overflowWrap: 'anywhere' as const };
 const noticeStyle = { margin: 0, padding: '10px 12px', borderRadius: '9px', background: 'rgba(30,41,59,0.72)', color: '#cbd5e1', fontSize: '12px' };
 const buttonStyle = { border: '1px solid rgba(56,189,248,0.45)', borderRadius: '8px', background: 'rgba(14,116,144,0.24)', color: '#bae6fd', padding: '8px 12px', cursor: 'pointer' };
 const statusRowStyle = { display: 'flex', gap: '12px', flexWrap: 'wrap' as const, color: '#94a3b8', fontSize: '12px', alignItems: 'center' };
 const pillRowStyle = { display: 'flex', gap: '7px', flexWrap: 'wrap' as const };
 const pillStyle = { padding: '4px 7px', border: '1px solid rgba(148,163,184,0.22)', borderRadius: '999px', color: '#cbd5e1', fontSize: '11px', background: 'rgba(15,23,42,0.58)' };
 const headingStyle = { margin: '4px 0 0', color: '#e2e8f0', fontSize: '14px' };
-const cardStyle = { padding: '13px', borderRadius: '10px', border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(2,6,23,0.52)', display: 'grid', gap: '10px' };
+const cardStyle = { padding: '13px', borderRadius: '10px', border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(2,6,23,0.52)', display: 'grid', gap: '10px', minWidth: 0 };
 const cardHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' as const };
 const selectStyle = { maxWidth: '240px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.28)', background: '#0f172a', color: '#e2e8f0', padding: '7px' };
-const copyStyle = { margin: 0, padding: '12px', maxHeight: '320px', overflow: 'auto', whiteSpace: 'pre-wrap' as const, borderRadius: '8px', background: 'rgba(15,23,42,0.9)', color: '#e2e8f0', fontFamily: 'inherit', fontSize: '13px', lineHeight: 1.6 };
-const lineageGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '9px' };
-const nestedCardStyle = { padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.16)', background: 'rgba(15,23,42,0.52)', display: 'grid', gap: '5px' };
+const copyStyle = { margin: 0, padding: '12px', maxHeight: '320px', overflow: 'auto', whiteSpace: 'pre-wrap' as const, overflowWrap: 'anywhere' as const, borderRadius: '8px', background: 'rgba(15,23,42,0.9)', color: '#e2e8f0', fontFamily: 'inherit', fontSize: '13px', lineHeight: 1.6 };
+const lineageGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '9px', minWidth: 0 };
+const nestedCardStyle = { padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.16)', background: 'rgba(15,23,42,0.52)', display: 'grid', gap: '5px', minWidth: 0, overflowWrap: 'anywhere' as const };
 const microHeadingStyle = { color: '#cbd5e1', fontSize: '12px' };
 const detailsSummaryStyle = { color: '#bae6fd', cursor: 'pointer', fontSize: '12px' };
-const compactListStyle = { color: '#cbd5e1', margin: '8px 0 0', paddingLeft: '20px', display: 'grid', gap: '6px', fontSize: '12px', lineHeight: 1.5 };
-const interpretationStyle = { display: 'grid', gap: '3px', borderLeft: '2px solid rgba(56,189,248,.45)', paddingLeft: '8px', color: '#cbd5e1', fontSize: '12px' };
+const compactListStyle = { color: '#cbd5e1', margin: '8px 0 0', paddingLeft: '20px', display: 'grid', gap: '6px', fontSize: '12px', lineHeight: 1.5, minWidth: 0, overflowWrap: 'anywhere' as const };
+const interpretationStyle = { display: 'grid', gap: '3px', borderLeft: '2px solid rgba(56,189,248,.45)', paddingLeft: '8px', color: '#cbd5e1', fontSize: '12px', minWidth: 0, overflowWrap: 'anywhere' as const };
 const ownerActionPanelStyle = { padding: '11px', borderRadius: '9px', border: '1px solid rgba(56,189,248,0.2)', background: 'rgba(15,23,42,0.62)', display: 'grid', gap: '9px' };
 const textareaStyle = { width: '100%', boxSizing: 'border-box' as const, resize: 'vertical' as const, borderRadius: '8px', border: '1px solid rgba(148,163,184,0.28)', background: '#0f172a', color: '#e2e8f0', padding: '10px', fontFamily: 'inherit', fontSize: '13px', lineHeight: 1.55 };
 const checkLabelStyle = { display: 'inline-flex', gap: '6px', alignItems: 'center', color: '#cbd5e1', fontSize: '12px' };
