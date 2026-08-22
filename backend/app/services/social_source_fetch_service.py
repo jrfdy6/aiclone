@@ -177,7 +177,11 @@ def ensure_watchlist(workspace_root: Path | None = None) -> dict[str, Any]:
     _, signals_root, watchlist_path = _workspace_paths(workspace_root)
     if not watchlist_path.exists():
         if workspace_root is None:
-            raise FileNotFoundError(f"Required FEEZIE source watchlist is missing: {watchlist_path}")
+            # The privacy-reduced Railway checkout intentionally excludes the
+            # owner workspace tree. Its safe-public-feed lane uses this
+            # reviewed, credential-free baseline while canonical local runs
+            # continue to read the owner-controlled watchlist file.
+            return DEFAULT_WATCHLIST
         watchlist_path.parent.mkdir(parents=True, exist_ok=True)
         watchlist_path.write_text(yaml.dump(DEFAULT_WATCHLIST, sort_keys=False), encoding="utf-8")
         return DEFAULT_WATCHLIST

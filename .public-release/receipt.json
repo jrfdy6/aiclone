@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 498,
+    "file_count": 508,
     "files": [
       {
         "mode": 493,
@@ -1650,8 +1650,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_refresh.py",
-        "sha256": "dc27f428b01455d09113207eab585b9c7c24668e603d085949a21fda60056b19",
-        "size": 5066
+        "sha256": "b13909d13194e187edb320e55fb3fb71fb0166aeed2579f0d6fd5f18d64ca633",
+        "size": 5070
       },
       {
         "mode": 420,
@@ -1722,8 +1722,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_source_fetch_service.py",
-        "sha256": "143f88083760841d89c2af44b8a66ced5d79cbbd90b6d708cadd3e4ac3e165a9",
-        "size": 47020
+        "sha256": "be3b8c62560666611dc4bc4e84bb19c109be083f5490573d7ba5ae702e0169e7",
+        "size": 47249
       },
       {
         "mode": 420,
@@ -1890,8 +1890,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "ab2d55785db690662b47c86f80435c220ef778f2c9c42c1481deee6c7a97139f",
-        "size": 183605
+        "sha256": "9b0c1cbd0112a720bd7cd7848e9c7f47e6fb465c326df84cc257237b32cc4adb",
+        "size": 183736
       },
       {
         "mode": 420,
@@ -1976,6 +1976,12 @@
         "path": "backend/tests/test_public_release_builder.py",
         "sha256": "a1476cc1492afa6886b628b207f25b19ade501f0b51d53968c63e0b278b6c5c3",
         "size": 26792
+      },
+      {
+        "mode": 420,
+        "path": "backend/tests/test_public_social_feed_runtime.py",
+        "sha256": "699ad641f09358abcfa4b6f236109988bd9cf770271720077b1b595a97d6ecbd",
+        "size": 4180
       },
       {
         "mode": 420,
@@ -2946,8 +2952,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "94bb73a0ee9057c2ab3cf46f5daf30fc0c6cf31f6d44ef5a06c953488eb3c32c",
-        "size": 3461
+        "sha256": "c3140b41b00ff436db28d67414b238e599d6cdef1ce8c901cd1d2099daf96b8c",
+        "size": 4541
       },
       {
         "mode": 493,
@@ -2968,10 +2974,64 @@
         "size": 228
       },
       {
+        "mode": 420,
+        "path": "scripts/personal-brand/build_social_feed.py",
+        "sha256": "9cff3d7085c2ceea43a4b1fe7f35946cab2efcf8859b089246d7823e75f0c0ae",
+        "size": 1025
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/fetch_reddit_signals.py",
+        "sha256": "ae2dfeb86238f69425553fe37b6fde0e8bca13e6fbdfed58eac0f54dbdc1706b",
+        "size": 945
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/fetch_rss_signals.py",
+        "sha256": "e183bbc572e22835a3a4e73c8b5a2ec16c53a11bcb7fb4866f1730f30265c9a7",
+        "size": 936
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/generate_linkedin_reaction_queue.py",
+        "sha256": "b9667b1d50069c9e31300a0856c4fec6adbc5b90dcb3d2026c4b2b04c0ae951b",
+        "size": 18724
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/linkedin_idea_qualification.py",
+        "sha256": "46fca484d4646d273fd37cb8524b62cf55b19c15a68dad4766bea629445fd507",
+        "size": 59235
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/linkedin_strategy_utils.py",
+        "sha256": "55b913c7de7b92fb30f56db679d048eea769a73512674aaa9691ba1731b0fb6d",
+        "size": 15717
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/refresh_social_feed.py",
+        "sha256": "312abdda61139c15e90ffe6b5c9998d6768d96f34f28e5a07f37476f61fd4dea",
+        "size": 14427
+      },
+      {
+        "mode": 420,
+        "path": "scripts/personal-brand/sync_market_signal_archive.py",
+        "sha256": "21cd60a45a605b679319bae96e7d10a4d96d59c30ef302c4309e168a9497e70e",
+        "size": 1310
+      },
+      {
         "mode": 493,
         "path": "scripts/run_integrated_owner_acceptance.py",
         "sha256": "8a79d837823422850f4d60f3d3a3f9c54c01ea2f6aa90f7d4f4dd5eeac7d03f9",
         "size": 52818
+      },
+      {
+        "mode": 420,
+        "path": "scripts/runtime_http.py",
+        "sha256": "a25bc801ab4b1d8631e55cd3b838f723bdb595f155b675c1198d33fc8adf1e7d",
+        "size": 3893
       },
       {
         "mode": 420,
@@ -2988,19 +3048,19 @@
       {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "f5ab30e9f4114e68807214cfe07166602ac18ec3437e85430e1c6b98260f79b1",
-        "size": 8680
+        "sha256": "5e1ead8a819e65c95c4ee20854319ed0347bf512d79571e28ca52baea0f6d93d",
+        "size": 8753
       }
     ],
-    "tree_sha256": "d68e861390d2c29b7b99a09db99889405ceb0b0057778e44b3d05f35ce72f917"
+    "tree_sha256": "bcb941f175842cbbb79b2a8e04c3e7ebc2adedb05cb15aba0bc92801c28a641e"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "94bb73a0ee9057c2ab3cf46f5daf30fc0c6cf31f6d44ef5a06c953488eb3c32c"
+    "sha256": "c3140b41b00ff436db28d67414b238e599d6cdef1ce8c901cd1d2099daf96b8c"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "c634a53bde2c181f6058cfc1c3e75c75001fbabe59ff53a52a45355d438c1ac9",
+    "inventory_sha256": "1a22a0e5288965add3cc7559a7660558fbe56c005e7483d29db9baeaf6a0d9f9",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

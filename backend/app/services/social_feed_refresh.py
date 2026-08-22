@@ -46,8 +46,7 @@ class InvalidRefreshState(Exception):
 
 def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     if not SCRIPT_PATH.exists():
-        logging.warning("Social feed refresh script is unavailable in this deployment; treating refresh as a no-op.")
-        return
+        raise FileNotFoundError("Social feed refresh script is unavailable in this deployment.")
     cmd = ["python3", str(SCRIPT_PATH)]
     if skip_fetch:
         cmd.append("--skip-fetch")
@@ -55,6 +54,7 @@ def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     cmd.append("--skip-strategy-refresh")
     cmd.append("--skip-content-bank")
     cmd.append("--skip-feezie-workspace-sync")
+    cmd.append("--skip-market-archive")
     cmd.append("--compact-output")
     if sources != "safe":
         cmd.extend(["--sources", sources])

@@ -174,6 +174,7 @@ cp -R "$PUBLIC_CANDIDATE/backend/." "$PUBLIC_BACKEND_SERVICE_ROOT/"
 "${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_CANDIDATE/backend" "$PUBLIC_PYTHON" -m pytest -q \
   "$PUBLIC_CANDIDATE/backend/tests/test_public_release_builder.py" \
   "$PUBLIC_CANDIDATE/backend/tests/test_local_codex_context_cache_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_public_social_feed_runtime.py" \
   "$PUBLIC_CANDIDATE/backend/tests/test_feezie_runtime_context_service.py" \
   "$PUBLIC_CANDIDATE/backend/tests/test_feezie_public_lifecycle_smoke.py"
 

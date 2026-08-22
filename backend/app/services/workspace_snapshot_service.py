@@ -2150,7 +2150,7 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
         "scripts/personal-brand/generate_linkedin_weekly_plan.py",
     )
     module = _load_module("generate_linkedin_weekly_plan_runtime", script_path) if script_path else None
-    if module is None or not linkedin_root.exists():
+    if module is None:
         return None
     if hasattr(module, "build_weekly_plan"):
         payload = module.build_weekly_plan(linkedin_root)
@@ -2193,8 +2193,12 @@ def _build_reaction_queue_payload() -> dict[str, Any] | None:
 
 def _build_social_feed_payload() -> dict[str, Any] | None:
     linkedin_root = _discover_linkedin_root()
+    generated_root = PRIVATE_STATE_ROOT / "workspaces" / CANONICAL_FEEZIE_WORKSPACE_KEY
     try:
-        payload = build_social_feed_runtime_payload(linkedin_root)
+        payload = build_social_feed_runtime_payload(
+            generated_root,
+            source_workspace_root=linkedin_root,
+        )
     except Exception:
         return None
     return payload if _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, payload) else None
