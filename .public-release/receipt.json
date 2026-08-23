@@ -1098,8 +1098,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/integrated_production_generator_service.py",
-        "sha256": "6dee9bb84594442e3d84f9484da8b2b2e928c5cbbfacd28a27585a62bef31fe8",
-        "size": 48722
+        "sha256": "0678d4a21b66297602a9c07d404c8e4a7dcb9f7e7375fc353bc37143edfbc0b3",
+        "size": 53447
       },
       {
         "mode": 420,
@@ -3052,7 +3052,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "69890216e1a31ba70a47ad4d321f87c798cdc694ea3dd43017628d762b01fd01"
+    "tree_sha256": "0d929d6d5d5e8710935a5ecab7800e68585a4391b9901c2ed3036c5997faac81"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
