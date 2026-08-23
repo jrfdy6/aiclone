@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from typing import Any, Awaitable, Callable, Mapping
 
 from app.services.content_lifecycle_service import ContentLifecycleConflict, ContentLifecycleService
@@ -28,6 +29,159 @@ from app.services.source_sharing_policy_service import (
     REMOTE_SHAREABLE_CLASSIFICATIONS,
     source_remote_sharing as _source_remote_sharing,
 )
+
+
+def bind_owner_requested_interpretation_lineage(
+    *,
+    lifecycle: ContentLifecycleService,
+    opportunity_id: str,
+    evidence_id: str,
+) -> dict[str, Any]:
+    """Bind every current source-bound interpretation to an owner-requested opportunity.
+
+    Owner requests bypass portfolio delay, not provenance.  Evidence and lenses may
+    be written before the owner supplies a thesis, so this repair-safe boundary
+    attaches the exact interpretation identities without re-running generation.
+    """
+
+    opportunity_id = str(opportunity_id or "").strip()
+    evidence_id = str(evidence_id or "").strip()
+    if not opportunity_id or not evidence_id:
+        raise ValueError("owner-requested interpretation lineage requires opportunity and evidence")
+    with lifecycle.store.connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            evidence = connection.execute(
+                "SELECT source_id,artifact_id FROM evidence_records WHERE evidence_id=?",
+                (evidence_id,),
+            ).fetchone()
+            opportunity = connection.execute(
+                "SELECT metadata_json FROM content_opportunities WHERE opportunity_id=?",
+                (opportunity_id,),
+            ).fetchone()
+            if not evidence or not opportunity:
+                raise ContentLifecycleConflict(
+                    "owner-requested interpretation lineage target is missing"
+                )
+            if not connection.execute(
+                "SELECT 1 FROM opportunity_sources WHERE opportunity_id=? AND source_id=?",
+                (opportunity_id, evidence["source_id"]),
+            ).fetchone():
+                raise ContentLifecycleConflict(
+                    "owner-requested interpretation lineage is not source-bound"
+                )
+            interpretation_ids = [
+                str(row["interpretation_id"])
+                for row in connection.execute(
+                    """SELECT interpretation_id FROM interpretations
+                    WHERE evidence_id=? ORDER BY created_at,interpretation_id""",
+                    (evidence_id,),
+                )
+            ]
+            try:
+                metadata = json.loads(opportunity["metadata_json"] or "{}")
+            except json.JSONDecodeError as exc:
+                raise ContentLifecycleConflict(
+                    "owner-requested opportunity metadata is malformed"
+                ) from exc
+            if not isinstance(metadata, dict):
+                raise ContentLifecycleConflict(
+                    "owner-requested opportunity metadata is not an object"
+                )
+            original_metadata_json = _canonical_json(metadata)
+            bound_evidence_id = str(metadata.get("evidence_id") or "").strip()
+            if bound_evidence_id and bound_evidence_id != evidence_id:
+                raise ContentLifecycleConflict(
+                    "owner-requested opportunity has conflicting evidence lineage"
+                )
+            existing = metadata.get("interpretation_ids", [])
+            if not isinstance(existing, list) or any(
+                not isinstance(item, str) or not item.strip() for item in existing
+            ):
+                raise ContentLifecycleConflict(
+                    "owner-requested interpretation lineage is malformed"
+                )
+            existing_ids = sorted(set(existing))
+            if existing_ids:
+                placeholders = ",".join("?" for _ in existing_ids)
+                valid_existing = connection.execute(
+                    f"""SELECT COUNT(*) FROM interpretations
+                    WHERE evidence_id=? AND interpretation_id IN ({placeholders})""",
+                    (evidence_id, *existing_ids),
+                ).fetchone()[0]
+                if valid_existing != len(existing_ids):
+                    raise ContentLifecycleConflict(
+                        "owner-requested opportunity contains foreign interpretation lineage"
+                    )
+            merged_ids = sorted(set(existing_ids) | set(interpretation_ids))
+            metadata["evidence_id"] = evidence_id
+            metadata["interpretation_ids"] = merged_ids
+            metadata_json = _canonical_json(metadata)
+            binding_sha256 = hashlib.sha256(
+                _canonical_json(
+                    {
+                        "evidence_id": evidence_id,
+                        "interpretation_ids": merged_ids,
+                        "opportunity_id": opportunity_id,
+                    }
+                ).encode("utf-8")
+            ).hexdigest()
+            event_key = (
+                f"owner-post-interpretation-lineage:{opportunity_id}:{binding_sha256}"
+            )
+            event_id = str(
+                uuid.uuid5(uuid.NAMESPACE_URL, f"ai-clone:event:{event_key}")
+            )
+            now = _utcnow()
+            if metadata_json != original_metadata_json:
+                connection.execute(
+                    """UPDATE content_opportunities SET metadata_json=?,updated_at=?
+                    WHERE opportunity_id=?""",
+                    (metadata_json, now, opportunity_id),
+                )
+            connection.execute(
+                """INSERT INTO system_events(
+                    event_id,event_type,aggregate_type,aggregate_id,occurred_at,
+                    actor_type,payload_json,provenance_json,artifact_refs_json,
+                    idempotency_key
+                ) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(idempotency_key) DO NOTHING""",
+                (
+                    event_id,
+                    "content_opportunity.interpretation_lineage_bound",
+                    "content_opportunity",
+                    opportunity_id,
+                    now,
+                    "owner_request_router",
+                    _canonical_json(
+                        {
+                            "binding_sha256": binding_sha256,
+                            "evidence_id": evidence_id,
+                            "interpretation_ids": merged_ids,
+                        }
+                    ),
+                    _canonical_json(
+                        {
+                            "binding_kind": "available_source_interpretations",
+                            "router_version": "owner_requested_post_service/v2",
+                        }
+                    ),
+                    _canonical_json(
+                        [evidence["artifact_id"]] if evidence["artifact_id"] else []
+                    ),
+                    event_key,
+                ),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+    return {
+        "binding_sha256": binding_sha256,
+        "evidence_id": evidence_id,
+        "interpretation_ids": merged_ids,
+        "opportunity_id": opportunity_id,
+    }
+
 
 def _validate_generation_receipt_binding(
     receipt: Mapping[str, Any],
@@ -225,13 +379,30 @@ async def generate_owner_requested_post(
         if not evidence or not evidence["artifact_id"]:
             raise ValueError("source has no authoritative evidence artifact")
         artifact = connection.execute("SELECT * FROM artifacts WHERE artifact_id=?", (evidence["artifact_id"],)).fetchone()
+        interpretation_ids = [
+            str(row["interpretation_id"])
+            for row in connection.execute(
+                """SELECT interpretation_id FROM interpretations
+                WHERE evidence_id=? ORDER BY created_at,interpretation_id""",
+                (evidence["evidence_id"],),
+            )
+        ]
     opportunity = lifecycle.create_or_reuse_opportunity(
         thesis=thesis,
         idempotency_key=f"owner-post:{idempotency_key}",
         source_ids=[source_id],
         owner_requested=True,
-        metadata={"evidence_id": evidence["evidence_id"], "controls": dict(controls)},
+        metadata={
+            "evidence_id": evidence["evidence_id"],
+            "interpretation_ids": interpretation_ids,
+            "controls": dict(controls),
+        },
     )["opportunity"]
+    bind_owner_requested_interpretation_lineage(
+        lifecycle=lifecycle,
+        opportunity_id=opportunity["opportunity_id"],
+        evidence_id=evidence["evidence_id"],
+    )
     base_revision_key = f"owner-post-base:{idempotency_key}"
     with lifecycle.store.connection() as connection:
         existing = connection.execute(
