@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
 
 export type LinkedinPerformanceEventType =
   | 'owner_reviewed'
@@ -536,7 +536,7 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
         }
       } catch (pollError) {
         if (!cancelled) {
-          setError(pollError instanceof Error ? pollError.message : 'Unable to read the local ledger job status.');
+          setError(ownerSafeErrorMessage(pollError, 'Unable to read the local ledger job status.'));
         }
       }
     };
@@ -718,7 +718,7 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
     } catch (submitError) {
       setJob(null);
       setSubmittedContext(null);
-      setError(submitError instanceof Error ? submitError.message : 'Unable to queue the evidence record.');
+      setError(ownerSafeErrorMessage(submitError, 'Unable to queue the evidence record.'));
     } finally {
       setSubmitting(false);
     }
@@ -1033,8 +1033,8 @@ export default function LinkedinPerformanceRecorder(props: LinkedinPerformanceRe
             <strong style={{ color: statusTone(jobStatus), fontSize: 12, textTransform: 'capitalize' }}>{jobStatus}</strong>
             <span style={{ color: '#64748b', fontSize: 10 }}>{statusCopy(jobStatus)}</span>
             {(job?.card_id || job?.job_id) ? <span style={{ color: '#475569', fontSize: 9 }}>Receipt: {job.card_id ?? job.job_id}</span> : null}
-            {job?.message ? <span style={{ color: '#94a3b8', fontSize: 10 }}>{job.message}</span> : null}
-            {job?.error ? <span style={{ color: '#fca5a5', fontSize: 10 }}>{job.error}</span> : null}
+            {job?.message ? <span style={{ color: '#94a3b8', fontSize: 10 }}>{ownerSafeErrorMessage(job.message, 'Local ledger status updated.')}</span> : null}
+            {job?.error ? <span style={{ color: '#fca5a5', fontSize: 10 }}>{ownerSafeErrorMessage(job.error, 'The local ledger job did not complete.')}</span> : null}
           </div>
           <button
             disabled={inFlight || (eventType === 'publication_confirmed' && !approvalCompleted)}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.services.portfolio_cycle_service import PortfolioCycleService
@@ -18,6 +18,7 @@ def adapt_daily_workspace_standups(
     rows: list[Mapping[str, Any]],
     *,
     cycle_date: date,
+    observed_at: datetime,
     expected_workspaces: list[str],
     healthy_no_change_max_age_hours: int = 72,
 ) -> dict[str, dict[str, Any]]:
@@ -26,8 +27,8 @@ def adapt_daily_workspace_standups(
     latest: dict[str, tuple[datetime, dict[str, Any]]] = {}
     prior: dict[str, tuple[datetime, Mapping[str, Any]]] = {}
     expected = set(expected_workspaces)
-    cycle_end = datetime.combine(cycle_date, time.max, tzinfo=timezone.utc)
-    freshness_cutoff = cycle_end - timedelta(hours=healthy_no_change_max_age_hours)
+    freshness_reference = observed_at.replace(tzinfo=timezone.utc) if observed_at.tzinfo is None else observed_at.astimezone(timezone.utc)
+    freshness_cutoff = freshness_reference - timedelta(hours=healthy_no_change_max_age_hours)
     for raw in rows:
         workspace = str(raw.get("workspace_key") or "").strip()
         if workspace not in expected or str(raw.get("status") or "").strip().lower() != "completed":
@@ -80,6 +81,7 @@ def run_portfolio_coordination(
     service: PortfolioCycleService,
     portfolio_cycle_id: str,
     cycle_date: date,
+    observed_at: datetime,
     expected_workspaces: list[str],
     readiness_id: str,
     standup_rows: list[Mapping[str, Any]],
@@ -89,7 +91,12 @@ def run_portfolio_coordination(
     recommended_next_actions: list[str] | None = None,
 ) -> dict[str, Any]:
     service.start_cycle(portfolio_cycle_id=portfolio_cycle_id, cycle_date=cycle_date, expected_workspaces=expected_workspaces, readiness_id=readiness_id, morning_brief_ref=morning_brief_ref)
-    adapted = adapt_daily_workspace_standups(standup_rows, cycle_date=cycle_date, expected_workspaces=expected_workspaces)
+    adapted = adapt_daily_workspace_standups(
+        standup_rows,
+        cycle_date=cycle_date,
+        observed_at=observed_at,
+        expected_workspaces=expected_workspaces,
+    )
     for workspace, payload in adapted.items():
         normalized_payload = dict(payload)
         conclusion_kind = str(normalized_payload.pop("_conclusion_kind", "conclusion"))

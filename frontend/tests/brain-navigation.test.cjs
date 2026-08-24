@@ -150,6 +150,16 @@ test('Brain mirrors FEEZIE strategy provenance and recommendation safety metadat
   assert.match(clientSource, /pillarWarnings\.map/);
 });
 
+test('Persona reuses the existing review surface for longitudinal owner positions', () => {
+  assert.match(clientSource, /related_owner_positions/);
+  assert.match(clientSource, /Prior owner positions/);
+  assert.match(clientSource, /not external claims or automatic canon/);
+  assert.match(clientSource, /owner_response_history/);
+  assert.match(clientSource, /This response over time/);
+  assert.match(clientSource, /does not decide whether they conflict, reinforce one another, or represent a changed view/);
+  assert.doesNotMatch(clientSource, /Perspective Inbox/);
+});
+
 test('Brain renders private grounding and source registry as aggregate status only', () => {
   assert.match(clientSource, /recent_source_count\?: number/);
   assert.doesNotMatch(clientSource, /sourceIndex\?\.recent_sources/);
@@ -253,13 +263,14 @@ test('keeps completed persona items visible in lifecycle history', () => {
   assert.doesNotMatch(clientSource, /const visibleDeltas =/);
 });
 
-test('keeps manual persona selection and its deep link in sync', () => {
+test('keeps draft-safe manual persona selection and its deep link in sync', () => {
   assert.match(clientSource, /const selectPersonaDeltaInUrl = useCallback/);
   assert.match(clientSource, /params\.set\('delta_id', deltaId\)/);
   assert.match(clientSource, /params\.delete\('delta_id'\)/);
   assert.match(clientSource, /window\.history\.pushState\(null, '', href\)/);
   assert.match(clientSource, /window\.history\.replaceState\(null, '', href\)/);
-  assert.match(clientSource, /onClick=\{\(\) => selectActiveDelta\(delta\.id\)\}/);
+  assert.match(clientSource, /onClick=\{\(\) => selectMobilePersonaDelta\(delta\.id\)\}/);
+  assert.match(clientSource, /selectActiveDelta\(deltaId, 'replace'\)/);
 });
 
 test('falls back to an exact persona lookup for deep-linked queue misses', () => {
@@ -328,8 +339,13 @@ test('loads observed automation truth instead of treating configured contracts a
 test('keeps unsaved Brief and Persona writing intact across polling refreshes', () => {
   assert.match(clientSource, /setReactionText\(''\);[\s\S]{0,180}\}, \[brief\.id\]\);/);
   assert.doesNotMatch(clientSource, /setReactionText\(''\);[\s\S]{0,120}\[brief\.id, items\]/);
-  assert.match(clientSource, /setReflectionText\(metadataText\(selectedDelta\?\.metadata, 'owner_response_excerpt'\) \?\? ''\);[\s\S]{0,180}\}, \[selectedDelta\?\.id\]\);/);
-  assert.doesNotMatch(clientSource, /setReflectionText\([\s\S]{0,160}\[selectedDelta\?\.id, selectedDelta\?\.metadata\]/);
+  const personaHydrationStart = clientSource.indexOf('const draft = selectedDelta ? readPersonaReviewDraft(selectedDelta.id) : null');
+  const personaHydrationEnd = clientSource.indexOf('if (!selectedDelta || personaDraftReadyDeltaId !== selectedDelta.id', personaHydrationStart);
+  assert.ok(personaHydrationStart >= 0 && personaHydrationEnd > personaHydrationStart);
+  const personaHydrationSource = clientSource.slice(personaHydrationStart, personaHydrationEnd);
+  assert.match(personaHydrationSource, /setReflectionText\(draft\?\.reflectionText \?\? metadataText\(selectedDelta\?\.metadata, 'owner_response_excerpt'\) \?\? ''\)/);
+  assert.match(personaHydrationSource, /\}, \[selectedDelta\?\.id\]\)/);
+  assert.doesNotMatch(personaHydrationSource, /\[selectedDelta\?\.id, selectedDelta\?\.metadata\]/);
 });
 
 test('carries exact Brain origins and owner reactions into FEEZIE drafting', () => {

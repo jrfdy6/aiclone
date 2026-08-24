@@ -124,3 +124,27 @@ test('assisted capture fields cannot force the workspace wider than a narrow pho
   assert.match(componentSource, /key=\{opportunity\.opportunity_id\}[^\n]+minWidth: 0[^\n]+width: '100%'[^\n]+overflowWrap: 'anywhere'/);
   assert.match(componentSource, /whiteSpace: 'pre-wrap', overflowWrap: 'anywhere'/);
 });
+
+test('remote assisted capture polls the exact signed job before clearing owner input', () => {
+  assert.match(componentSource, /social-assist\/jobs\/\$\{encodeURIComponent\(cardId\)\}/);
+  assert.match(componentSource, /next\.status === 'completed'/);
+  assert.match(componentSource, /await loadOpportunities\(\)/);
+  const queuedBranch = componentSource.indexOf("if (isQueueReceipt(created))");
+  const queuedReturn = componentSource.indexOf('return;', queuedBranch);
+  const firstClear = componentSource.indexOf("setSourceUrl('');", queuedBranch);
+  assert.ok(queuedBranch > -1 && queuedReturn > queuedBranch && firstClear > queuedReturn);
+});
+
+test('copy and open wait for a safe control-plane receipt before native browser actions', () => {
+  const copyHandler = componentSource.slice(
+    componentSource.indexOf('async function prepareCopyAndOpen'),
+    componentSource.indexOf('async function openOnly'),
+  );
+  assert.ok(copyHandler.indexOf('await controlApiPost') < copyHandler.indexOf('await copyDraftAndOpenNativeSurface'));
+  const openHandler = componentSource.slice(
+    componentSource.indexOf('async function openOnly'),
+    componentSource.indexOf('return (', componentSource.indexOf('async function openOnly')),
+  );
+  assert.ok(openHandler.indexOf('await controlApiPost') < openHandler.indexOf('openNativeSocialSurface'));
+  assert.match(componentSource, /external_mutation_performed/);
+});

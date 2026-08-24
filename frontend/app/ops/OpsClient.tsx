@@ -11,9 +11,9 @@ import RailwayRetentionHealthPanel, {
 } from '@/app/ops/RailwayRetentionHealthPanel';
 import RequestWorkForm, { type RequestWorkInput, type RequestWorkResult } from '@/app/ops/RequestWorkForm';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
 import { legacyTwoOptionCompatibilityRequested } from '@/lib/content-generation-topology';
-import { normalizeDisplayText } from '@/lib/display-privacy';
+import { normalizeDisplayText, safeExternalHttpsUrl } from '@/lib/display-privacy';
 import {
   normalizeFirestoreReadinessReceipt,
   type FirestoreReadinessReceipt,
@@ -11413,7 +11413,7 @@ function WorkspacePanel({
         `Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`,
       );
     } catch (error) {
-      setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
+      setRefreshStatus(ownerSafeErrorMessage(error, 'Refresh failed.'));
     } finally {
       setRefreshingFeed(false);
       setTimeout(() => setRefreshStatus(null), 4500);
@@ -11455,7 +11455,7 @@ function WorkspacePanel({
       setIngestText('');
       setIngestTitle('');
     } catch (error) {
-      setIngestStatus(error instanceof Error ? error.message : 'Ingest failed.');
+      setIngestStatus(ownerSafeErrorMessage(error, 'Ingest failed.'));
     } finally {
       setIngestLoading(false);
       setTimeout(() => setIngestStatus(null), 4000);
@@ -11512,7 +11512,7 @@ function WorkspacePanel({
         }
         setQuoteStatus(`Approved quote "${line.slice(0, 40)}..."`);
       } catch (error) {
-        setQuoteStatus(error instanceof Error ? error.message : 'Unable to approve quote right now.');
+        setQuoteStatus(ownerSafeErrorMessage(error, 'Unable to approve quote right now.'));
       } finally {
         setIsApprovingQuote(false);
       }
@@ -11557,7 +11557,7 @@ function WorkspacePanel({
       } catch (error) {
         setFeedbackState((current) => ({
           ...current,
-          [item.id]: error instanceof Error ? error.message : 'Feedback failed.',
+          [item.id]: ownerSafeErrorMessage(error, 'Feedback failed.'),
         }));
       } finally {
         setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
@@ -11783,22 +11783,24 @@ function WorkspacePanel({
               >
                 Copy post draft
               </button>
-              <a
-                href={currentSourceRecord?.sourceUrl ?? '#'}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  borderRadius: '12px',
-                  border: '1px solid #38bdf8',
-                  background: 'rgba(56,189,248,0.15)',
-                  color: '#38bdf8',
-                  padding: '8px 14px',
-                  textDecoration: 'none',
-                  fontSize: '13px',
-                }}
-              >
-                Open source
-              </a>
+              {safeExternalHttpsUrl(currentSourceRecord?.sourceUrl) ? (
+                <a
+                  href={safeExternalHttpsUrl(currentSourceRecord?.sourceUrl) ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    borderRadius: '12px',
+                    border: '1px solid #38bdf8',
+                    background: 'rgba(56,189,248,0.15)',
+                    color: '#38bdf8',
+                    padding: '8px 14px',
+                    textDecoration: 'none',
+                    fontSize: '13px',
+                  }}
+                >
+                  Open source
+                </a>
+              ) : null}
             </div>
           </section>
         )}
@@ -11954,8 +11956,8 @@ function WorkspacePanel({
                     ))}
                   </select>
                 </div>
-                {item.source_url && (
-                  <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                {safeExternalHttpsUrl(item.source_url) && (
+                  <a href={safeExternalHttpsUrl(item.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                     Open source
                   </a>
                 )}
@@ -12317,8 +12319,8 @@ function WorkspacePanel({
                 {candidate.belief_summary ? <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '10px' }}>Belief: {candidate.belief_summary}</p> : null}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{candidate.source_path}</p>
-                  {candidate.source_url ? (
-                    <a href={candidate.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                  {safeExternalHttpsUrl(candidate.source_url) ? (
+                    <a href={safeExternalHttpsUrl(candidate.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                       Open original source
                     </a>
                   ) : null}
@@ -12376,8 +12378,8 @@ function WorkspacePanel({
                 ) : null}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '12px' }}>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
-                  {item.source_url ? (
-                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                  {safeExternalHttpsUrl(item.source_url) ? (
+                    <a href={safeExternalHttpsUrl(item.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                       Open original source
                     </a>
                   ) : null}
@@ -12516,8 +12518,8 @@ function WorkspacePanel({
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '12px' }}>
                 <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
-                {sourceRecord?.sourceUrl ? (
-                  <a href={sourceRecord.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                {safeExternalHttpsUrl(sourceRecord?.sourceUrl) ? (
+                  <a href={safeExternalHttpsUrl(sourceRecord?.sourceUrl) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                     Open original source
                   </a>
                 ) : null}
@@ -12584,8 +12586,8 @@ function WorkspacePanel({
                 <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5, marginTop: '8px' }}>{item.summary}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.sourcePath}</p>
-                  {item.sourceUrl ? (
-                    <a href={item.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                  {safeExternalHttpsUrl(item.sourceUrl) ? (
+                    <a href={safeExternalHttpsUrl(item.sourceUrl) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                       Open original post
                     </a>
                   ) : null}
@@ -12710,8 +12712,8 @@ function WorkspacePanel({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{asset.sourcePath}</p>
                   {asset.capturedAt ? <span style={{ color: '#64748b', fontSize: '12px' }}>captured {asset.capturedAt}</span> : null}
-                  {asset.sourceUrl ? (
-                    <a href={asset.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                  {safeExternalHttpsUrl(asset.sourceUrl) ? (
+                    <a href={safeExternalHttpsUrl(asset.sourceUrl) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                       Open original source
                     </a>
                   ) : null}
@@ -12759,8 +12761,8 @@ function WorkspacePanel({
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
-                  {item.source_url ? (
-                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                  {safeExternalHttpsUrl(item.source_url) ? (
+                    <a href={safeExternalHttpsUrl(item.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                       Open original post
                     </a>
                   ) : null}
@@ -12798,8 +12800,8 @@ function WorkspacePanel({
                 <p style={{ color: '#cbd5f5', fontSize: '13px', marginTop: '8px', lineHeight: 1.5 }}>{item.post_angle}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
-                  {item.source_url ? (
-                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                  {safeExternalHttpsUrl(item.source_url) ? (
+                    <a href={safeExternalHttpsUrl(item.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                       Open original post
                     </a>
                   ) : null}

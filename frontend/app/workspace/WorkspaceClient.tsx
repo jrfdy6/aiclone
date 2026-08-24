@@ -4,7 +4,8 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { controlApiGet, controlApiPatch, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPatch, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import {
   type FeedRefreshQueueReceipt,
   type FeedRefreshStatus,
@@ -1826,7 +1827,7 @@ export function LinkedinWorkspaceSurface({
       setSnapshotState('live');
       return payload;
     } catch (error) {
-      setSnapshotError(error instanceof Error ? error.message : 'Unable to load workspace snapshot right now.');
+      setSnapshotError(ownerSafeErrorMessage(error, 'Unable to load workspace snapshot right now.'));
       setSnapshotState((current) => (current === 'live' ? 'live' : 'error'));
       return null;
     }
@@ -1867,7 +1868,7 @@ export function LinkedinWorkspaceSurface({
       setOwnerReviewError(null);
       setOwnerReviewState('live');
     } catch (error) {
-      setOwnerReviewError(error instanceof Error ? error.message : 'Unable to load owner review items right now.');
+      setOwnerReviewError(ownerSafeErrorMessage(error, 'Unable to load owner review items right now.'));
       setOwnerReviewState((current) => (current === 'live' ? 'live' : 'error'));
     }
   }, [legacyTwoOptionCompatibilityEnabled]);
@@ -2111,22 +2112,28 @@ export function LinkedinWorkspaceSurface({
       const queuedActionAt = Date.parse(syncReceipt.card?.created_at ?? '');
       const planGeneratedAt = Date.parse(refreshedSnapshot?.weekly_plan?.generated_at ?? '');
       const contextGeneratedAt = Date.parse(refreshedSnapshot?.private_runtime_context_status?.context_generated_at ?? '');
+      const performanceGeneratedAt = Date.parse(
+        refreshedSnapshot?.publication_performance_status?.projection_generated_at ?? '',
+      );
       const boundFloor = queuedActionAt - 5 * 60 * 1000;
       if (
         !refreshedSnapshot
         || refreshedSnapshot.snapshot_status?.sections?.weekly_plan?.state !== 'fresh'
+        || refreshedSnapshot.publication_performance_status?.state !== 'fresh'
         || !Number.isFinite(queuedActionAt)
         || !Number.isFinite(planGeneratedAt)
         || planGeneratedAt < boundFloor
         || !Number.isFinite(contextGeneratedAt)
         || contextGeneratedAt < boundFloor
+        || !Number.isFinite(performanceGeneratedAt)
+        || performanceGeneratedAt < boundFloor
         || !isFeeziePrivateRuntimeContextReady(refreshedSnapshot.private_runtime_context_status)
       ) {
-        throw new Error('The signed Mac action completed, but Railway did not return a current weekly plan and ready private context. Reload before retrying.');
+        throw new Error('The signed Mac action completed, but Railway did not return a current weekly plan, ready private context, and fresh performance status. Reload before retrying.');
       }
       setRefreshStatus(`FEEZIE workspace updated${finalStatus.last_run ? `; public signals refreshed at ${formatUiTime(finalStatus.last_run)}` : ''}`);
     } catch (error) {
-      setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
+      setRefreshStatus(ownerSafeErrorMessage(error, 'Refresh failed.'));
     } finally {
       setRefreshingFeed(false);
     }
@@ -2160,7 +2167,7 @@ export function LinkedinWorkspaceSurface({
       setIngestTitle('');
       selectSignalForPipeline(previewItem, ingestPriority);
     } catch (error) {
-      setIngestStatus(error instanceof Error ? error.message : 'Unable to generate a preview right now.');
+      setIngestStatus(ownerSafeErrorMessage(error, 'Unable to generate a preview right now.'));
     } finally {
       setIngestLoading(false);
     }
@@ -2215,10 +2222,10 @@ export function LinkedinWorkspaceSurface({
       return;
     }
     if (response?.status === 'blocked') {
-      throw new Error(response?.message || 'This idea is not admitted to drafting yet.');
+      throw new Error(ownerSafeErrorMessage(response?.message, 'This idea is not admitted to drafting yet.'));
     }
     if (!response?.job_id) {
-      throw new Error(response?.message || 'Local job did not return an id.');
+      throw new Error(ownerSafeErrorMessage(response?.message, 'Local job did not return an id.'));
     }
     setEvidenceClarification(null);
     setEvidenceAnswerDraft('');
@@ -2257,7 +2264,7 @@ export function LinkedinWorkspaceSurface({
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to start the evidence check right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to start the evidence check right now.'));
       setProviderTrace(null);
     } finally {
       setGenerating(false);
@@ -2273,7 +2280,7 @@ export function LinkedinWorkspaceSurface({
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to queue local generation right now.'));
       setProviderTrace(null);
     } finally {
       setGenerating(false);
@@ -2295,7 +2302,7 @@ export function LinkedinWorkspaceSurface({
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to continue the evidence check right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to continue the evidence check right now.'));
       setProviderTrace(null);
     } finally {
       setGenerating(false);
@@ -2314,7 +2321,7 @@ export function LinkedinWorkspaceSurface({
       setGeneratorError(null);
       setProviderTrace(`local_worker · ${nextStatus}`);
     } catch (error) {
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the local run right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to cancel the local run right now.'));
     } finally {
       setCodexActionLoading(null);
     }
@@ -2338,14 +2345,14 @@ export function LinkedinWorkspaceSurface({
           return;
         }
         if (nextStatus === 'failed' || nextStatus === 'canceled') {
-          setCodexJobError(response?.error_message || 'Local generation failed.');
+          setCodexJobError(ownerSafeErrorMessage(response?.error_message, 'Local generation failed.'));
           setProviderTrace(`local_worker · ${nextStatus}`);
           return;
         }
         setProviderTrace(nextStatus === 'running' ? 'local_worker · running' : 'local_worker · queued');
       } catch (error) {
         if (cancelled) return;
-        const message = error instanceof Error ? error.message : 'Unable to poll local job status right now.';
+        const message = ownerSafeErrorMessage(error, 'Unable to poll local job status right now.');
         setCodexJobError(message);
       }
     };
@@ -2380,13 +2387,13 @@ export function LinkedinWorkspaceSurface({
           { option_index: optionIndex },
         );
         if (!response?.queue_id) {
-          throw new Error(response?.message || 'Owner review did not return a queue item.');
+          throw new Error(ownerSafeErrorMessage(response?.message, 'Owner review did not return a queue item.'));
         }
         setReviewHandoffs((current) => ({ ...current, [optionIndex]: response }));
-        setOwnerReviewStatus(response.message || 'Draft is waiting for owner review.');
+        setOwnerReviewStatus(ownerSafeErrorMessage(response.message, 'Draft is waiting for owner review.'));
         await loadOwnerReview();
       } catch (error) {
-        setReviewHandoffError(error instanceof Error ? error.message : 'Unable to send this option to owner review.');
+        setReviewHandoffError(ownerSafeErrorMessage(error, 'Unable to send this option to owner review.'));
       } finally {
         setReviewActionLoading(null);
       }
@@ -2415,14 +2422,14 @@ export function LinkedinWorkspaceSurface({
           option_brief: generatedOptionBriefs[optionIndex] ?? null,
         });
         setBrainPromotionStatus(
-          response?.message || `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+          ownerSafeErrorMessage(response?.message, `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`),
         );
         return {
           deltaId: response?.delta_id,
           targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
         } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
-        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        setBrainPromotionStatus(ownerSafeErrorMessage(error, 'Unable to save this fragment to Brain right now.'));
         throw error;
       } finally {
         setPromotingFragmentKey(null);
@@ -2474,14 +2481,14 @@ export function LinkedinWorkspaceSurface({
           option_brief: optionBrief,
         });
         setBrainPromotionStatus(
-          response?.message || `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+          ownerSafeErrorMessage(response?.message, `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`),
         );
         return {
           deltaId: response?.delta_id,
           targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
         } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
-        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        setBrainPromotionStatus(ownerSafeErrorMessage(error, 'Unable to save this fragment to Brain right now.'));
         throw error;
       } finally {
         setPromotingFragmentKey(null);
@@ -2495,7 +2502,7 @@ export function LinkedinWorkspaceSurface({
     const response = await controlApiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
       delta_id: deltaId,
     });
-    setBrainPromotionStatus(response?.message || 'Brain review proposal withdrawn.');
+    setBrainPromotionStatus(ownerSafeErrorMessage(response?.message, 'Brain review proposal withdrawn.'));
   }, []);
 
   const saveGeneratedContent = useCallback(
@@ -2566,7 +2573,7 @@ export function LinkedinWorkspaceSurface({
         [item.id]: decision === 'like' ? 'Liked' : decision === 'reject' ? 'Marked Not for FEEZIE' : 'Disliked',
       }));
     } catch (error) {
-      setFeedbackState((current) => ({ ...current, [item.id]: error instanceof Error ? error.message : 'Feedback failed.' }));
+      setFeedbackState((current) => ({ ...current, [item.id]: ownerSafeErrorMessage(error, 'Feedback failed.') }));
     } finally {
       setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
     }
@@ -2604,7 +2611,7 @@ export function LinkedinWorkspaceSurface({
       void postFeedFeedback(item, 'approve', lens, { notes: `Approved line: ${line.trim()}` });
       setQuoteStatus(`Approved quote "${line.slice(0, 48)}..."`);
     } catch (error) {
-      setQuoteStatus(error instanceof Error ? error.message : 'Unable to approve quote right now.');
+      setQuoteStatus(ownerSafeErrorMessage(error, 'Unable to approve quote right now.'));
     } finally {
       setIsApprovingQuote(false);
     }
@@ -2664,9 +2671,10 @@ export function LinkedinWorkspaceSurface({
               localVoiceMessage = ' The exact operational draft was reviewed. Local-only voice feedback downloaded for optional import.';
             }
           } catch (localError) {
-            localVoiceMessage = ` The review was saved, but its local voice packet could not download: ${
-              localError instanceof Error ? localError.message : 'unknown browser error'
-            }`;
+            localVoiceMessage = ` The review was saved, but its local voice packet could not download: ${ownerSafeErrorMessage(
+              localError,
+              'unknown browser error',
+            )}`;
           }
         }
         const items = splitOwnerReviewItems(payload.items ?? []);
@@ -2687,7 +2695,7 @@ export function LinkedinWorkspaceSurface({
         await loadOwnerReview();
         await loadSnapshot();
       } catch (error) {
-        setOwnerReviewStatus(error instanceof Error ? error.message : 'Unable to save the owner decision right now.');
+        setOwnerReviewStatus(ownerSafeErrorMessage(error, 'Unable to save the owner decision right now.'));
       } finally {
         setOwnerReviewActioning(null);
       }
@@ -2703,7 +2711,7 @@ export function LinkedinWorkspaceSurface({
         void postFeedFeedback(feedbackContext.item, 'copy', feedbackContext.lens, { notes: feedbackContext.notes ?? label });
       }
     } catch (error) {
-      setCopyStatus(error instanceof Error ? error.message : 'Unable to copy right now.');
+      setCopyStatus(ownerSafeErrorMessage(error, 'Unable to copy right now.'));
     }
   }
 
@@ -2716,7 +2724,7 @@ export function LinkedinWorkspaceSurface({
       await copyText(copy);
       setCopyStatus(`${item.queue_id} copied. LinkedIn is open.`);
     } catch (error) {
-      setCopyStatus(error instanceof Error ? error.message : 'Unable to copy the banked post right now.');
+      setCopyStatus(ownerSafeErrorMessage(error, 'Unable to copy the banked post right now.'));
     }
   }
 
@@ -2770,7 +2778,7 @@ export function LinkedinWorkspaceSurface({
       });
     } catch (error) {
       setPerformanceRecorderSeed(null);
-      setPerformanceRecorderStatus(error instanceof Error ? error.message : 'Unable to fingerprint this approved post in the browser.');
+      setPerformanceRecorderStatus(ownerSafeErrorMessage(error, 'Unable to fingerprint this approved post in the browser.'));
     }
   }
 
@@ -2829,13 +2837,32 @@ export function LinkedinWorkspaceSurface({
                 Turn grounded source signals into useful public ideas, credible conversations, stronger relationships, and durable audience growth.
               </p>
             </div>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <Link href="/brain" style={headerLinkStyle('#38bdf8')}>
-                Open Brain
-              </Link>
-              <Link href="/workspace/posting" style={headerLinkStyle('#fb923c')}>
-                Dedicated Composer
-              </Link>
+            <div style={{ display: 'grid', gap: '8px', justifyItems: 'end' }}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <Link href="/brain" style={headerLinkStyle('#38bdf8')}>
+                  Open Brain
+                </Link>
+                <Link href="/workspace/posting" style={headerLinkStyle('#fb923c')}>
+                  Dedicated Composer
+                </Link>
+                <button
+                  type="button"
+                  data-feezie-workspace-refresh="canonical"
+                  onClick={() => void refreshSocialFeed()}
+                  disabled={refreshingFeed}
+                  style={primaryActionStyle('#22c55e')}
+                >
+                  {refreshingFeed ? 'Refreshing FEEZIE…' : 'Refresh FEEZIE workspace'}
+                </button>
+              </div>
+              {refreshStatus ? (
+                <p
+                  role="status"
+                  style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0, maxWidth: '540px', textAlign: 'right' }}
+                >
+                  {refreshStatus}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -3012,7 +3039,8 @@ export function LinkedinWorkspaceSurface({
                       <button
                         type="button"
                         onClick={() => {
-                          if (item.source_url) window.open(item.source_url, '_blank', 'noopener,noreferrer');
+                          const sourceUrl = safeExternalHttpsUrl(item.source_url);
+                          if (sourceUrl) window.open(sourceUrl, '_blank', 'noopener,noreferrer');
                           void handleCopy(preparedComment, `Comment for ${item.author}`, { item, lens, notes: 'Used from Today’s Distribution.' });
                         }}
                         style={primaryActionStyle('#22c55e')}
@@ -3183,8 +3211,8 @@ export function LinkedinWorkspaceSurface({
                   This is the generator anchor. The feed below is where you change the response lens or swap sources.
                 </p>
               </div>
-              {activeSourceLink && (
-                <a href={activeSourceLink} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
+              {safeExternalHttpsUrl(activeSourceLink) && (
+                <a href={safeExternalHttpsUrl(activeSourceLink) ?? undefined} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
                   Open original post
                 </a>
               )}
@@ -3413,7 +3441,7 @@ export function LinkedinWorkspaceSurface({
                           </button>
                         </div>
                         {reviewHandoffs[index]?.message && (
-                          <p role="status" style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{reviewHandoffs[index].message}</p>
+                          <p role="status" style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{ownerSafeErrorMessage(reviewHandoffs[index].message, 'Draft is waiting for owner review.')}</p>
                         )}
                       </div>
                       );
@@ -3771,8 +3799,8 @@ export function LinkedinWorkspaceSurface({
                         )}
                       </div>
                       <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
-                        {item.source_url ? (
-                          <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                        {safeExternalHttpsUrl(item.source_url) ? (
+                          <a href={safeExternalHttpsUrl(item.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                             Open source
                           </a>
                         ) : null}
@@ -4047,8 +4075,8 @@ export function LinkedinWorkspaceSurface({
                         ))}
                       </select>
                     </div>
-                    {item.source_url && (
-                      <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                    {safeExternalHttpsUrl(item.source_url) && (
+                      <a href={safeExternalHttpsUrl(item.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
                         Open source
                       </a>
                     )}

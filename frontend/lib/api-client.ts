@@ -87,18 +87,21 @@ export async function apiFetch(
     });
   } catch (error) {
     if (isAbortError(error)) {
-      throw new Error(`API request timed out after ${timeoutMs}ms`);
+      throw new Error('The request timed out. Check the item state before retrying.');
     }
-    throw error;
+    throw new Error('The request could not reach the authenticated control plane.');
   } finally {
     cleanup();
   }
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => response.statusText);
-    throw new Error(
-      `API request failed: ${response.status} ${response.statusText} - ${errorText}`
-    );
+    if (response.status === 401) throw new Error('Your owner session expired. Sign in again and retry.');
+    if (response.status === 403) throw new Error('This owner action is not authorized.');
+    if (response.status === 404) throw new Error('That item is no longer available. Refresh the page.');
+    if (response.status === 409) throw new Error('The item changed before the action completed. Refresh and review it.');
+    if (response.status === 429) throw new Error('The system is handling several requests. Wait a moment, then retry.');
+    if (response.status === 503 || response.status === 504) throw new Error('The control plane is temporarily unavailable. Your content was not changed.');
+    throw new Error('The authenticated request could not be completed. Your content was not changed.');
   }
 
   return response;

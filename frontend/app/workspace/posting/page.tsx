@@ -4,7 +4,8 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import {
   buildFallbackText,
   hasSeededSource,
@@ -326,10 +327,10 @@ function PostingWorkspaceClient() {
       return;
     }
     if (response?.status === 'blocked') {
-      throw new Error(response?.message || 'This idea is not admitted to drafting yet.');
+      throw new Error(ownerSafeErrorMessage(response?.message, 'This idea is not admitted to drafting yet.'));
     }
     if (!response?.job_id) {
-      throw new Error(response?.message || 'Local job did not return an id.');
+      throw new Error(ownerSafeErrorMessage(response?.message, 'Local job did not return an id.'));
     }
     setEvidenceClarification(null);
     setEvidenceAnswerDraft('');
@@ -368,7 +369,7 @@ function PostingWorkspaceClient() {
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to start the evidence check right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to start the evidence check right now.'));
       setProviderTrace(null);
     } finally {
       setPostLoading(false);
@@ -384,7 +385,7 @@ function PostingWorkspaceClient() {
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to queue local generation right now.'));
       setProviderTrace(null);
     } finally {
       setPostLoading(false);
@@ -406,7 +407,7 @@ function PostingWorkspaceClient() {
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to continue the evidence check right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to continue the evidence check right now.'));
       setProviderTrace(null);
     } finally {
       setPostLoading(false);
@@ -425,7 +426,7 @@ function PostingWorkspaceClient() {
       setPostError(null);
       setProviderTrace(`local_worker · ${nextStatus}`);
     } catch (error) {
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the local run right now.');
+      setCodexJobError(ownerSafeErrorMessage(error, 'Unable to cancel the local run right now.'));
     } finally {
       setCodexActionLoading(null);
     }
@@ -449,14 +450,14 @@ function PostingWorkspaceClient() {
           return;
         }
         if (nextStatus === 'failed' || nextStatus === 'canceled') {
-          setCodexJobError(response?.error_message || 'Local generation failed.');
+          setCodexJobError(ownerSafeErrorMessage(response?.error_message, 'Local generation failed.'));
           setProviderTrace(`local_worker · ${nextStatus}`);
           return;
         }
         setProviderTrace(nextStatus === 'running' ? 'local_worker · running' : 'local_worker · queued');
       } catch (error) {
         if (cancelled) return;
-        setCodexJobError(error instanceof Error ? error.message : 'Unable to poll local job status right now.');
+        setCodexJobError(ownerSafeErrorMessage(error, 'Unable to poll local job status right now.'));
       }
     };
 
@@ -491,14 +492,14 @@ function PostingWorkspaceClient() {
           option_brief: postOptionBriefs[optionIndex] ?? null,
         });
         setBrainPromotionStatus(
-          response?.message || `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+          ownerSafeErrorMessage(response?.message, `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`),
         );
         return {
           deltaId: response?.delta_id,
           targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
         } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
-        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        setBrainPromotionStatus(ownerSafeErrorMessage(error, 'Unable to save this fragment to Brain right now.'));
         throw error;
       } finally {
         setPromotingFragmentKey(null);
@@ -538,14 +539,14 @@ function PostingWorkspaceClient() {
           option_brief: null,
         });
         setBrainPromotionStatus(
-          response?.message || `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+          ownerSafeErrorMessage(response?.message, `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`),
         );
         return {
           deltaId: response?.delta_id,
           targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
         } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
-        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        setBrainPromotionStatus(ownerSafeErrorMessage(error, 'Unable to save this fragment to Brain right now.'));
         throw error;
       } finally {
         setPromotingFragmentKey(null);
@@ -559,7 +560,7 @@ function PostingWorkspaceClient() {
     const response = await controlApiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
       delta_id: deltaId,
     });
-    setBrainPromotionStatus(response?.message || 'Brain review proposal withdrawn.');
+    setBrainPromotionStatus(ownerSafeErrorMessage(response?.message, 'Brain review proposal withdrawn.'));
   }, []);
 
   const handleGenerateComment = useCallback(async () => {
@@ -596,7 +597,7 @@ function PostingWorkspaceClient() {
         setCommentError('No comment preview was returned.');
       }
     } catch (error) {
-      setCommentError(error instanceof Error ? error.message : 'Unable to generate a comment preview right now.');
+      setCommentError(ownerSafeErrorMessage(error, 'Unable to generate a comment preview right now.'));
     } finally {
       setCommentLoading(false);
     }
@@ -646,7 +647,7 @@ function PostingWorkspaceClient() {
       await copyToClipboard(text);
       setCopyStatus(`${label} copied.`);
     } catch (error) {
-      setCopyStatus(error instanceof Error ? error.message : 'Unable to copy right now.');
+      setCopyStatus(ownerSafeErrorMessage(error, 'Unable to copy right now.'));
     }
   }
 
@@ -670,11 +671,11 @@ function PostingWorkspaceClient() {
           { option_index: optionIndex },
         );
         if (!response?.queue_id) {
-          throw new Error(response?.message || 'Owner review did not return a queue item.');
+          throw new Error(ownerSafeErrorMessage(response?.message, 'Owner review did not return a queue item.'));
         }
         setReviewHandoffs((current) => ({ ...current, [optionIndex]: response }));
       } catch (error) {
-        setReviewError(error instanceof Error ? error.message : 'Unable to send this option to owner review.');
+        setReviewError(ownerSafeErrorMessage(error, 'Unable to send this option to owner review.'));
       } finally {
         setReviewActionLoading(null);
       }
@@ -769,9 +770,9 @@ function PostingWorkspaceClient() {
                 {initialQuery.proofPosture && <InlinePill label={humanizeSnakeCase(initialQuery.proofPosture)} tone="#34d399" />}
               </div>
             </div>
-            {initialQuery.sourceUrl && (
+            {safeExternalHttpsUrl(initialQuery.sourceUrl) && (
               <a
-                href={initialQuery.sourceUrl}
+                href={safeExternalHttpsUrl(initialQuery.sourceUrl) ?? undefined}
                 target="_blank"
                 rel="noreferrer"
                 style={{
@@ -1012,7 +1013,7 @@ function PostingWorkspaceClient() {
                   </div>
                   <OptionCriticReceipt diagnostics={postDiagnostics} optionIndex={index} />
                   {reviewHandoffs[index]?.message && (
-                    <p role="status" style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{reviewHandoffs[index].message}</p>
+                    <p role="status" style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{ownerSafeErrorMessage(reviewHandoffs[index].message, 'Draft is waiting for owner review.')}</p>
                   )}
                   <PromotableInlineText
                     text={option}

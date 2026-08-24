@@ -62,15 +62,12 @@ test('public sitemap is static and cannot enumerate Firestore-derived research r
 test('Firestore-derived JSON-LD escapes script-closing input', () => {
   const indexSource = read('app/kb/research/page.tsx');
   const detailSource = read('app/kb/research/[slug]/page.tsx');
-  const querySource = read('app/kb/[query]/page.tsx');
   const helperSource = read('lib/safe-json-ld.ts');
 
   assert.match(indexSource, /safeJsonLd\(schemaData\)/);
   assert.match(detailSource, /safeJsonLd\(schemaData\)/);
-  assert.match(querySource, /safeJsonLd\(schemaData\)/);
   assert.doesNotMatch(indexSource, /__html: JSON\.stringify/);
   assert.doesNotMatch(detailSource, /__html: JSON\.stringify/);
-  assert.doesNotMatch(querySource, /__html: JSON\.stringify/);
   assert.ok(helperSource.includes(".replace(/</g, '\\\\u003c')"));
 
   const serialized = JSON.stringify({ title: '</script><script>alert(1)</script>' })

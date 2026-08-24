@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 import sys
@@ -21,6 +20,7 @@ import yaml
 from app.services.social_signal_archive_service import load_market_signal_archive_records, sync_market_signal_archive_entry
 from app.services.social_feed_builder_service import discover_linkedin_workspace_root
 from app.services.social_signal_extraction import social_signal_extraction_service
+from app.services.source_feed_signal_service import SourceFeedSignalService
 from app.services.integrated_system_store import IntegratedSystemStore
 from app.services.source_intake_adapter_service import reddit_discovery_envelope, rss_discovery_envelope
 from app.services.source_intake_execution_service import SourceIntakeExecutionService
@@ -343,69 +343,32 @@ def _prune_source_family(signals_root: Path, pattern: str, keep_filenames: set[s
         candidate.unlink(missing_ok=True)
 
 
-def _reddit_url(subreddit: str, limit: int) -> str:
-    clean = subreddit.replace("r/", "").strip()
-    return f"https://www.reddit.com/r/{clean}/hot.json?limit={limit}&raw_json=1"
-
-
 def _reddit_rss_url(subreddit: str) -> str:
     clean = subreddit.replace("r/", "").strip()
     return f"https://www.reddit.com/r/{clean}/.rss"
 
 
-def _build_reddit_entry(source: dict[str, Any], post: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
-    subreddit = source.get("subreddit", "reddit").replace("r/", "").strip()
-    title = _clean_text(post.get("title")) or f"r/{subreddit} post"
-    selftext = _clean_text(post.get("selftext"))
-    external_url = _clean_text(post.get("url_overridden_by_dest") or post.get("url"))
-    permalink = _clean_text(post.get("permalink"))
-    source_url = f"https://www.reddit.com{permalink}" if permalink else external_url
-    published_at = datetime.fromtimestamp(float(post.get("created_utc", 0) or 0), tz=timezone.utc).isoformat()
-    purpose = _clean_text(source.get("purpose")) or "Practitioner signal"
-    summary_seed = selftext or title
-    summary = _truncate(summary_seed, 320)
-    raw_parts = [title]
-    if selftext:
-        raw_parts.append(selftext)
-    elif external_url and external_url != source_url:
-        raw_parts.append(f"External link: {external_url}")
-    body = "\n\n".join(part for part in raw_parts if part).strip()
-    if not body:
-        body = title
+def _reddit_combined_rss_url(subreddits: list[str], *, limit: int) -> str:
+    clean = sorted(
+        {
+            value.replace("r/", "").strip()
+            for value in subreddits
+            if re.fullmatch(r"[A-Za-z0-9_]+", value.replace("r/", "").strip())
+        },
+        key=str.lower,
+    )
+    if not clean:
+        raise ValueError("at least one valid configured subreddit is required")
+    bounded_limit = max(1, min(100, int(limit)))
+    return f"https://www.reddit.com/r/{'+'.join(clean)}/.rss?limit={bounded_limit}"
 
-    entry = {
-        "kind": "market_signal",
-        "title": title,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "published_at": published_at,
-        "source_platform": "reddit",
-        "source_type": "post",
-        "source_url": source_url,
-        "author": _clean_text(post.get("author")) or "reddit",
-        "role_alignment": "market_signal",
-        "priority_lane": _clean_text(source.get("priority_lane")) or "current-role",
-        "summary": summary,
-        "why_it_matters": purpose,
-        "watchlist_matches": ["reddit", f"r/{subreddit}"],
-        "topics": [purpose],
-        "headline_candidates": [title],
-        "core_claim": title,
-        "supporting_claims": [_truncate(selftext, 240)] if selftext else [],
-        "raw_text": body,
-        "engagement": {
-            "likes": int(post.get("score") or 0),
-            "comments": int(post.get("num_comments") or 0),
-            "shares": 0,
-        },
-        "source_metadata": {
-            "extraction_method": "reddit_json",
-            "subreddit": subreddit,
-            "external_url": external_url,
-            "post_id": _clean_text(post.get("id")),
-        },
-    }
-    filename = f"{published_at[:10]}__reddit__{_slugify(subreddit)}__{_slugify(_clean_text(post.get('id')) or title)[:80]}.md"
-    return entry, body, filename
+
+def _subreddit_from_feed_entry(entry: dict[str, str]) -> str:
+    for value in (entry.get("link"), entry.get("category"), entry.get("guid")):
+        match = re.search(r"(?:^|[/\s])r/([A-Za-z0-9_]+)(?:[/\s]|$)", _clean_text(value), re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return ""
 
 
 def _build_reddit_feed_entry(source: dict[str, Any], entry: dict[str, str]) -> tuple[dict[str, Any], str, str]:
@@ -463,170 +426,125 @@ def fetch_reddit_signals(
     captured = 0
     gated_out = 0
     errors: list[dict[str, Any]] = []
+    configured_sources = [
+        source
+        for source in watchlist.get("reddit_sources", [])
+        if isinstance(source, dict) and _clean_text(source.get("subreddit"))
+    ]
+    source_by_subreddit = {
+        _clean_text(source.get("subreddit")).replace("r/", "").lower(): source
+        for source in configured_sources
+    }
+    seen_by_subreddit = {name: 0 for name in source_by_subreddit}
+    keep_filenames_by_subreddit: dict[str, set[str]] = {
+        name: set() for name in source_by_subreddit
+    }
 
-    for source in watchlist.get("reddit_sources", []):
-        subreddit = _clean_text(source.get("subreddit"))
-        if not subreddit:
-            continue
-        slug = _slugify(subreddit.replace("r/", ""))
-        family_pattern = f"*__reddit__{slug}__*.md"
-        keep_filenames: set[str] = set()
+    entries: list[dict[str, str]] = []
+    if configured_sources:
         try:
-            payload = json.loads(_http_get(_reddit_url(subreddit, limit_per_source), accept="application/json"))
-            posts = (((payload or {}).get("data") or {}).get("children") or [])
-            for post_wrapper in posts[:limit_per_source]:
-                data = post_wrapper.get("data") or {}
-                if data.get("stickied") or not _clean_text(data.get("title")):
-                    continue
-                post_id = _clean_text(data.get("id"))
-                permalink = _clean_text(data.get("permalink"))
-                source_url = (
-                    f"https://www.reddit.com{permalink}"
-                    if permalink
-                    else _clean_text(data.get("url_overridden_by_dest") or data.get("url"))
-                )
-                relevance, admissibility, rights = _configured_gate_state(source)
-                try:
-                    prepared = execution.register_and_gate(
-                        reddit_discovery_envelope(
-                            subreddit=subreddit,
-                            reddit_id=post_id or source_url,
-                            canonical_url=source_url or None,
-                            title=_clean_text(data.get("title")) or None,
-                            author=_clean_text(data.get("author")) or None,
-                            discovery_surface="configured_subreddit_json",
-                            rights_state=rights,
-                            share_public_content=(
-                                rights == "permitted"
-                                and is_credential_free_public_url(source_url)
-                            ),
-                        ),
-                        relevance_state=relevance,
-                        admissibility_state=admissibility,
-                        reason="configured_reddit_watchlist_policy",
-                        policy_name="reddit_scheduled_intake_gate",
-                        capture_kind="raw",
-                    )
-                    registered += 1
-                    if not prepared["decision"].get("capture_required") and not prepared["decision"].get("existing_artifact_id"):
-                        gated_out += 1
-                        continue
-                    entry, body, filename = _build_reddit_entry(source, data)
-                    capture = execution.attach_or_reuse_text(
-                        prepared,
-                        text=body,
-                        capture_kind="raw",
-                        metadata={"capture_adapter": "reddit_permitted_feed", "capture_version": "1.0.0"},
-                    )
-                    reused += int(capture["reused"])
-                    captured += 1
-                    entry["source_metadata"] = {
-                        **dict(entry.get("source_metadata") or {}),
-                        "canonical_source_id": prepared["decision"]["source_id"],
-                        "canonical_capture_artifact_id": capture["artifact_id"],
-                    }
-                except Exception as exc:
-                    LOGGER.exception("Canonical Reddit intake failed for %s", source_url or post_id)
-                    errors.append(
-                        {
-                            "stage": "registration_gate_capture_or_projection",
-                            "source_ref": source_url or post_id,
-                            "reason": type(exc).__name__,
-                        }
-                    )
-                    continue
-                keep_filenames.add(filename)
-                if write_compatibility_projection:
-                    written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
-            if posts:
-                if write_compatibility_projection:
-                    _prune_source_family(signals_root, family_pattern, keep_filenames)
-                continue
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-            LOGGER.warning("Reddit JSON fetch failed for %s, falling back to RSS: %s", subreddit, exc)
+            feed_url = _reddit_combined_rss_url(
+                [_clean_text(source.get("subreddit")) for source in configured_sources],
+                limit=limit_per_source * len(configured_sources),
+            )
+            raw_feed = _http_get(
+                feed_url,
+                accept="application/rss+xml, application/atom+xml, text/xml, application/xml",
+            )
+            entries = _iter_feed_entries(ET.fromstring(raw_feed))
+        except (HTTPError, URLError, TimeoutError, ET.ParseError, ValueError) as exc:
+            LOGGER.warning("Skipping configured Reddit feed: %s", exc)
             errors.append(
                 {
-                    "stage": "reddit_json_fetch_or_parse",
-                    "source_ref": f"r/{subreddit}",
+                    "stage": "reddit_combined_rss_fetch_or_parse",
+                    "source_ref": "configured_subreddits",
                     "reason": type(exc).__name__,
                 }
             )
 
-        try:
-            raw_feed = _http_get(_reddit_rss_url(subreddit), accept="application/rss+xml, application/atom+xml, text/xml, application/xml")
-            root = ET.fromstring(raw_feed)
-            entries = _iter_feed_entries(root)
-        except (HTTPError, URLError, TimeoutError, ET.ParseError) as exc:
-            LOGGER.warning("Skipping reddit source %s: %s", subreddit, exc)
-            errors.append(
-                {
-                    "stage": "reddit_rss_fetch_or_parse",
-                    "source_ref": f"r/{subreddit}",
-                    "reason": type(exc).__name__,
-                }
-            )
+    for feed_entry in entries:
+        subreddit = _subreddit_from_feed_entry(feed_entry)
+        source_key = subreddit.lower()
+        source = source_by_subreddit.get(source_key)
+        if source is None or seen_by_subreddit[source_key] >= limit_per_source:
             continue
-
-        for feed_entry in entries[:limit_per_source]:
-            if not _clean_text(feed_entry.get("title")):
-                continue
-            source_url = _clean_text(feed_entry.get("link")) or _reddit_rss_url(subreddit)
-            entry_id = _clean_text(feed_entry.get("guid")) or source_url
-            relevance, admissibility, rights = _configured_gate_state(source)
-            try:
-                prepared = execution.register_and_gate(
-                    reddit_discovery_envelope(
-                        subreddit=subreddit,
-                        reddit_id=entry_id,
-                        canonical_url=source_url or None,
-                        title=_clean_text(feed_entry.get("title")) or None,
-                        author=_clean_text(feed_entry.get("author")) or None,
-                        discovery_surface="configured_subreddit_rss_fallback",
-                        rights_state=rights,
-                        share_public_content=(
-                            rights == "permitted"
-                            and is_credential_free_public_url(source_url)
-                        ),
+        if not _clean_text(feed_entry.get("title")):
+            continue
+        seen_by_subreddit[source_key] += 1
+        source_url = _clean_text(feed_entry.get("link")) or _reddit_rss_url(subreddit)
+        entry_id = _clean_text(feed_entry.get("guid")) or source_url
+        relevance, admissibility, rights = _configured_gate_state(source)
+        try:
+            prepared = execution.register_and_gate(
+                reddit_discovery_envelope(
+                    subreddit=subreddit,
+                    reddit_id=entry_id,
+                    canonical_url=source_url or None,
+                    title=_clean_text(feed_entry.get("title")) or None,
+                    author=_clean_text(feed_entry.get("author")) or None,
+                    discovery_surface="configured_combined_subreddit_rss",
+                    rights_state=rights,
+                    share_public_content=(
+                        rights == "permitted"
+                        and is_credential_free_public_url(source_url)
                     ),
-                    relevance_state=relevance,
-                    admissibility_state=admissibility,
-                    reason="configured_reddit_watchlist_policy",
-                    policy_name="reddit_scheduled_intake_gate",
-                    capture_kind="raw",
-                )
-                registered += 1
-                if not prepared["decision"].get("capture_required") and not prepared["decision"].get("existing_artifact_id"):
-                    gated_out += 1
-                    continue
-                entry, body, filename = _build_reddit_feed_entry(source, feed_entry)
-                capture = execution.attach_or_reuse_text(
-                    prepared,
-                    text=body,
-                    capture_kind="raw",
-                    metadata={"capture_adapter": "reddit_rss_fallback", "capture_version": "1.0.0"},
-                )
-                reused += int(capture["reused"])
-                captured += 1
-                entry["source_metadata"] = {
-                    **dict(entry.get("source_metadata") or {}),
-                    "canonical_source_id": prepared["decision"]["source_id"],
-                    "canonical_capture_artifact_id": capture["artifact_id"],
-                }
-            except Exception as exc:
-                LOGGER.exception("Canonical Reddit RSS intake failed for %s", source_url or entry_id)
-                errors.append(
-                    {
-                        "stage": "registration_gate_capture_or_projection",
-                        "source_ref": source_url or entry_id,
-                        "reason": type(exc).__name__,
-                    }
-                )
+                ),
+                relevance_state=relevance,
+                admissibility_state=admissibility,
+                reason="configured_reddit_watchlist_policy",
+                policy_name="reddit_scheduled_intake_gate",
+                capture_kind="raw",
+            )
+            registered += 1
+            if not prepared["decision"].get("capture_required") and not prepared["decision"].get("existing_artifact_id"):
+                gated_out += 1
                 continue
-            keep_filenames.add(filename)
-            if write_compatibility_projection:
-                written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
+            entry, body, filename = _build_reddit_feed_entry(source, feed_entry)
+            capture = execution.attach_or_reuse_text(
+                prepared,
+                text=body,
+                capture_kind="raw",
+                metadata={"capture_adapter": "reddit_combined_rss", "capture_version": "1.0.0"},
+            )
+            canonical_source_id = _clean_text(capture.get("source_id"))
+            canonical_artifact_id = _clean_text(capture.get("artifact_id"))
+            entry["source_metadata"] = {
+                **dict(entry.get("source_metadata") or {}),
+                "canonical_source_id": canonical_source_id,
+                "canonical_capture_artifact_id": canonical_artifact_id,
+            }
+            SourceFeedSignalService(execution.store).record(
+                source_id=canonical_source_id,
+                artifact_id=canonical_artifact_id,
+                signal=entry,
+                normalizer_name="reddit_combined_rss",
+            )
+            reused += int(capture["reused"])
+            captured += 1
+        except Exception as exc:
+            LOGGER.exception("Canonical Reddit RSS intake failed for %s", source_url or entry_id)
+            errors.append(
+                {
+                    "stage": "registration_gate_capture_or_projection",
+                    "source_ref": source_url or entry_id,
+                    "reason": type(exc).__name__,
+                }
+            )
+            continue
+        keep_filenames_by_subreddit[source_key].add(filename)
         if write_compatibility_projection:
-            _prune_source_family(signals_root, family_pattern, keep_filenames)
+            written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
+
+    if write_compatibility_projection:
+        for source_key, keep_filenames in keep_filenames_by_subreddit.items():
+            if not keep_filenames:
+                continue
+            slug = _slugify(source_key)
+            _prune_source_family(
+                signals_root,
+                f"*__reddit__{slug}__*.md",
+                keep_filenames,
+            )
     disposition = _run_disposition(changed=max(0, captured - reused), errors=len(errors), gated_out=gated_out)
     execution.record_run_receipt(
         run_kind="reddit_feed",
@@ -714,6 +632,11 @@ def _iter_feed_entries(root: ET.Element) -> list[dict[str, str]]:
                 "published_at": _child_text(entry, "published", "updated"),
                 "author": author,
                 "guid": _child_text(entry, "id"),
+                "category": " ".join(
+                    _clean_text(child.attrib.get("term") or "".join(child.itertext()))
+                    for child in list(entry)
+                    if _local_name(child.tag) == "category"
+                ),
             }
         )
     return entries
@@ -904,13 +827,21 @@ def fetch_rss_signals(
                     capture_kind="raw",
                     metadata={"capture_adapter": "rss_article_capture", "capture_version": "1.0.0"},
                 )
-                reused += int(capture["reused"])
-                captured += 1
+                canonical_source_id = _clean_text(capture.get("source_id"))
+                canonical_artifact_id = _clean_text(capture.get("artifact_id"))
                 signal["source_metadata"] = {
                     **dict(signal.get("source_metadata") or {}),
-                    "canonical_source_id": decision["source_id"],
-                    "canonical_capture_artifact_id": capture["artifact_id"],
+                    "canonical_source_id": canonical_source_id,
+                    "canonical_capture_artifact_id": canonical_artifact_id,
                 }
+                SourceFeedSignalService(execution.store).record(
+                    source_id=canonical_source_id,
+                    artifact_id=canonical_artifact_id,
+                    signal=signal,
+                    normalizer_name="rss_feed_article",
+                )
+                reused += int(capture["reused"])
+                captured += 1
             except Exception as exc:
                 LOGGER.exception("Canonical RSS intake failed for %s", entry_url or entry_id)
                 errors.append(

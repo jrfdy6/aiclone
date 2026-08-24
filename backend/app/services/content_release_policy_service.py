@@ -45,6 +45,7 @@ _INTERNAL_REPLACEMENTS = (
     (re.compile(r"\beasyoutfitapp\b", re.IGNORECASE), "a workspace"),
     (re.compile(r"\bai-swag-store\b", re.IGNORECASE), "a workspace"),
     (re.compile(r"\bagc\b", re.IGNORECASE), "a workspace"),
+    (re.compile(r"\bEasy Outfit\b", re.IGNORECASE), "a product experiment"),
     (re.compile(r"\bshared_ops\b", re.IGNORECASE), "the shared workflow"),
     (re.compile(r"\bChronicle\b", re.IGNORECASE), "memory"),
     (re.compile(r"\bPM card\b", re.IGNORECASE), "task"),
@@ -198,6 +199,7 @@ def _sanitize_public_text(text: Any) -> tuple[str, list[str]]:
             cleaned = pattern.sub(replacement, cleaned)
             notes.append(f"generalized:{replacement}")
     cleaned = _WHITESPACE_RE.sub(" ", cleaned)
+    cleaned = re.sub(r"\b(the|a|an)\s+\1\b", r"\1", cleaned, flags=re.IGNORECASE)
     cleaned = _PUNCT_RE.sub(r"\1", cleaned).strip(" -")
     return cleaned, notes
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from collections import defaultdict
 from typing import Any, Iterable, List
 from uuid import uuid4
@@ -21,44 +20,6 @@ from app.models import (
 from app.services import capture_service, persona_delta_service
 from app.services.open_brain_db import get_pool
 from app.services.persona_review_queue_service import annotate_for_brain_queue
-
-_STOPWORDS = {
-    "about",
-    "after",
-    "again",
-    "against",
-    "also",
-    "and",
-    "because",
-    "being",
-    "but",
-    "from",
-    "have",
-    "into",
-    "just",
-    "more",
-    "only",
-    "over",
-    "same",
-    "some",
-    "that",
-    "their",
-    "them",
-    "then",
-    "there",
-    "these",
-    "they",
-    "this",
-    "those",
-    "what",
-    "when",
-    "where",
-    "which",
-    "with",
-    "would",
-    "your",
-}
-
 
 def build_brief_item_key(item: dict[str, Any] | BriefReactionCreate, *, brief_id: str | None = None) -> str:
     values = [
@@ -123,58 +84,75 @@ def related_persona_context_for_items(items: list[dict[str, Any]], *, limit_per_
         return {}
 
     results: dict[str, list[BriefReactionPersonaContext]] = {}
+    deltas_by_id = {delta.id: delta for delta in deltas}
     for item in items:
         item_key = str(item.get("item_key") or "").strip()
         if not item_key:
             continue
-        item_terms = _significant_terms(
-            " ".join(
-                part
-                for part in (
-                    str(item.get("title") or "").strip(),
-                    str(item.get("summary") or "").strip(),
-                    str(item.get("route_reason") or "").strip(),
-                    str(item.get("target_file") or "").strip(),
-                )
-                if part
-            )
+        related = persona_delta_service.find_related_owner_perspectives(
+            texts=(
+                item.get("title"),
+                item.get("summary"),
+                item.get("route_reason"),
+                item.get("target_file"),
+            ),
+            metadata={
+                "brief_item_key": item_key,
+                "source_url": item.get("source_url"),
+                "priority_lane": item.get("priority_lane"),
+                "target_file": item.get("target_file"),
+            },
+            limit=limit_per_item,
+            deltas=deltas,
         )
-        if not item_terms:
-            continue
-
-        ranked: list[tuple[int, BriefReactionPersonaContext]] = []
-        for delta in deltas:
-            metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
-            linked_item_key = str(metadata.get("brief_item_key") or "").strip()
-            response_excerpt = str(metadata.get("owner_response_excerpt") or "").strip()
-            trait = str(delta.trait or "").strip()
-            comparison_terms = _significant_terms(" ".join(part for part in (trait, response_excerpt, delta.notes or "") if part))
-            overlap = len(item_terms.intersection(comparison_terms))
-            if linked_item_key == item_key:
-                overlap += 5
-            if overlap < 2:
+        contexts: list[BriefReactionPersonaContext] = []
+        for entry in related:
+            related_delta_id = str(entry.get("delta_id") or "")
+            if not related_delta_id:
                 continue
-            ranked.append(
-                (
-                    overlap,
-                    BriefReactionPersonaContext(
-                        delta_id=delta.id,
-                        trait=trait,
-                        response_kind=str(metadata.get("owner_response_kind") or "") or None,
-                        excerpt=response_excerpt[:280] if response_excerpt else None,
-                        target_file=str(metadata.get("target_file") or "") or None,
-                        review_source=str(metadata.get("review_source") or "") or None,
-                        created_at=delta.created_at,
-                    ),
+            related_delta = deltas_by_id.get(related_delta_id)
+            contexts.append(
+                BriefReactionPersonaContext(
+                    delta_id=related_delta_id,
+                    trait=str(entry.get("trait") or ""),
+                    response_kind=str(entry.get("response_kind") or "") or None,
+                    excerpt=str(entry.get("excerpt") or "")[:280] or None,
+                    target_file=str(entry.get("target_file") or "") or None,
+                    review_source=str(entry.get("review_source") or "") or None,
+                    created_at=related_delta.created_at if related_delta else None,
                 )
             )
-        ranked.sort(key=lambda entry: (entry[0], entry[1].created_at or 0), reverse=True)
-        results[item_key] = [context for _, context in ranked[:limit_per_item]]
+        results[item_key] = contexts
     return results
 
 
 def create_reaction(payload: BriefReactionCreate) -> BriefReactionCreateResponse:
     trimmed_text = payload.text.strip()
+    recorded_at = _utc_now_iso()
+    perspective_texts = (
+        payload.item_title,
+        payload.item_summary,
+        payload.item_hook,
+        payload.route_reason,
+    )
+    try:
+        perspective_lineage = persona_delta_service.build_owner_perspective_lineage(
+            texts=perspective_texts,
+            metadata={
+                "source_url": payload.source_url,
+                "priority_lane": payload.priority_lane,
+                "target_file": payload.target_file or _default_target_file(payload.reaction_kind),
+            },
+        )
+    except Exception:
+        perspective_lineage = {
+            "perspective_lineage_schema": "owner_perspective_lineage/v1",
+            "perspective_topic_terms": persona_delta_service.perspective_terms(*perspective_texts),
+            "perspective_prior_position_count": 0,
+            "perspective_prior_delta_ids": [],
+            "related_owner_positions": [],
+            "perspective_relationship_status": "lineage_retrieval_unavailable",
+        }
     capture_result = capture_service.create_capture(
         CaptureRequest(
             text=_build_capture_text(payload),
@@ -192,8 +170,16 @@ def create_reaction(payload: BriefReactionCreate) -> BriefReactionCreateResponse
                 "source_url": payload.source_url,
                 "source_path": payload.source_path,
                 "target_file": payload.target_file or _default_target_file(payload.reaction_kind),
+                **perspective_lineage,
             },
         )
+    )
+    response_history = persona_delta_service.build_owner_response_history_metadata(
+        {},
+        response_kind=payload.reaction_kind,
+        excerpt=trimmed_text,
+        recorded_at=recorded_at,
+        capture_id=capture_result.capture_id,
     )
 
     delta_metadata = {
@@ -201,7 +187,7 @@ def create_reaction(payload: BriefReactionCreate) -> BriefReactionCreateResponse
         "review_state": "in_review",
         "owner_response_kind": payload.reaction_kind,
         "owner_response_excerpt": trimmed_text[:4000],
-        "owner_response_updated_at": _utc_now_iso(),
+        "owner_response_updated_at": recorded_at,
         "resolution_capture_id": capture_result.capture_id,
         "brief_id": payload.brief_id,
         "brief_item_key": payload.item_key,
@@ -216,6 +202,8 @@ def create_reaction(payload: BriefReactionCreate) -> BriefReactionCreateResponse
         "target_file": payload.target_file or _default_target_file(payload.reaction_kind),
         "evidence_source": payload.item_title,
         "input_mode": "daily_brief_reaction",
+        **perspective_lineage,
+        **response_history,
         **_promotion_metadata_for_reaction(payload),
     }
 
@@ -240,6 +228,8 @@ def create_reaction(payload: BriefReactionCreate) -> BriefReactionCreateResponse
             "priority_lane": payload.priority_lane,
             "route_reason": payload.route_reason,
             "target_file": payload.target_file or _default_target_file(payload.reaction_kind),
+            **perspective_lineage,
+            **response_history,
         }
     )
 
@@ -359,14 +349,6 @@ def _reaction_topics(payload: BriefReactionCreate) -> list[str]:
         seen.add(key)
         normalized.append(compact[:120])
     return normalized[:5]
-
-
-def _significant_terms(text: str) -> set[str]:
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]+", (text or "").lower())
-        if len(token) > 2 and token not in _STOPWORDS
-    }
 
 
 def _utc_now_iso() -> str:

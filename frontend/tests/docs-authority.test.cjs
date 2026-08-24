@@ -8,9 +8,10 @@ const opsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'ops', 'OpsClie
 const opsPageSource = fs.readFileSync(path.join(frontendRoot, 'app', 'ops', 'page.tsx'), 'utf8');
 const brainSource = fs.readFileSync(path.join(frontendRoot, 'app', 'brain', 'BrainClient.tsx'), 'utf8');
 
-test('Ops and its server fallback put SOURCE_OF_TRUTH first', () => {
+test('Ops puts SOURCE_OF_TRUTH first without a filesystem-backed server fallback', () => {
   assert.match(opsSource, /const PINNED_DOC_PATHS = \[\s*'SOURCE_OF_TRUTH\.md'/);
-  assert.match(opsPageSource, /const PINNED_DOC_PATHS = \[\s*'SOURCE_OF_TRUTH\.md'/);
+  assert.match(opsPageSource, /docEntries=\{\[\]\}/);
+  assert.doesNotMatch(opsPageSource, /PINNED_DOC_PATHS|readFile|existsSync|(?:node:)?fs|(?:node:)?path/);
 });
 
 test('Ops consumes the shared authenticated Brain Docs contract', () => {

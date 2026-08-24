@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from app.services.source_authorship_policy_service import (
+    AUTHORSHIP_POLICY_VERSION,
+    conservative_combined_rights,
+    owner_authorship_attested,
+)
+
 
 SCHEMA_VERSION = 7
 
@@ -811,24 +817,51 @@ class IntegratedSystemStore:
         source_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ai-clone:source:{canonical_identity}"))
         discovery_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ai-clone:discovery:{idempotency_key}"))
         now = _utcnow()
-        metadata_json = _canonical_json(dict(metadata or {}))
-        rights_rank = {
-            "unknown": 0,
-            "permitted": 1,
-            "owner_controlled": 2,
-            "restricted": 3,
-            "blocked": 4,
-        }
+        incoming_metadata = dict(metadata or {})
+        metadata_json = _canonical_json(incoming_metadata)
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 existing_source = connection.execute(
-                    "SELECT rights_state FROM sources WHERE canonical_identity = ?",
+                    "SELECT * FROM sources WHERE canonical_identity = ?",
                     (canonical_identity,),
                 ).fetchone()
                 effective_rights_state = rights_state
-                if existing_source and rights_rank[existing_source["rights_state"]] > rights_rank[rights_state]:
-                    effective_rights_state = existing_source["rights_state"]
+                effective_source_metadata = incoming_metadata
+                if existing_source:
+                    try:
+                        existing_metadata = json.loads(existing_source["metadata_json"])
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        existing_metadata = {}
+                    existing_metadata = (
+                        dict(existing_metadata) if isinstance(existing_metadata, Mapping) else {}
+                    )
+                    effective_rights_state = conservative_combined_rights(
+                        left_state=str(existing_source["rights_state"]),
+                        left_metadata=existing_metadata,
+                        right_state=rights_state,
+                        right_metadata=incoming_metadata,
+                    )
+                    effective_source_metadata = existing_metadata
+                    if (
+                        effective_rights_state == "owner_controlled"
+                        and owner_authorship_attested(incoming_metadata)
+                    ):
+                        effective_source_metadata["owner_authorship_attested"] = True
+                        effective_source_metadata["authorship_policy_version"] = (
+                            AUTHORSHIP_POLICY_VERSION
+                        )
+                    if (
+                        existing_source["rights_state"] == "owner_controlled"
+                        and not owner_authorship_attested(existing_metadata)
+                    ):
+                        effective_source_metadata["authorship_classification"] = (
+                            "unattested_attribution_required"
+                        )
+                        effective_source_metadata["authorship_policy_version"] = (
+                            AUTHORSHIP_POLICY_VERSION
+                        )
+                    metadata_json = _canonical_json(effective_source_metadata)
                 connection.execute(
                     """INSERT INTO sources(
                         source_id,canonical_identity,source_kind,canonical_url,author_or_publisher,title,
@@ -839,6 +872,7 @@ class IntegratedSystemStore:
                         author_or_publisher=COALESCE(sources.author_or_publisher,excluded.author_or_publisher),
                         title=COALESCE(sources.title,excluded.title),
                         rights_state=excluded.rights_state,
+                        metadata_json=excluded.metadata_json,
                         updated_at=excluded.updated_at""",
                     (
                         source_id,
@@ -871,11 +905,20 @@ class IntegratedSystemStore:
                     if not source:
                         raise ValueError("canonical source alias target is missing")
                 if source["source_id"] != registered_source["source_id"]:
-                    target_rights = source["rights_state"]
-                    if rights_rank[registered_source["rights_state"]] > rights_rank[target_rights]:
+                    target_metadata = json.loads(source["metadata_json"] or "{}")
+                    registered_metadata = json.loads(
+                        registered_source["metadata_json"] or "{}"
+                    )
+                    combined_rights = conservative_combined_rights(
+                        left_state=str(source["rights_state"]),
+                        left_metadata=target_metadata,
+                        right_state=str(registered_source["rights_state"]),
+                        right_metadata=registered_metadata,
+                    )
+                    if combined_rights != source["rights_state"]:
                         connection.execute(
                             "UPDATE sources SET rights_state=?,updated_at=? WHERE source_id=?",
-                            (registered_source["rights_state"], now, source["source_id"]),
+                            (combined_rights, now, source["source_id"]),
                         )
                         source = connection.execute(
                             "SELECT * FROM sources WHERE source_id=?", (source["source_id"],)

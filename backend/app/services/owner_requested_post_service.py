@@ -13,11 +13,16 @@ from app.services.integrated_production_generator_service import (
     CODEX_REMOTE_EXECUTION_BOUNDARY,
     CODEX_SUBPROCESS_CONTRACT_SCHEMA,
     CONTENT_POST_GENERATION_CONTEXT_SCHEMA,
+    DREAM_MEMORY_READINESS_SCHEMA,
+    FULL_SYSTEM_GROUNDING_MODE,
     GENERATOR_RECEIPT_SCHEMA,
+    LEGACY_GROUNDING_MODE,
+    LEGACY_OWNER_PERSONA_GATE_SCHEMA,
     OWNER_INTEGRITY_GATE_SCHEMA,
     OWNER_GENERATION_STRATEGY,
     OWNER_PERSONA_GATE_SCHEMA,
     OWNER_VOICE_GATE_SCHEMA,
+    PERSONA_CONTEXT_RECEIPT_SCHEMA,
     REMOTE_PACKET_SCHEMA,
     REMOTE_PACKET_RECEIPT_SCHEMA,
     bounded_remote_source_excerpt,
@@ -229,7 +234,7 @@ def _validate_generation_receipt_binding(
         or receipt.get("option_count") != 1
         or receipt.get("generation_strategy") != OWNER_GENERATION_STRATEGY
         or receipt.get("grounding_mode")
-        != "approved_public_persona_plus_classified_source_evidence"
+        not in {FULL_SYSTEM_GROUNDING_MODE, LEGACY_GROUNDING_MODE}
         or receipt.get("primary_provider") != "codex_cli_saved_login"
         or receipt.get("execution_boundary") != CODEX_REMOTE_EXECUTION_BOUNDARY
         or receipt.get("provider_fallback_used") is not False
@@ -339,14 +344,204 @@ def _validate_generation_receipt_binding(
     ):
         raise ContentLifecycleConflict("owner-requested generation receipt has no passing voice gate")
     persona = receipt.get("persona_grounding")
-    if (
+    common_persona_invalid = (
         not isinstance(persona, dict)
-        or persona.get("schema_version") != OWNER_PERSONA_GATE_SCHEMA
         or persona.get("passed") is not True
         or int(persona.get("constraint_count") or 0) < 1
         or not _is_sha256(persona.get("constraint_digest"))
-    ):
+    )
+    if common_persona_invalid:
         raise ContentLifecycleConflict("owner-requested generation receipt has no canonical persona grounding")
+    if receipt.get("grounding_mode") == LEGACY_GROUNDING_MODE:
+        if persona.get("schema_version") != LEGACY_OWNER_PERSONA_GATE_SCHEMA:
+            raise ContentLifecycleConflict(
+                "owner-requested legacy generation receipt has invalid persona grounding"
+            )
+        return
+
+    context_receipt = persona.get("context_receipt")
+    role_counts = (
+        context_receipt.get("role_counts")
+        if isinstance(context_receipt, dict)
+        else None
+    )
+    source_counts = (
+        context_receipt.get("source_counts")
+        if isinstance(context_receipt, dict)
+        else None
+    )
+    typed_counts = (
+        context_receipt.get("typed_public_safe_counts")
+        if isinstance(context_receipt, dict)
+        else None
+    )
+    blocked_counts = (
+        context_receipt.get("blocked_projection_counts")
+        if isinstance(context_receipt, dict)
+        else None
+    )
+    dream_memory = (
+        context_receipt.get("dream_memory_readiness")
+        if isinstance(context_receipt, dict)
+        else None
+    )
+    expected_role_keys = {"core", "proof", "story", "ambient", "example", "other"}
+    expected_source_keys = {
+        "canonical_bundle",
+        "committed_overlay",
+        "persisted_runtime",
+        "legacy_support",
+        "dream_safe_lesson",
+        "other",
+    }
+    expected_typed_keys = {"claims", "proof", "stories", "voice_directives"}
+    expected_blocked_keys = {"claims", "proof", "stories"}
+
+    def nonnegative_counts(value: Any, expected: set[str]) -> bool:
+        return (
+            isinstance(value, dict)
+            and set(value) == expected
+            and all(isinstance(count, int) and not isinstance(count, bool) and count >= 0 for count in value.values())
+        )
+
+    if (
+        persona.get("schema_version") != OWNER_PERSONA_GATE_SCHEMA
+        or persona.get("source")
+        != "full_typed_persona_context_plus_integrity_pinned_public_pack"
+        or not _is_sha256(persona.get("projection_sha256"))
+        or int(persona.get("claims_count") or 0) < 1
+        or int(persona.get("proof_count") or 0) < 0
+        or int(persona.get("story_count") or 0) < 0
+        or not isinstance(persona.get("draft_anchor_terms"), list)
+        or not isinstance(persona.get("supported_first_person_experience"), list)
+        or not isinstance(persona.get("supported_first_person_worldview"), list)
+        or not isinstance(context_receipt, dict)
+        or set(context_receipt)
+        != {
+            "schema_version",
+            "builder",
+            "source_mode",
+            "release_surface",
+            "release_policy_version",
+            "grounding_mode",
+            "voice_domain",
+            "selected_context_count",
+            "role_counts",
+            "source_counts",
+            "typed_public_safe_counts",
+            "blocked_projection_counts",
+            "selected_context_sha256",
+            "grounding_reason_sha256",
+            "approved_public_pack_sha256",
+            "typed_projection_sha256",
+            "remote_projection_sha256",
+            "full_context_connected",
+            "raw_private_memory_sent_remote",
+            "unreviewed_persona_sent_remote",
+            "dream_memory_readiness",
+        }
+        or context_receipt.get("schema_version") != PERSONA_CONTEXT_RECEIPT_SCHEMA
+        or context_receipt.get("builder")
+        != "content_generation_context_service.build_content_generation_context"
+        or context_receipt.get("source_mode")
+        not in {"verified_memory", "persona_only"}
+        or context_receipt.get("release_surface") != "linkedin_post"
+        or not str(context_receipt.get("release_policy_version") or "")
+        or context_receipt.get("grounding_mode")
+        not in {"proof_ready", "story_supported", "principle_only"}
+        or context_receipt.get("voice_domain")
+        not in {None, "tech_ai", "education", "leadership"}
+        or not isinstance(context_receipt.get("selected_context_count"), int)
+        or isinstance(context_receipt.get("selected_context_count"), bool)
+        or int(context_receipt.get("selected_context_count") or 0) < 1
+        or not nonnegative_counts(role_counts, expected_role_keys)
+        or not nonnegative_counts(source_counts, expected_source_keys)
+        or not nonnegative_counts(typed_counts, expected_typed_keys)
+        or not nonnegative_counts(blocked_counts, expected_blocked_keys)
+        or sum(role_counts.values()) != context_receipt.get("selected_context_count")
+        or sum(source_counts.values()) != context_receipt.get("selected_context_count")
+        or not _is_sha256(context_receipt.get("selected_context_sha256"))
+        or not _is_sha256(context_receipt.get("grounding_reason_sha256"))
+        or not _is_sha256(context_receipt.get("approved_public_pack_sha256"))
+        or not _is_sha256(context_receipt.get("typed_projection_sha256"))
+        or context_receipt.get("remote_projection_sha256")
+        != persona.get("projection_sha256")
+        or context_receipt.get("full_context_connected") is not True
+        or context_receipt.get("raw_private_memory_sent_remote") is not False
+        or context_receipt.get("unreviewed_persona_sent_remote") is not False
+        or not isinstance(dream_memory, dict)
+        or set(dream_memory)
+        != {
+            "schema_version",
+            "state",
+            "latest_status",
+            "failed_component_present",
+            "verified_entry_count",
+            "lane_counts",
+            "readiness_id_sha256",
+            "last_verified_memory_at",
+            "age_seconds",
+            "freshness_reason",
+        }
+        or dream_memory.get("schema_version")
+        != DREAM_MEMORY_READINESS_SCHEMA
+        or dream_memory.get("state") not in {"ready", "degraded", "unavailable"}
+        or not isinstance(dream_memory.get("failed_component_present"), bool)
+        or not isinstance(dream_memory.get("verified_entry_count"), int)
+        or isinstance(dream_memory.get("verified_entry_count"), bool)
+        or dream_memory.get("verified_entry_count", 0) < 0
+        or dream_memory.get("freshness_reason")
+        not in {
+            "fresh",
+            "stale",
+            "future_timestamp",
+            "invalid_timestamp",
+            "latest_not_ready",
+            "no_receipt",
+            "database_unavailable",
+        }
+        or (
+            dream_memory.get("age_seconds") is not None
+            and (
+                not isinstance(dream_memory.get("age_seconds"), int)
+                or isinstance(dream_memory.get("age_seconds"), bool)
+            )
+        )
+        or not nonnegative_counts(
+            dream_memory.get("lane_counts"),
+            {
+                "factual_continuity",
+                "operational_continuity",
+                "reversible_pattern",
+                "identity_candidate",
+            },
+        )
+        or sum(dream_memory.get("lane_counts", {}).values())
+        != dream_memory.get("verified_entry_count")
+        or (
+            dream_memory.get("state") == "ready"
+            and (
+                dream_memory.get("latest_status") != "ready"
+                or dream_memory.get("freshness_reason") != "fresh"
+                or not _is_sha256(dream_memory.get("readiness_id_sha256"))
+                or context_receipt.get("source_mode") != "verified_memory"
+            )
+        )
+        or (
+            dream_memory.get("state") != "ready"
+            and (
+                context_receipt.get("source_mode") != "persona_only"
+                or source_counts.get("dream_safe_lesson") != 0
+            )
+        )
+        or not isinstance(voice.get("typed_context_directive_count"), int)
+        or voice.get("typed_context_directive_count") != typed_counts["voice_directives"]
+        or not _is_sha256(voice.get("typed_context_directive_digest"))
+        or voice.get("typed_context_voice_domain") != context_receipt.get("voice_domain")
+    ):
+        raise ContentLifecycleConflict(
+            "owner-requested generation receipt has no fully connected persona context"
+        )
 
 
 def _is_sha256(value: Any) -> bool:

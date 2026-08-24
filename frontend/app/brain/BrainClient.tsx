@@ -2,9 +2,11 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import { formatUiTimestamp, parseUiDate } from '@/lib/ui-dates';
 import {
   type BrainTab,
@@ -14,6 +16,12 @@ import {
   personaDeltaElementId,
 } from './brainNavigation';
 import { normalizeBrainDisplayText } from './brainPrivacy';
+import {
+  adjacentPersonaReviewDeltaId,
+  findPersonaReviewPosition,
+  groupPersonaReviewDeltas,
+  youtubeThumbnailUrl,
+} from './personaReviewMobile';
 
 export type DocEntry = {
   name: string;
@@ -686,6 +694,9 @@ type PromotionItemKind = 'talking_point' | 'framework' | 'anecdote' | 'phrase_ca
 type PromotionItemProofStrength = 'none' | 'weak' | 'strong';
 type PromotionItemGateDecision = 'pending' | 'allow' | 'hold' | 'block';
 type PromotionFragmentView = 'recommended' | 'needs_work' | 'all';
+type PersonaResponseKind = 'agree' | 'disagree' | 'nuance' | 'story' | 'language';
+type PersonaStandupKind = 'auto' | 'executive_ops' | 'operations' | 'weekly_review' | 'saturday_vision' | 'workspace_sync';
+type PersonaMobileSheet = 'queue' | 'details' | null;
 
 type PromotionItem = {
   id: string;
@@ -717,6 +728,23 @@ type PromotionGateSummary = {
   proofStrength: PromotionItemProofStrength;
   alternativeTarget: string | null;
   selectedCount: number;
+};
+
+type PersonaReviewDraft = {
+  schema: 'brain_persona_review_draft/v1';
+  deltaId: string;
+  reflectionText: string;
+  responseKind: PersonaResponseKind;
+  selectedPromotionItemIds: string[];
+  promotionItemTargetOverrides: Record<string, string>;
+  routeToMemory: boolean;
+  routeToStandup: boolean;
+  routeToPM: boolean;
+  triageMemoryTargets: string[];
+  triageWorkspaceKeys: string[];
+  triageStandupKind: PersonaStandupKind;
+  triagePMTitle: string;
+  updatedAt: string;
 };
 
 type BundleFileResult = {
@@ -856,6 +884,8 @@ const BRAIN_YOUTUBE_WATCHLIST_TIMEOUT_MS = 20_000;
 const BRAIN_YOUTUBE_JOBS_TIMEOUT_MS = 8_000;
 const BRAIN_DOC_INDEX_TIMEOUT_MS = 20_000;
 const BRAIN_DOC_CONTENT_TIMEOUT_MS = 12_000;
+const PERSONA_REVIEW_DRAFT_STORAGE_KEY = 'aiclone.brain.persona-review-drafts.v1';
+const PERSONA_PHONE_MAX_WIDTH = 520;
 const brainInputStyle = {
   width: '100%',
   boxSizing: 'border-box',
@@ -1413,7 +1443,7 @@ export default function BrainClient({
       })
       .catch((lookupError) => {
         if (cancelled) return;
-        const message = lookupError instanceof Error ? lookupError.message : 'Unable to load the requested persona item.';
+        const message = ownerSafeErrorMessage(lookupError, 'Unable to load the requested persona item.');
         if (/\b404\b/.test(message)) {
           setRequestedDeltaLookupState('not_found');
           setRequestedDeltaLookupError('The requested persona item was not found.');
@@ -1476,7 +1506,7 @@ export default function BrainClient({
       setLongFormIngest({ url: '', title: '', summary: '', notes: '', transcriptText: '' });
       await loadData(() => false, brainLoadTargetsForTab('dashboard'));
     } catch (error) {
-      setLongFormIngestError(error instanceof Error ? error.message : 'Unable to register long-form source.');
+      setLongFormIngestError(ownerSafeErrorMessage(error, 'Unable to register long-form source.'));
     } finally {
       setLongFormSubmitting(false);
     }
@@ -2144,7 +2174,7 @@ function BrainPortfolioPanel({
       setRouteStatus(formatBrainLocalQueueStatus(payload, 'Brain Signal review'));
       await refreshBrainData();
     } catch (error) {
-      setRouteError(error instanceof Error ? error.message : 'Unable to review Brain Signal.');
+      setRouteError(ownerSafeErrorMessage(error, 'Unable to review Brain Signal.'));
     } finally {
       setReviewingSignalId(null);
     }
@@ -2183,7 +2213,7 @@ function BrainPortfolioPanel({
       setRouteStatus(formatBrainLocalQueueStatus(payload, `Brain Signal route to ${humanizeSnakeCase(draft.route)}`));
       await refreshBrainData();
     } catch (error) {
-      setRouteError(error instanceof Error ? error.message : 'Unable to route Brain Signal.');
+      setRouteError(ownerSafeErrorMessage(error, 'Unable to route Brain Signal.'));
     } finally {
       setRoutingSignalId(null);
     }
@@ -2676,7 +2706,7 @@ function BrainLongFormIngestPanel({
       setQueueStatus(formatBrainLocalQueueStatus(payload, video.title || 'YouTube source'));
       await refreshBrainData();
     } catch (ingestError) {
-      setQueueError(ingestError instanceof Error ? ingestError.message : 'Unable to queue YouTube ingest.');
+      setQueueError(ownerSafeErrorMessage(ingestError, 'Unable to queue YouTube ingest.'));
     } finally {
       setQueueingUrl(null);
     }
@@ -2851,8 +2881,8 @@ function BrainLongFormIngestPanel({
                       {channel.purpose && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.5 }}>{channel.purpose}</p>}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {channel.url && (
-                        <a href={channel.url} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
+                      {safeExternalHttpsUrl(channel.url) && (
+                        <a href={safeExternalHttpsUrl(channel.url) ?? undefined} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
                           Open channel
                         </a>
                       )}
@@ -2863,7 +2893,7 @@ function BrainLongFormIngestPanel({
                   </div>
 
                   {channel.error ? (
-                    <p style={{ color: '#fca5a5', fontSize: '12px' }}>{channel.error}</p>
+                    <p style={{ color: '#fca5a5', fontSize: '12px' }}>{ownerSafeErrorMessage(channel.error, 'Channel lookup failed.')}</p>
                   ) : channel.videos && channel.videos.length > 0 ? (
                     <div style={{ display: 'grid', gap: '10px' }}>
                       {channel.videos.map((video, videoIndex) => (
@@ -2882,8 +2912,8 @@ function BrainLongFormIngestPanel({
                               {video.summary && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55 }}>{video.summary}</p>}
                             </div>
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              {video.url && (
-                                <a href={video.url} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
+                              {safeExternalHttpsUrl(video.url) && (
+                                <a href={safeExternalHttpsUrl(video.url) ?? undefined} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
                                   Open video
                                 </a>
                               )}
@@ -3023,7 +3053,7 @@ function WorkspaceMirrorsPanel({ workspaceSnapshot }: { workspaceSnapshot: Brain
                       typeof item.score === 'number' ? `score ${item.score}` : null,
                     ]}
                     detail={item.audience_consequence || null}
-                    href={item.source_url || null}
+                    href={safeExternalHttpsUrl(item.source_url)}
                     hrefLabel="Open source"
                     composerHref={buildWorkspaceMirrorPostingHref({
                       originType: 'workspace_recommendation',
@@ -3116,7 +3146,7 @@ function WorkspaceMirrorsPanel({ workspaceSnapshot }: { workspaceSnapshot: Brain
                       typeof item.evaluation?.overall === 'number' ? `eval ${item.evaluation.overall.toFixed(1)}` : null,
                       typeof item.ranking?.total === 'number' ? `rank ${item.ranking.total.toFixed(1)}` : null,
                     ]}
-                    href={item.source_url || null}
+                    href={safeExternalHttpsUrl(item.source_url)}
                     hrefLabel="Open post"
                     composerHref={buildWorkspaceMirrorPostingHref({
                       originType: 'workspace_feed',
@@ -3211,8 +3241,8 @@ function MirrorItemCard({
               Draft in FEEZIE
             </Link>
           )}
-          {href && (
-            <a href={href} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+          {safeExternalHttpsUrl(href) && (
+            <a href={safeExternalHttpsUrl(href) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
               {hrefLabel || 'Open'}
             </a>
           )}
@@ -3641,7 +3671,7 @@ function BriefStreamPanel({
       setMessage(`Saved to Persona as ${humanizeResponseKind(reactionKind)}. It is now in the Brain review flow.`);
       await onRefresh();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Unable to save this brief reaction right now.');
+      setError(ownerSafeErrorMessage(submitError, 'Unable to save this brief reaction right now.'));
     } finally {
       setSaving(false);
     }
@@ -3733,9 +3763,9 @@ function BriefStreamPanel({
                 >
                   Comment on this
                 </Link>
-                {item.source_url && (
+                {safeExternalHttpsUrl(item.source_url) && (
                   <a
-                    href={item.source_url}
+                    href={safeExternalHttpsUrl(item.source_url) ?? undefined}
                       target="_blank"
                       rel="noreferrer"
                       style={{
@@ -4005,8 +4035,14 @@ function PersonaPanel({
     return [...combined].sort((left, right) => timestampMs(right.delta.created_at) - timestampMs(left.delta.created_at));
   }, [mutedActiveReviewDeltas, primaryActiveReviewDeltas, showMutedActive]);
   const reviewQueue = useMemo(() => visibleActiveReviewDeltas.map((item) => item.delta), [visibleActiveReviewDeltas]);
+  const personaSourceGroups = useMemo(() => groupPersonaReviewDeltas(reviewQueue), [reviewQueue]);
   const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
   const [reflectionText, setReflectionText] = useState('');
+  const [mobilePersonaSheet, setMobilePersonaSheet] = useState<PersonaMobileSheet>(null);
+  const [hasUnconfirmedPersonaDraft, setHasUnconfirmedPersonaDraft] = useState(false);
+  const [personaDraftReadyDeltaId, setPersonaDraftReadyDeltaId] = useState('');
+  const [personaDraftStorageError, setPersonaDraftStorageError] = useState<string | null>(null);
+  const personaSwipeStartX = useRef<number | null>(null);
   const [reflectionState, setReflectionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
     tone: 'idle',
     message: '',
@@ -4043,14 +4079,14 @@ function PersonaPanel({
     } catch (queueError) {
       setPersonaRefreshState({
         tone: 'error',
-        message: queueError instanceof Error ? queueError.message : 'Unable to queue the Persona review refresh.',
+        message: ownerSafeErrorMessage(queueError, 'Unable to queue the Persona review refresh.'),
       });
     } finally {
       setIsQueueingPersonaRefresh(false);
     }
   }
   const [triageWorkspaceKeys, setTriageWorkspaceKeys] = useState<string[]>(['shared_ops']);
-  const [triageStandupKind, setTriageStandupKind] = useState<'auto' | 'executive_ops' | 'operations' | 'weekly_review' | 'saturday_vision' | 'workspace_sync'>('auto');
+  const [triageStandupKind, setTriageStandupKind] = useState<PersonaStandupKind>('auto');
   const [triagePMTitle, setTriagePMTitle] = useState('');
   const [showTriageControls, setShowTriageControls] = useState(true);
   const [triageState, setTriageState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({ tone: 'idle', message: '' });
@@ -4058,6 +4094,18 @@ function PersonaPanel({
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
     [reviewQueue, selectedDeltaId],
+  );
+  const selectedPersonaPosition = useMemo(
+    () => findPersonaReviewPosition(personaSourceGroups, selectedDelta?.id),
+    [personaSourceGroups, selectedDelta?.id],
+  );
+  const previousPersonaDeltaId = useMemo(
+    () => adjacentPersonaReviewDeltaId(personaSourceGroups, selectedDelta?.id, 'previous'),
+    [personaSourceGroups, selectedDelta?.id],
+  );
+  const nextPersonaDeltaId = useMemo(
+    () => adjacentPersonaReviewDeltaId(personaSourceGroups, selectedDelta?.id, 'next'),
+    [personaSourceGroups, selectedDelta?.id],
   );
   const selectActiveDelta = useCallback(
     (deltaId: string | null, historyMode: 'push' | 'replace' = 'push') => {
@@ -4073,7 +4121,7 @@ function PersonaPanel({
   const targetFile = selectedDelta ? metadataText(selectedDelta.metadata, 'target_file') : null;
   const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
   const [promotionFragmentView, setPromotionFragmentView] = useState<PromotionFragmentView>('recommended');
-  const [selectedResponseKind, setSelectedResponseKind] = useState<'agree' | 'disagree' | 'nuance' | 'story' | 'language'>('nuance');
+  const [selectedResponseKind, setSelectedResponseKind] = useState<PersonaResponseKind>('nuance');
   const baseSelectableItems = useMemo(() => buildPromotionItems(selectedDelta, targetFile), [selectedDelta, targetFile]);
   const selectableItems = useMemo(
     () => applyPromotionTargetOverrides(baseSelectableItems, promotionItemTargetOverrides),
@@ -4228,6 +4276,14 @@ function PersonaPanel({
       ),
     [selectedDelta],
   );
+  const relatedOwnerPositions = useMemo(
+    () => metadataArray(selectedDelta?.metadata, 'related_owner_positions').filter(isUnknownRecord),
+    [selectedDelta],
+  );
+  const ownerResponseHistory = useMemo(
+    () => metadataArray(selectedDelta?.metadata, 'owner_response_history').filter(isUnknownRecord),
+    [selectedDelta],
+  );
   const triageWorkspaceSelection = useMemo(() => (triageWorkspaceKeys.length > 0 ? triageWorkspaceKeys : suggestedWorkspaceKeys), [suggestedWorkspaceKeys, triageWorkspaceKeys]);
   const triageExecutionPreviews = useMemo(
     () =>
@@ -4266,6 +4322,7 @@ function PersonaPanel({
   const sourceTitle = metadataText(selectedDelta?.metadata, 'evidence_source') ?? metadataText(selectedDelta?.metadata, 'source_asset_id') ?? selectedDelta?.trait ?? 'Untitled source';
   const sourceChannel = metadataText(selectedDelta?.metadata, 'source_channel') ?? metadataText(selectedDelta?.metadata, 'source_type');
   const sourceUrl = metadataText(selectedDelta?.metadata, 'source_url');
+  const sourceThumbnailUrl = youtubeThumbnailUrl(sourceUrl);
   const sourcePath = metadataText(selectedDelta?.metadata, 'source_path');
   const sourceExcerpt =
     metadataText(selectedDelta?.metadata, 'source_excerpt_clean') ??
@@ -4274,6 +4331,9 @@ function PersonaPanel({
     selectedDelta?.notes?.trim() ??
     null;
   const sourceContextExcerpt = metadataText(selectedDelta?.metadata, 'source_context_excerpt');
+  const sourceDisplayTitle = normalizeBrainDisplayText(sourceTitle);
+  const sourceDisplayExcerpt = normalizeBrainDisplayText(sourceExcerpt || selectedDelta?.trait || '');
+  const sourceDisplayContextExcerpt = sourceContextExcerpt ? normalizeBrainDisplayText(sourceContextExcerpt) : null;
   const sourceContextBefore = metadataStringArray(selectedDelta?.metadata, 'source_context_before');
   const sourceContextAfter = metadataStringArray(selectedDelta?.metadata, 'source_context_after');
   const personaPostingHref = useMemo(
@@ -4366,6 +4426,7 @@ function PersonaPanel({
   const requestedLifecycleTitle = requestedLifecycleView
     ? lifecycleGroups.find((group) => group.key === requestedLifecycleView)?.title ?? 'Canon Audit'
     : null;
+  const usePersonaPhoneLayout = viewportWidth <= PERSONA_PHONE_MAX_WIDTH;
   const stackPersonaShell = viewportWidth < 1220;
   const stackPersonaDetail = viewportWidth < 1480;
   const usePinnedPersonaViewport = viewportWidth >= 1180 && viewportHeight >= 760;
@@ -4435,7 +4496,7 @@ function PersonaPanel({
       })
       .catch((contextError) => {
         if (cancelled) return;
-        setPersonaContextError(contextError instanceof Error ? contextError.message : 'Unable to load current canon context.');
+        setPersonaContextError(ownerSafeErrorMessage(contextError, 'Unable to load current canon context.'));
       })
       .finally(() => {
         if (cancelled) return;
@@ -4489,41 +4550,76 @@ function PersonaPanel({
   }, [reviewQueue, selectedDelta, selectedDeltaId]);
 
   useEffect(() => {
+    const draft = selectedDelta ? readPersonaReviewDraft(selectedDelta.id) : null;
     const existingItems = readPromotionItemsFromMetadata(selectedDelta?.metadata);
     const existingIds = existingItems.map((item) => item.id);
     const availableIds = new Set(selectableItems.map((item) => item.id));
-    setSelectedPromotionItemIds(existingIds.filter((itemId) => availableIds.has(itemId)));
-  }, [selectedDelta?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- Initialize once per review item; polling must not overwrite owner selection.
+    const recommendedIds = recommendedSelectableItems.map((item) => item.id);
+    const defaultIds = existingIds.length > 0 ? existingIds : recommendedIds;
+    const existingResponseKind = metadataText(selectedDelta?.metadata, 'owner_response_kind');
 
-  useEffect(() => {
-    const existing = metadataText(selectedDelta?.metadata, 'owner_response_kind');
-    if (existing === 'agree' || existing === 'disagree' || existing === 'nuance' || existing === 'story' || existing === 'language') {
-      setSelectedResponseKind(existing);
-      return;
-    }
-    setSelectedResponseKind('nuance');
-  }, [selectedDelta?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- Initialize once per review item; polling must not overwrite owner selection.
-
-  useEffect(() => {
-    setReflectionText(metadataText(selectedDelta?.metadata, 'owner_response_excerpt') ?? '');
-    setReflectionState({ tone: 'idle', message: '' });
-  }, [selectedDelta?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- Initialize once per review item; polling must not overwrite owner writing.
-
-  useEffect(() => {
-    setPromotionItemTargetOverrides({});
-  }, [selectedDelta?.id]);
-
-  useEffect(() => {
-    setRouteToMemory(false);
-    setRouteToStandup(false);
-    setRouteToPM(false);
+    setSelectedPromotionItemIds(
+      (draft ? draft.selectedPromotionItemIds : defaultIds).filter((itemId) => availableIds.has(itemId)),
+    );
+    setSelectedResponseKind(
+      draft?.responseKind ?? (isPersonaResponseKind(existingResponseKind) ? existingResponseKind : 'nuance'),
+    );
+    setReflectionText(draft?.reflectionText ?? metadataText(selectedDelta?.metadata, 'owner_response_excerpt') ?? '');
+    setPromotionItemTargetOverrides(draft?.promotionItemTargetOverrides ?? {});
+    setRouteToMemory(draft?.routeToMemory ?? false);
+    setRouteToStandup(draft?.routeToStandup ?? false);
+    setRouteToPM(draft?.routeToPM ?? false);
     setShowTriageControls(true);
-    setTriageMemoryTargets(['persistent_state']);
-    setTriageWorkspaceKeys(suggestedWorkspaceKeys);
-    setTriageStandupKind('auto');
-    setTriagePMTitle(selectedDelta ? defaultBrainPMTitle(selectedDelta) : '');
+    setTriageMemoryTargets(draft?.triageMemoryTargets ?? ['persistent_state']);
+    setTriageWorkspaceKeys(draft?.triageWorkspaceKeys ?? suggestedWorkspaceKeys);
+    setTriageStandupKind(draft?.triageStandupKind ?? 'auto');
+    setTriagePMTitle(draft?.triagePMTitle ?? (selectedDelta ? defaultBrainPMTitle(selectedDelta) : ''));
+    setHasUnconfirmedPersonaDraft(Boolean(draft));
+    setPersonaDraftReadyDeltaId(selectedDelta?.id ?? '');
+    setPersonaDraftStorageError(null);
+    setMobilePersonaSheet(null);
+    setReflectionState({ tone: 'idle', message: '' });
     setTriageState({ tone: 'idle', message: '' });
-  }, [selectedDelta?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- Initialize once per review item; polling must not overwrite owner routing choices.
+  }, [selectedDelta?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- Initialize once per review item; polling must not overwrite owner writing or routing choices.
+
+  useEffect(() => {
+    if (!selectedDelta || personaDraftReadyDeltaId !== selectedDelta.id || !hasUnconfirmedPersonaDraft) return;
+    const timeoutId = window.setTimeout(() => {
+      const stored = writePersonaReviewDraft({
+        schema: 'brain_persona_review_draft/v1',
+        deltaId: selectedDelta.id,
+        reflectionText,
+        responseKind: selectedResponseKind,
+        selectedPromotionItemIds,
+        promotionItemTargetOverrides,
+        routeToMemory,
+        routeToStandup,
+        routeToPM,
+        triageMemoryTargets,
+        triageWorkspaceKeys,
+        triageStandupKind,
+        triagePMTitle,
+        updatedAt: new Date().toISOString(),
+      });
+      setPersonaDraftStorageError(stored ? null : 'This draft could not be retained on this device. Save before leaving this claim.');
+    }, 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    hasUnconfirmedPersonaDraft,
+    personaDraftReadyDeltaId,
+    promotionItemTargetOverrides,
+    reflectionText,
+    routeToMemory,
+    routeToPM,
+    routeToStandup,
+    selectedDelta,
+    selectedPromotionItemIds,
+    selectedResponseKind,
+    triageMemoryTargets,
+    triagePMTitle,
+    triageStandupKind,
+    triageWorkspaceKeys,
+  ]);
 
   async function postPromotionCommit(deltaId: string) {
     return controlApiPost<BrainPromotionResponse>(`/api/brain/persona-promote/${encodeURIComponent(deltaId)}`, null, {
@@ -4571,7 +4667,7 @@ function PersonaPanel({
     } catch (error) {
       setPromotionState({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to commit this promotion right now.',
+        message: ownerSafeErrorMessage(error, 'Unable to commit this promotion right now.'),
       });
     } finally {
       setPromotingDeltaId(null);
@@ -4600,14 +4696,23 @@ function PersonaPanel({
     } catch (error) {
       setPromotionState({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to reroute this promotion right now.',
+        message: ownerSafeErrorMessage(error, 'Unable to reroute this promotion right now.'),
       });
     } finally {
       setReroutingDeltaId(null);
     }
   }
 
+  function markPersonaReviewDraftUnconfirmed() {
+    setHasUnconfirmedPersonaDraft(true);
+    setPersonaDraftStorageError(null);
+    if (reflectionState.tone !== 'idle') {
+      setReflectionState({ tone: 'idle', message: '' });
+    }
+  }
+
   function setPromotionItemTarget(itemId: string, nextTarget: string) {
+    markPersonaReviewDraftUnconfirmed();
     setPromotionItemTargetOverrides((current) => {
       const updated = { ...current };
       updated[itemId] = nextTarget;
@@ -4618,6 +4723,7 @@ function PersonaPanel({
   function applyBulkPromotionTarget(nextTarget: string) {
     const targetIds = selectedPromotionItems.length > 0 ? selectedPromotionItems.map((item) => item.id) : selectableItems.map((item) => item.id);
     if (targetIds.length === 0) return;
+    markPersonaReviewDraftUnconfirmed();
     setPromotionItemTargetOverrides((current) => {
       const updated = { ...current };
       for (const itemId of targetIds) {
@@ -4630,6 +4736,7 @@ function PersonaPanel({
   function resetBulkPromotionTargets() {
     const targetIds = selectedPromotionItems.length > 0 ? selectedPromotionItems.map((item) => item.id) : selectableItems.map((item) => item.id);
     if (targetIds.length === 0) return;
+    markPersonaReviewDraftUnconfirmed();
     setPromotionItemTargetOverrides((current) => {
       const updated = { ...current };
       for (const itemId of targetIds) {
@@ -4639,10 +4746,11 @@ function PersonaPanel({
     });
   }
 
-  function queueTemplate(kind: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
+  function queueTemplate(kind: PersonaResponseKind) {
     if (!selectedDelta) {
       return;
     }
+    markPersonaReviewDraftUnconfirmed();
     setSelectedResponseKind(kind);
     const prefix =
       kind === 'agree'
@@ -4662,6 +4770,7 @@ function PersonaPanel({
     if (!selectedDelta) {
       return;
     }
+    markPersonaReviewDraftUnconfirmed();
     const subject = sourceTitle || selectedDelta.trait;
     const template =
       kind === 'not_useful'
@@ -4676,8 +4785,17 @@ function PersonaPanel({
     setReflectionState({ tone: 'idle', message: '' });
   }
 
-  async function saveReflection(mode: 'reviewed' | 'approved' = 'reviewed', options: { routeAfterSave?: boolean } = {}) {
+  async function saveReflection(
+    mode: 'reviewed' | 'approved' = 'reviewed',
+    options: {
+      routeAfterSave?: boolean;
+      advanceAfterSave?: boolean;
+      nextDeltaId?: string | null;
+      advanceLabel?: 'claim' | 'source' | 'review item';
+    } = {},
+  ) {
     const routeAfterSave = options.routeAfterSave ?? false;
+    const advanceAfterSave = options.advanceAfterSave ?? false;
     const trimmedReflection = reflectionText.trim();
     const effectivePromotionItems =
       mode === 'approved' && selectedPromotionItems.length === 0 && recommendedSelectableItems.length > 0
@@ -4689,7 +4807,7 @@ function PersonaPanel({
       (mode === 'approved' && effectivePromotionItems.length > 0
         ? `Approved canon fragments from "${sourceTitle || selectedDelta?.trait || 'this source'}".`
         : '');
-    const keepSelectableSourceOpen = mode === 'reviewed' && selectableItems.length > 0 && !routeAfterSave;
+    const keepSelectableSourceOpen = mode === 'reviewed' && selectableItems.length > 0 && !routeAfterSave && !advanceAfterSave;
     const effectivePromotionTargetFiles = Array.from(
       new Set(effectivePromotionItems.map((item) => item.targetFile).filter((value): value is string => Boolean(value))),
     );
@@ -4784,10 +4902,10 @@ function PersonaPanel({
               setLifecycleView('pending_promotion');
               setPromotionState({
                 tone: 'error',
-                message:
-                  promoteError instanceof Error
-                    ? `Your canon selection was saved, but committing to canon failed: ${promoteError.message}`
-                    : 'Your canon selection was saved, but committing to canon failed.',
+                message: ownerSafeErrorMessage(
+                  promoteError,
+                  'Your canon selection was saved, but committing to canon failed.',
+                ),
               });
               canonOutcome = 'queued';
             }
@@ -4814,7 +4932,7 @@ function PersonaPanel({
             setTriageState({ tone: 'success', message });
           } catch (routeError) {
             routeFailureMessage =
-              routeError instanceof Error ? routeError.message : 'Unable to route this reviewed signal right now.';
+              ownerSafeErrorMessage(routeError, 'Unable to route this reviewed signal right now.');
             setTriageState({
               tone: 'error',
               message: routeFailureMessage,
@@ -4823,20 +4941,33 @@ function PersonaPanel({
         }
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
+      const configuredNextDeltaId = options.nextDeltaId;
+      const resolvedNextDeltaId =
+        configuredNextDeltaId === null
+          ? null
+          : configuredNextDeltaId && nextQueue.some((delta) => delta.id === configuredNextDeltaId)
+          ? configuredNextDeltaId
+          : nextQueue[0]?.id ?? null;
+      if (selectedDelta) {
+        removePersonaReviewDraft(selectedDelta.id);
+        setHasUnconfirmedPersonaDraft(false);
+        setPersonaDraftReadyDeltaId('');
+      }
       await refreshBrainData();
       if (selectedDelta && !keepSelectableSourceOpen) {
         setCompletedDeltaIds((current) => (current.includes(selectedDelta.id) ? current : [...current, selectedDelta.id]));
       }
-      selectActiveDelta(keepSelectableSourceOpen ? selectedDelta?.id ?? null : nextQueue[0]?.id ?? null, 'replace');
+      selectActiveDelta(keepSelectableSourceOpen ? selectedDelta?.id ?? null : resolvedNextDeltaId, 'replace');
       setReflectionText('');
+      const advanceNoun = options.advanceLabel ?? 'review item';
       const baseMessage = keepSelectableSourceOpen
         ? `Saved to Open Brain as capture ${result.capture_id}. This source stays open so you can select canonical items when ready.`
-        : nextQueue[0]
+        : resolvedNextDeltaId
         ? mode === 'approved'
           ? canonOutcome === 'committed'
-            ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. Moving to the next review item.`
-            : `Saved to Open Brain as capture ${result.capture_id} and saved ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} as a canon selection. Moving to the next review item.`
-          : `Saved to Open Brain as capture ${result.capture_id}. Moving to the next review item.`
+            ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. Moving to the next ${advanceNoun}.`
+            : `Saved to Open Brain as capture ${result.capture_id} and saved ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} as a canon selection. Moving to the next ${advanceNoun}.`
+          : `Saved to Open Brain as capture ${result.capture_id}. Moving to the next ${advanceNoun}.`
         : mode === 'approved'
         ? canonOutcome === 'committed'
           ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. You are done for now.`
@@ -4851,7 +4982,7 @@ function PersonaPanel({
     } catch (saveError) {
       setReflectionState({
         tone: 'error',
-        message: saveError instanceof Error ? saveError.message : 'Unable to save reflection right now.',
+        message: ownerSafeErrorMessage(saveError, 'Unable to save reflection right now.'),
       });
     } finally {
       setIsSavingReflection(false);
@@ -4862,11 +4993,13 @@ function PersonaPanel({
   }
 
   function toggleMemoryTarget(target: string) {
+    markPersonaReviewDraftUnconfirmed();
     setTriageMemoryTargets((current) => (current.includes(target) ? current.filter((entry) => entry !== target) : [...current, target]));
     setTriageState({ tone: 'success', message: `Canonical memory target updated: ${humanizeCanonicalMemoryTarget(target)}.` });
   }
 
   function toggleTriageWorkspace(target: string) {
+    markPersonaReviewDraftUnconfirmed();
     setTriageWorkspaceKeys((current) => {
       if (current.includes(target)) {
         return current.length === 1 ? current : current.filter((entry) => entry !== target);
@@ -4877,6 +5010,7 @@ function PersonaPanel({
   }
 
   function toggleRouteTarget(route: 'memory' | 'standup' | 'pm') {
+    markPersonaReviewDraftUnconfirmed();
     setShowTriageControls(true);
     if (route === 'memory') {
       const next = !routeToMemory;
@@ -4896,6 +5030,7 @@ function PersonaPanel({
   }
 
   function applyTriagePreset(preset: (typeof brainTriagePresetOptions)[number]['key']) {
+    markPersonaReviewDraftUnconfirmed();
     setShowTriageControls(true);
     if (preset === 'canon_only') {
       setRouteToMemory(true);
@@ -4980,7 +5115,7 @@ function PersonaPanel({
     }
     return routeBits.length > 0
       ? `Brain routed this signal to ${triageWorkspaceSelection.map(labelForBrainWorkspace).join(', ')}: ${routeBits.join(' · ')}.`
-      : result.message || 'Brain triage updated.';
+      : ownerSafeErrorMessage(result.message, 'Brain triage updated.');
   }
 
   async function submitRouteForDelta(deltaId: string, effectiveReflection: string, promotionItems: PromotionItem[] = selectedPromotionItems) {
@@ -5029,14 +5164,16 @@ function PersonaPanel({
     } catch (routeError) {
       setTriageState({
         tone: 'error',
-        message: routeError instanceof Error ? routeError.message : 'Unable to route this reviewed signal right now.',
+        message: ownerSafeErrorMessage(routeError, 'Unable to route this reviewed signal right now.'),
       });
     } finally {
       setIsRoutingSignal(false);
     }
   }
 
-  async function finalizeReviewedSignal() {
+  async function finalizeReviewedSignal(
+    options: { advanceAfterSave?: boolean; nextDeltaId?: string | null; advanceLabel?: 'claim' | 'source' | 'review item' } = {},
+  ) {
     if (!selectedDelta) {
       setReflectionState({ tone: 'error', message: 'Choose a review item before finalizing it.' });
       return;
@@ -5059,7 +5196,642 @@ function PersonaPanel({
     }
     await saveReflection(canonActionItems.length > 0 ? 'approved' : 'reviewed', {
       routeAfterSave: hasRouteTargets,
+      advanceAfterSave: options.advanceAfterSave,
+      nextDeltaId: options.nextDeltaId,
+      advanceLabel: options.advanceLabel,
     });
+  }
+
+  function persistCurrentPersonaDraftNow() {
+    if (!selectedDelta || !hasUnconfirmedPersonaDraft) return true;
+    const stored = writePersonaReviewDraft({
+      schema: 'brain_persona_review_draft/v1',
+      deltaId: selectedDelta.id,
+      reflectionText,
+      responseKind: selectedResponseKind,
+      selectedPromotionItemIds,
+      promotionItemTargetOverrides,
+      routeToMemory,
+      routeToStandup,
+      routeToPM,
+      triageMemoryTargets,
+      triageWorkspaceKeys,
+      triageStandupKind,
+      triagePMTitle,
+      updatedAt: new Date().toISOString(),
+    });
+    setPersonaDraftStorageError(stored ? null : 'This draft could not be retained on this device. Save before leaving this claim.');
+    return stored;
+  }
+
+  function selectMobilePersonaDelta(deltaId: string | null) {
+    if (!deltaId) return;
+    if (deltaId === selectedDelta?.id) {
+      setMobilePersonaSheet(null);
+      return;
+    }
+    if (!persistCurrentPersonaDraftNow()) return;
+    setMobilePersonaSheet(null);
+    selectActiveDelta(deltaId, 'replace');
+  }
+
+  const mobileAdvanceLabel: 'claim' | 'source' =
+    selectedPersonaPosition && selectedPersonaPosition.claimIndex < selectedPersonaPosition.source.deltas.length - 1 ? 'claim' : 'source';
+
+  async function saveMobilePersonaReview() {
+    await saveReflection('reviewed', {
+      advanceAfterSave: true,
+      nextDeltaId: nextPersonaDeltaId,
+      advanceLabel: mobileAdvanceLabel,
+    });
+  }
+
+  async function finalizeMobilePersonaReview() {
+    setMobilePersonaSheet(null);
+    await finalizeReviewedSignal({
+      advanceAfterSave: true,
+      nextDeltaId: nextPersonaDeltaId,
+      advanceLabel: mobileAdvanceLabel,
+    });
+  }
+
+  const mobileClaimNumber = (selectedPersonaPosition?.claimIndex ?? 0) + 1;
+  const mobileClaimCount = selectedPersonaPosition?.source.deltas.length ?? (selectedDelta ? 1 : 0);
+  const mobileSourceNumber = (selectedPersonaPosition?.sourceIndex ?? 0) + 1;
+  const mobileProgressPercent = mobileClaimCount > 0 ? Math.max(8, (mobileClaimNumber / mobileClaimCount) * 100) : 0;
+  const mobileSaveDisabled = isFinalizePending || (!reflectionText.trim() && !savedResponseExcerpt);
+  const mobileSaveLabel = isFinalizePending
+    ? 'Saving…'
+    : nextPersonaDeltaId
+    ? `Save & next ${mobileAdvanceLabel}`
+    : 'Save & finish';
+
+  if (usePersonaPhoneLayout) {
+    return (
+      <section
+        aria-label="Persona mobile review"
+        style={{
+          position: 'relative',
+          height: 'min(660px, calc(100dvh - 184px))',
+          minHeight: '520px',
+          overflow: 'hidden',
+          borderRadius: '18px',
+          border: '1px solid #1f2937',
+          backgroundColor: '#010617',
+          display: 'grid',
+          gridTemplateRows: 'auto minmax(0, 1fr) auto',
+          boxShadow: '0 18px 44px rgba(2, 6, 23, 0.32)',
+        }}
+      >
+        <header
+          style={{
+            minHeight: '46px',
+            padding: '6px 9px',
+            borderBottom: '1px solid #172036',
+            backgroundColor: '#020617',
+            display: 'grid',
+            gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+            gap: '8px',
+            alignItems: 'center',
+          }}
+        >
+          <button type="button" onClick={() => setMobilePersonaSheet('queue')} style={personaPhoneIconButtonStyle()} aria-label="Open source queue">
+            ‹
+          </button>
+          <div style={{ minWidth: 0, textAlign: 'center' }}>
+            <p style={{ color: '#f8fafc', fontSize: '14px', fontWeight: 700, margin: 0 }}>Persona Review</p>
+            <p style={{ color: '#64748b', fontSize: '11px', margin: '2px 0 0' }}>
+              Source {mobileSourceNumber} of {personaSourceGroups.length || 1}
+            </p>
+          </div>
+          <span style={{ color: '#38bdf8', fontSize: '12px', whiteSpace: 'nowrap' }}>
+            {selectedDelta ? `${mobileClaimNumber} of ${mobileClaimCount}` : '—'}
+          </span>
+        </header>
+
+        {selectedDelta ? (
+          <div style={{ minHeight: 0, overflowY: 'auto', padding: '8px 9px', display: 'grid', alignContent: 'start', gap: '6px' }}>
+            <section
+              style={{
+                boxSizing: 'border-box',
+                minHeight: '70px',
+                borderRadius: '12px',
+                border: '1px solid #1e3a8a',
+                backgroundColor: '#0f172a',
+                padding: '7px',
+                display: 'grid',
+                gridTemplateColumns: '92px minmax(0, 1fr) auto',
+                gap: '8px',
+                alignItems: 'center',
+              }}
+            >
+              <div
+                style={{
+                  position: 'relative',
+                  height: '54px',
+                  overflow: 'hidden',
+                  borderRadius: '8px',
+                  backgroundColor: '#172554',
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: '#93c5fd',
+                  fontSize: '11px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                {sourceThumbnailUrl ? (
+                  <Image src={sourceThumbnailUrl} alt="" fill sizes="92px" style={{ objectFit: 'cover' }} />
+                ) : (
+                  sourceChannel || 'Source'
+                )}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ color: '#38bdf8', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 3px' }}>
+                  {sourceChannel || 'Source'}
+                </p>
+                <p
+                  style={{
+                    color: '#e2e8f0',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    lineHeight: 1.35,
+                    margin: 0,
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {sourceDisplayTitle}
+                </p>
+              </div>
+              {safeExternalHttpsUrl(sourceUrl) ? (
+                <a
+                  href={safeExternalHttpsUrl(sourceUrl) ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open source"
+                  style={{ ...personaPhoneIconButtonStyle(), display: 'grid', placeItems: 'center', textDecoration: 'none' }}
+                >
+                  ↗
+                </a>
+              ) : (
+                <span style={{ width: '34px' }} />
+              )}
+            </section>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '34px minmax(0, 1fr) 34px', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                aria-label="Previous claim"
+                disabled={!previousPersonaDeltaId}
+                onClick={() => selectMobilePersonaDelta(previousPersonaDeltaId)}
+                style={personaPhoneIconButtonStyle(!previousPersonaDeltaId)}
+              >
+                ‹
+              </button>
+              <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, textAlign: 'center', margin: 0 }}>
+                Claim {mobileClaimNumber} of {mobileClaimCount}
+              </p>
+              <button
+                type="button"
+                aria-label="Next claim"
+                disabled={!nextPersonaDeltaId}
+                onClick={() => selectMobilePersonaDelta(nextPersonaDeltaId)}
+                style={personaPhoneIconButtonStyle(!nextPersonaDeltaId)}
+              >
+                ›
+              </button>
+            </div>
+            <div
+              role="progressbar"
+              aria-label="Claim progress for this source"
+              aria-valuemin={1}
+              aria-valuemax={Math.max(1, mobileClaimCount)}
+              aria-valuenow={mobileClaimNumber}
+              style={{ height: '4px', overflow: 'hidden', borderRadius: '999px', backgroundColor: '#1e293b' }}
+            >
+              <div style={{ width: `${mobileProgressPercent}%`, height: '100%', backgroundColor: '#38bdf8' }} />
+            </div>
+
+            <article
+              onTouchStart={(event) => {
+                personaSwipeStartX.current = event.changedTouches[0]?.clientX ?? null;
+              }}
+              onTouchEnd={(event) => {
+                if (personaSwipeStartX.current === null) return;
+                const endX = event.changedTouches[0]?.clientX ?? personaSwipeStartX.current;
+                const distance = endX - personaSwipeStartX.current;
+                personaSwipeStartX.current = null;
+                if (Math.abs(distance) < 45) return;
+                selectMobilePersonaDelta(distance < 0 ? nextPersonaDeltaId : previousPersonaDeltaId);
+              }}
+              style={{
+                boxSizing: 'border-box',
+                borderRadius: '12px',
+                border: '1px solid #0e7490',
+                backgroundColor: '#082f49',
+                padding: '10px 11px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}
+            >
+              <p style={{ color: '#67e8f9', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
+                {reviewSource === 'long_form_media.segment' ? 'External source claim' : 'Persona claim'}
+              </p>
+              <p style={{ color: '#f8fafc', fontSize: '15px', lineHeight: 1.4, margin: 0 }}>
+                {truncateText(sourceDisplayExcerpt, 280)}
+              </p>
+              <p style={{ color: '#94a3b8', fontSize: '11px', margin: 0 }}>
+                {sourceContextExcerpt ? 'Context attached' : 'Source excerpt'} · swipe left or right
+              </p>
+            </article>
+
+            <section style={{ display: 'grid', gap: '5px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline' }}>
+                <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, margin: 0 }}>AI found these useful</p>
+                <span style={{ color: '#94a3b8', fontSize: '11px' }}>{selectedPromotionItems.length} selected</span>
+              </div>
+              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                {rankedSelectableItems.slice(0, 3).map((item) => {
+                  const checked = selectedPromotionItemIds.includes(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={checked}
+                      onClick={() => {
+                        markPersonaReviewDraftUnconfirmed();
+                        setSelectedPromotionItemIds((current) =>
+                          current.includes(item.id) ? current.filter((entry) => entry !== item.id) : [...current, item.id],
+                        );
+                      }}
+                      style={personaPhoneChipStyle(checked)}
+                    >
+                      {humanizePromotionKind(item.kind)}
+                    </button>
+                  );
+                })}
+                {rankedSelectableItems.length === 0 && <span style={{ color: '#64748b', fontSize: '11px' }}>No canon fragments suggested.</span>}
+                {rankedSelectableItems.length > 3 && (
+                  <button type="button" onClick={() => setMobilePersonaSheet('details')} style={personaPhoneChipStyle(false)}>
+                    +{rankedSelectableItems.length - 3} details
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <section style={{ display: 'grid', gap: '5px' }}>
+              <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, margin: 0 }}>Your response</p>
+              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                {([
+                  ['agree', 'Agree'],
+                  ['disagree', 'Disagree'],
+                  ['nuance', 'Nuance'],
+                  ['story', 'Personal story'],
+                  ['language', 'Wording'],
+                ] as const).map(([kind, label]) => (
+                  <button key={kind} type="button" aria-pressed={selectedResponseKind === kind} onClick={() => queueTemplate(kind)} style={personaPhoneChipStyle(selectedResponseKind === kind)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                aria-label="Your persona review response"
+                value={reflectionText}
+                onChange={(event) => {
+                  markPersonaReviewDraftUnconfirmed();
+                  setReflectionText(event.target.value);
+                }}
+                placeholder="Type or dictate your response…"
+                style={{
+                  boxSizing: 'border-box',
+                  width: '100%',
+                  minHeight: '80px',
+                  maxHeight: '104px',
+                  resize: 'none',
+                  borderRadius: '10px',
+                  border: '1px solid #334155',
+                  backgroundColor: '#010617',
+                  color: '#e2e8f0',
+                  padding: '9px 10px',
+                  fontSize: '14px',
+                  lineHeight: 1.45,
+                }}
+              />
+            </section>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+              <button type="button" onClick={() => setMobilePersonaSheet('details')} style={personaPhoneChipStyle(false)}>
+                Review details · {selectedPromotionItems.length} selected
+              </button>
+              <span style={{ color: '#64748b', fontSize: '10px', textAlign: 'right' }}>Canon + routing</span>
+            </div>
+
+            <p
+              role={personaDraftStorageError || reflectionState.tone === 'error' ? 'alert' : 'status'}
+              aria-live="polite"
+              style={{
+                minHeight: '16px',
+                color: personaDraftStorageError || reflectionState.tone === 'error' ? '#f87171' : '#38bdf8',
+                fontSize: '11px',
+                lineHeight: 1.35,
+                margin: 0,
+              }}
+            >
+              {personaDraftStorageError ||
+                reflectionState.message ||
+                (hasUnconfirmedPersonaDraft
+                  ? 'Unconfirmed draft kept on this device · excluded from canon, Dream, and learning.'
+                  : savedResponseExcerpt
+                  ? 'Saved response loaded.'
+                  : 'Nothing saved yet.')}
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', placeItems: 'center', padding: '24px', textAlign: 'center' }}>
+            <div>
+              <p style={{ color: activeReviewEmptyState.tone, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 8px' }}>
+                {activeReviewEmptyState.eyebrow}
+              </p>
+              <h3 style={{ color: '#f8fafc', fontSize: '22px', margin: '0 0 8px' }}>{activeReviewEmptyState.title}</h3>
+              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{activeReviewEmptyState.message}</p>
+            </div>
+          </div>
+        )}
+
+        <footer
+          style={{
+            minHeight: '54px',
+            borderTop: '1px solid #172036',
+            backgroundColor: '#020617',
+            padding: '8px 9px 10px',
+            display: 'grid',
+            gridTemplateColumns: '42px minmax(0, 1fr)',
+            gap: '8px',
+          }}
+        >
+          <button
+            type="button"
+            aria-label="Previous claim"
+            disabled={!previousPersonaDeltaId || isFinalizePending}
+            onClick={() => selectMobilePersonaDelta(previousPersonaDeltaId)}
+            style={personaPhoneIconButtonStyle(!previousPersonaDeltaId || isFinalizePending)}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={() => void saveMobilePersonaReview()}
+            disabled={mobileSaveDisabled}
+            style={{
+              borderRadius: '10px',
+              border: '1px solid #38bdf8',
+              backgroundColor: mobileSaveDisabled ? '#0f172a' : '#38bdf8',
+              color: mobileSaveDisabled ? '#64748b' : '#082f49',
+              minHeight: '38px',
+              fontSize: '14px',
+              fontWeight: 700,
+              cursor: mobileSaveDisabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {mobileSaveLabel}
+          </button>
+        </footer>
+
+        {mobilePersonaSheet && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 5,
+              backgroundColor: '#020617dd',
+              display: 'flex',
+              alignItems: 'flex-end',
+              padding: '8px',
+            }}
+            onClick={(event) => {
+              if (event.currentTarget === event.target) setMobilePersonaSheet(null);
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-label={mobilePersonaSheet === 'queue' ? 'Persona source queue' : 'Persona review details'}
+              style={{
+                boxSizing: 'border-box',
+                width: '100%',
+                maxHeight: 'calc(100% - 12px)',
+                overflowY: 'auto',
+                borderRadius: '18px',
+                border: '1px solid #334155',
+                backgroundColor: '#020617',
+                padding: '14px',
+                display: 'grid',
+                gap: '12px',
+                boxShadow: '0 -18px 44px rgba(2, 6, 23, 0.5)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                <div>
+                  <p style={{ color: '#38bdf8', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 3px' }}>
+                    {mobilePersonaSheet === 'queue' ? 'Source queue' : 'Advanced controls'}
+                  </p>
+                  <h3 style={{ color: '#f8fafc', fontSize: '18px', margin: 0 }}>
+                    {mobilePersonaSheet === 'queue' ? `${personaSourceGroups.length} sources ready` : 'Review details'}
+                  </h3>
+                </div>
+                <button type="button" aria-label="Close" onClick={() => setMobilePersonaSheet(null)} style={personaPhoneIconButtonStyle()}>
+                  ×
+                </button>
+              </div>
+
+              {mobilePersonaSheet === 'queue' ? (
+                <>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {personaSourceGroups.map((group, sourceIndex) => {
+                      const representative = group.deltas[0];
+                      const active = group.deltas.some((delta) => delta.id === selectedDelta?.id);
+                      return (
+                        <button
+                          key={group.key}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => selectMobilePersonaDelta(active ? selectedDelta?.id ?? representative.id : representative.id)}
+                          style={{
+                            borderRadius: '12px',
+                            border: `1px solid ${active ? '#38bdf8' : '#1f2937'}`,
+                            backgroundColor: active ? '#082f49' : '#010617',
+                            color: '#e2e8f0',
+                            padding: '10px 11px',
+                            textAlign: 'left',
+                            display: 'grid',
+                            gap: '4px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <span style={{ color: '#38bdf8', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                            Source {sourceIndex + 1} · {group.deltas.length} claim{group.deltas.length === 1 ? '' : 's'}
+                          </span>
+                          <span style={{ fontSize: '13px', fontWeight: 700 }}>{normalizeBrainDisplayText(reviewQueueCardTitle(representative))}</span>
+                          <span style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45 }}>{truncateText(normalizeBrainDisplayText(reviewQueueCardSummary(representative)), 140)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void queuePersonaReviewRefresh()}
+                    disabled={isQueueingPersonaRefresh}
+                    style={brainSmallButtonStyle(isQueueingPersonaRefresh)}
+                  >
+                    {isQueueingPersonaRefresh ? 'Queueing…' : 'Refresh Persona Queue on Mac'}
+                  </button>
+                  {personaRefreshState.message && (
+                    <p
+                      role={personaRefreshState.tone === 'success' ? 'status' : 'alert'}
+                      aria-live={personaRefreshState.tone === 'success' ? 'polite' : undefined}
+                      style={{
+                        color: personaRefreshState.tone === 'success' ? '#22c55e' : '#f87171',
+                        fontSize: '11px',
+                        lineHeight: 1.5,
+                        margin: 0,
+                      }}
+                    >
+                      {personaRefreshState.message}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <section style={{ display: 'grid', gap: '7px', paddingTop: '9px', borderTop: '1px solid #1f2937' }}>
+                    <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, margin: 0 }}>Source call</p>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <QuickFillButton label="Not useful" onClick={() => seedSourceDecision('not_useful')} />
+                      <QuickFillButton label="Useful source" onClick={() => seedSourceDecision('source_only')} />
+                      <QuickFillButton label="Post idea" onClick={() => seedSourceDecision('post_seed')} />
+                      <QuickFillButton label="Memory / canon" onClick={() => seedSourceDecision('canon_candidate')} />
+                    </div>
+                  </section>
+
+                  {rankedSelectableItems.length > 0 && (
+                    <section style={{ display: 'grid', gap: '7px', paddingTop: '9px', borderTop: '1px solid #1f2937' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, margin: 0 }}>Canon fragments</p>
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>{selectedPromotionItems.length} selected</span>
+                      </div>
+                      <div style={{ display: 'grid', gap: '7px' }}>
+                        {rankedSelectableItems.map((item) => {
+                          const checked = selectedPromotionItemIds.includes(item.id);
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              aria-pressed={checked}
+                              onClick={() => {
+                                markPersonaReviewDraftUnconfirmed();
+                                setSelectedPromotionItemIds((current) =>
+                                  current.includes(item.id) ? current.filter((entry) => entry !== item.id) : [...current, item.id],
+                                );
+                              }}
+                              style={{
+                                borderRadius: '11px',
+                                border: `1px solid ${checked ? '#38bdf8' : '#334155'}`,
+                                backgroundColor: checked ? '#082f49' : '#010617',
+                                color: '#e2e8f0',
+                                padding: '9px 10px',
+                                textAlign: 'left',
+                                display: 'grid',
+                                gap: '4px',
+                              }}
+                            >
+                              <span style={{ fontSize: '12px', fontWeight: 700 }}>{checked ? '✓ ' : ''}{humanizePromotionKind(item.kind)}</span>
+                              <span style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45 }}>{truncateText(normalizeBrainDisplayText(item.content), 180)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
+
+                  <section style={{ display: 'grid', gap: '7px', paddingTop: '9px', borderTop: '1px solid #1f2937' }}>
+                    <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, margin: 0 }}>Optional routing</p>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <button type="button" aria-pressed={routeToMemory} onClick={() => toggleRouteTarget('memory')} style={personaPhoneChipStyle(routeToMemory)}>Canonical memory</button>
+                      <button type="button" aria-pressed={routeToStandup} onClick={() => toggleRouteTarget('standup')} style={personaPhoneChipStyle(routeToStandup)}>Standup queue</button>
+                      <button type="button" aria-pressed={routeToPM} onClick={() => toggleRouteTarget('pm')} style={personaPhoneChipStyle(routeToPM)}>PM queue</button>
+                    </div>
+                    {routeToStandup && (
+                      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                        {brainStandupKindOptions.map((kind) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            aria-pressed={triageStandupKind === kind}
+                            onClick={() => {
+                              markPersonaReviewDraftUnconfirmed();
+                              setTriageStandupKind(kind);
+                            }}
+                            style={personaPhoneChipStyle(triageStandupKind === kind)}
+                          >
+                            {compactStandupKind(kind)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {routeToPM && (
+                      <input
+                        value={triagePMTitle}
+                        onChange={(event) => {
+                          markPersonaReviewDraftUnconfirmed();
+                          setTriagePMTitle(event.target.value);
+                        }}
+                        aria-label="PM title"
+                        style={{ ...brainInputStyle, padding: '8px 10px' }}
+                      />
+                    )}
+                  </section>
+
+                  {(sourceContextExcerpt || relatedOwnerPositions.length > 0 || ownerResponseHistory.length > 1) && (
+                    <details style={{ paddingTop: '9px', borderTop: '1px solid #1f2937' }}>
+                      <summary style={{ color: '#38bdf8', fontSize: '12px', cursor: 'pointer' }}>Context and prior positions</summary>
+                      {sourceDisplayContextExcerpt && <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5 }}>{truncateText(sourceDisplayContextExcerpt, 700)}</p>}
+                      {relatedOwnerPositions.slice(0, 3).map((position, index) => (
+                        <p key={readRecordString(position, 'delta_id') || index} style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
+                          Position {index + 1}: {truncateText(readRecordString(position, 'excerpt') || 'Saved owner position', 260)}
+                        </p>
+                      ))}
+                    </details>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '4px' }}>
+                    <button type="button" onClick={() => setMobilePersonaSheet(null)} style={personaPhoneChipStyle(false)}>Done</button>
+                    <button
+                      type="button"
+                      onClick={() => void finalizeMobilePersonaReview()}
+                      disabled={isFinalizePending || finalizeActionDisabled}
+                      style={{
+                        borderRadius: '10px',
+                        border: '1px solid #f59e0b',
+                        backgroundColor: isFinalizePending || finalizeActionDisabled ? '#111827' : '#f59e0b',
+                        color: isFinalizePending || finalizeActionDisabled ? '#64748b' : '#0f172a',
+                        minHeight: '38px',
+                        fontWeight: 700,
+                        cursor: isFinalizePending || finalizeActionDisabled ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {isFinalizePending ? 'Finalizing…' : 'Finalize'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
+        )}
+      </section>
+    );
   }
 
   return (
@@ -5260,7 +6032,7 @@ function PersonaPanel({
                       id={personaDeltaElementId(delta.id)}
                       type="button"
                       aria-pressed={isActive}
-                      onClick={() => selectActiveDelta(delta.id)}
+                      onClick={() => selectMobilePersonaDelta(delta.id)}
                       style={{
                         textAlign: 'left',
                         borderRadius: '14px',
@@ -5391,8 +6163,8 @@ function PersonaPanel({
                         {sourceExcerpt ? truncateText(sourceExcerpt, compactPersonaChrome ? 340 : 520) : 'No clean excerpt is attached to this review item yet.'}
                       </p>
                     </div>
-                    {sourceUrl && (
-                      <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ ...brainLinkButtonStyle, justifySelf: 'start', whiteSpace: 'nowrap' }}>
+                    {safeExternalHttpsUrl(sourceUrl) && (
+                      <a href={safeExternalHttpsUrl(sourceUrl) ?? undefined} target="_blank" rel="noreferrer" style={{ ...brainLinkButtonStyle, justifySelf: 'start', whiteSpace: 'nowrap' }}>
                         Open source
                       </a>
                     )}
@@ -5401,6 +6173,60 @@ function PersonaPanel({
                     <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 6px' }}>Decision prompt</p>
                     <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{reviewAsk}</p>
                   </div>
+                  {relatedOwnerPositions.length > 0 && (
+                    <div style={{ borderRadius: '12px', border: '1px solid #0e7490', backgroundColor: '#082f4933', padding: '10px 12px', display: 'grid', gap: '8px' }}>
+                      <div>
+                        <p style={{ color: '#67e8f9', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 5px' }}>Prior owner positions</p>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                          These are your saved responses, not external claims or automatic canon. Use them to say what held, changed, or became more nuanced.
+                        </p>
+                      </div>
+                      {relatedOwnerPositions.map((position, index) => {
+                        const positionSequence = typeof position.position_sequence === 'number' ? position.position_sequence : index + 1;
+                        const sourceTitle = readRecordString(position, 'source_title') || 'Related source';
+                        const responseKind = readRecordString(position, 'response_kind') || 'nuance';
+                        const excerpt = readRecordString(position, 'excerpt');
+                        const createdAt = readRecordString(position, 'created_at');
+                        return (
+                          <div key={readRecordString(position, 'delta_id') || `${sourceTitle}-${index}`} style={{ borderRadius: '10px', border: '1px solid #164e63', backgroundColor: '#020617', padding: '9px 10px' }}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                              <InlineBadge label={`Position ${positionSequence}`} tone="#38bdf8" />
+                              <InlineBadge label={humanizeSavedResponseKind(responseKind)} tone="#818cf8" />
+                              {createdAt && <InlineBadge label={formatTimestamp(createdAt)} tone="#64748b" />}
+                            </div>
+                            <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 600, margin: '0 0 4px' }}>{sourceTitle}</p>
+                            {excerpt && <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{truncateText(excerpt, 360)}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {ownerResponseHistory.length > 1 && (
+                    <div style={{ borderRadius: '12px', border: '1px solid #4338ca', backgroundColor: '#1e1b4b22', padding: '10px 12px', display: 'grid', gap: '8px' }}>
+                      <div>
+                        <p style={{ color: '#a5b4fc', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 5px' }}>This response over time</p>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                          Earlier answers remain visible. The system does not decide whether they conflict, reinforce one another, or represent a changed view.
+                        </p>
+                      </div>
+                      {ownerResponseHistory.map((entry, index) => {
+                        const revision = typeof entry.revision === 'number' ? entry.revision : index + 1;
+                        const responseKind = readRecordString(entry, 'response_kind') || 'nuance';
+                        const excerpt = readRecordString(entry, 'excerpt');
+                        const recordedAt = readRecordString(entry, 'recorded_at');
+                        return (
+                          <div key={`${revision}-${recordedAt || index}`} style={{ borderRadius: '10px', border: '1px solid #312e81', backgroundColor: '#020617', padding: '9px 10px' }}>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: excerpt ? '6px' : 0 }}>
+                              <InlineBadge label={`Revision ${revision}`} tone="#818cf8" />
+                              <InlineBadge label={humanizeSavedResponseKind(responseKind)} tone="#a78bfa" />
+                              {recordedAt && <InlineBadge label={formatTimestamp(recordedAt)} tone="#64748b" />}
+                            </div>
+                            {excerpt && <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{truncateText(excerpt, 360)}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   {selectedDelta.trait && selectedDelta.trait !== sourceExcerpt && (
                     <div style={{ borderRadius: '12px', border: '1px solid #312e81', backgroundColor: '#1e1b4b22', padding: '10px 12px' }}>
                       <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>System claim candidate</p>
@@ -5551,14 +6377,20 @@ function PersonaPanel({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedPromotionItemIds(recommendedSelectableItems.map((item) => item.id))}
+                        onClick={() => {
+                          markPersonaReviewDraftUnconfirmed();
+                          setSelectedPromotionItemIds(recommendedSelectableItems.map((item) => item.id));
+                        }}
                         style={triageChoiceButtonStyle(false)}
                       >
                         Select recommended
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedPromotionItemIds([])}
+                        onClick={() => {
+                          markPersonaReviewDraftUnconfirmed();
+                          setSelectedPromotionItemIds([]);
+                        }}
                         style={triageChoiceButtonStyle(false)}
                       >
                         Clear selection
@@ -5593,6 +6425,7 @@ function PersonaPanel({
                                 type="checkbox"
                                 checked={checked}
                                 onChange={() => {
+                                  markPersonaReviewDraftUnconfirmed();
                                   setSelectedPromotionItemIds((current) =>
                                     current.includes(item.id) ? current.filter((entry) => entry !== item.id) : [...current, item.id],
                                   );
@@ -5859,7 +6692,10 @@ function PersonaPanel({
                           <button
                             key={kind}
                             type="button"
-                            onClick={() => setTriageStandupKind(kind)}
+                            onClick={() => {
+                              markPersonaReviewDraftUnconfirmed();
+                              setTriageStandupKind(kind);
+                            }}
                             style={triageChoiceButtonStyle(triageStandupKind === kind)}
                           >
                             {compactStandupKind(kind)}
@@ -5873,7 +6709,10 @@ function PersonaPanel({
                       <span style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>PM title</span>
                       <input
                         value={triagePMTitle}
-                        onChange={(event) => setTriagePMTitle(event.target.value)}
+                        onChange={(event) => {
+                          markPersonaReviewDraftUnconfirmed();
+                          setTriagePMTitle(event.target.value);
+                        }}
                         placeholder={selectedDelta ? defaultBrainPMTitle(selectedDelta) : 'Operationalize reviewed signal'}
                         style={{ ...brainInputStyle, padding: '8px 10px' }}
                       />
@@ -5941,6 +6780,7 @@ function PersonaPanel({
                   aria-label="Your persona review response"
                   value={reflectionText}
                   onChange={(event) => {
+                    markPersonaReviewDraftUnconfirmed();
                     setReflectionText(event.target.value);
                     if (reflectionState.tone !== 'idle') {
                       setReflectionState({ tone: 'idle', message: '' });
@@ -7062,7 +7902,7 @@ function DocsPanel({
       })
       .catch((contentError) => {
         if (cancelled) return;
-        setDocContentError(contentError instanceof Error ? contentError.message : 'Unable to load document content.');
+        setDocContentError(ownerSafeErrorMessage(contentError, 'Unable to load document content.'));
       })
       .finally(() => {
         if (cancelled) return;
@@ -7306,6 +8146,34 @@ function triageChoiceButtonStyle(active: boolean) {
   };
 }
 
+function personaPhoneChipStyle(active: boolean) {
+  return {
+    borderRadius: '9px',
+    border: active ? '1px solid #38bdf8' : '1px solid #334155',
+    backgroundColor: active ? '#082f49' : '#020617',
+    color: active ? '#e0f2fe' : '#cbd5f5',
+    minHeight: '30px',
+    padding: '5px 8px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+}
+
+function personaPhoneIconButtonStyle(disabled = false) {
+  return {
+    borderRadius: '9px',
+    border: '1px solid #334155',
+    backgroundColor: '#020617',
+    color: disabled ? '#475569' : '#cbd5f5',
+    minWidth: '34px',
+    minHeight: '34px',
+    padding: '6px',
+    fontSize: '16px',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+  };
+}
+
 function compactLifecycleLabel(key: string) {
   if (key === 'workspace_saved') return 'Saved';
   if (key === 'pending_promotion') return 'Queued';
@@ -7334,6 +8202,96 @@ function metadataStringArray(metadata: Record<string, unknown> | undefined, key:
 
 function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string) {
   return metadata?.[key] === true;
+}
+
+function isPersonaResponseKind(value: unknown): value is PersonaResponseKind {
+  return value === 'agree' || value === 'disagree' || value === 'nuance' || value === 'story' || value === 'language';
+}
+
+function isPersonaStandupKind(value: unknown): value is PersonaStandupKind {
+  return (
+    value === 'auto' ||
+    value === 'executive_ops' ||
+    value === 'operations' ||
+    value === 'weekly_review' ||
+    value === 'saturday_vision' ||
+    value === 'workspace_sync'
+  );
+}
+
+function readPersonaReviewDraft(deltaId: string): PersonaReviewDraft | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PERSONA_REVIEW_DRAFT_STORAGE_KEY) ?? '{}') as Record<string, unknown>;
+    const raw = parsed[deltaId];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const draft = raw as Record<string, unknown>;
+    if (draft.schema !== 'brain_persona_review_draft/v1' || draft.deltaId !== deltaId || !isPersonaResponseKind(draft.responseKind)) return null;
+    const standupKind = isPersonaStandupKind(draft.triageStandupKind) ? draft.triageStandupKind : 'auto';
+    const targetOverrides: Record<string, string> =
+      draft.promotionItemTargetOverrides && typeof draft.promotionItemTargetOverrides === 'object' && !Array.isArray(draft.promotionItemTargetOverrides)
+        ? Object.fromEntries(
+            Object.entries(draft.promotionItemTargetOverrides as Record<string, unknown>)
+              .filter((entry): entry is [string, string] => entry[0].length <= 200 && typeof entry[1] === 'string' && entry[1].length <= 500)
+              .slice(0, 25),
+          )
+        : {};
+    return {
+      schema: 'brain_persona_review_draft/v1',
+      deltaId,
+      reflectionText: typeof draft.reflectionText === 'string' ? draft.reflectionText.slice(0, 20_000) : '',
+      responseKind: draft.responseKind,
+      selectedPromotionItemIds: Array.isArray(draft.selectedPromotionItemIds)
+        ? draft.selectedPromotionItemIds.filter((value): value is string => typeof value === 'string').slice(0, 25)
+        : [],
+      promotionItemTargetOverrides: targetOverrides,
+      routeToMemory: draft.routeToMemory === true,
+      routeToStandup: draft.routeToStandup === true,
+      routeToPM: draft.routeToPM === true,
+      triageMemoryTargets: Array.isArray(draft.triageMemoryTargets)
+        ? draft.triageMemoryTargets.filter((value): value is string => typeof value === 'string').slice(0, 10)
+        : ['persistent_state'],
+      triageWorkspaceKeys: Array.isArray(draft.triageWorkspaceKeys)
+        ? draft.triageWorkspaceKeys.filter((value): value is string => typeof value === 'string').slice(0, 12)
+        : ['shared_ops'],
+      triageStandupKind: standupKind,
+      triagePMTitle: typeof draft.triagePMTitle === 'string' ? draft.triagePMTitle.slice(0, 500) : '',
+      updatedAt: typeof draft.updatedAt === 'string' ? draft.updatedAt : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePersonaReviewDraft(draft: PersonaReviewDraft): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PERSONA_REVIEW_DRAFT_STORAGE_KEY) ?? '{}') as Record<string, unknown>;
+    parsed[draft.deltaId] = draft;
+    const retained = Object.entries(parsed)
+      .filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value))
+      .sort((left, right) => {
+        const leftUpdated = String((left[1] as Record<string, unknown>).updatedAt ?? '');
+        const rightUpdated = String((right[1] as Record<string, unknown>).updatedAt ?? '');
+        return rightUpdated.localeCompare(leftUpdated);
+      })
+      .slice(0, 50);
+    window.localStorage.setItem(PERSONA_REVIEW_DRAFT_STORAGE_KEY, JSON.stringify(Object.fromEntries(retained)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removePersonaReviewDraft(deltaId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PERSONA_REVIEW_DRAFT_STORAGE_KEY) ?? '{}') as Record<string, unknown>;
+    delete parsed[deltaId];
+    window.localStorage.setItem(PERSONA_REVIEW_DRAFT_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // A completed server-side review remains authoritative even if local cleanup is unavailable.
+  }
 }
 
 function stablePromotionItemId(kind: PromotionItemKind, title: string, content: string) {
@@ -7766,7 +8724,7 @@ function formatPromotionSuccessMessage(
   targetFiles: string[] | null | undefined,
   bundleWrittenFiles: string[] | null | undefined,
 ) {
-  const normalized = (baseMessage || '').trim();
+  const normalized = ownerSafeErrorMessage(baseMessage, '');
   const targetSummary = summarizeCommittedTargetFiles(targetFiles);
   const syncSummary = humanizeLocalBundleSyncState((bundleWrittenFiles || []).length > 0 ? 'synced' : 'pending');
   if (normalized) {
@@ -8696,11 +9654,11 @@ function defaultBrainPMTitle(delta: PersonaDeltaEntry) {
 
 function formatBrainLocalQueueStatus(payload: BrainLocalActionQueuedResponse, subject: string) {
   const jobId = payload.card_id || payload.job_id;
-  const jobSuffix = jobId ? ` Job ${jobId}.` : '';
+  const jobSuffix = jobId && /^[A-Za-z0-9._-]{1,80}$/.test(jobId) ? ` Job ${jobId}.` : '';
   if (payload.disposition === 'already_active') {
     return `${subject} is already active in the signed queue on your Mac.${jobSuffix}`;
   }
-  const backendMessage = payload.message?.trim().replace(/\.$/, '');
+  const backendMessage = ownerSafeErrorMessage(payload.message, '').replace(/\.$/, '');
   return `${backendMessage || `${subject} queued for the signed local runner`}. It will run on your Mac without a model API call.${jobSuffix}`;
 }
 

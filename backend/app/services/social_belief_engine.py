@@ -609,10 +609,17 @@ def _choose_stance(
     article_stance = normalize_inline_text(article_understanding.get("article_stance")).lower()
     world_domains = {str(item).lower() for item in (article_understanding.get("world_domains") or []) if str(item).strip()}
     selected_experience = persona_retrieval.get("selected_experience") or {}
-    has_lived_anchor = bool(normalize_inline_text(selected_experience.get("text") or selected_experience.get("title")))
+    # A title is a retrieval label, not proof that the owner lived the event.
+    has_lived_anchor = bool(
+        normalize_inline_text(
+            selected_experience.get("summary_text")
+            or selected_experience.get("text")
+            or selected_experience.get("core_point")
+        )
+    )
 
     if lane_id == "personal-story":
-        stance = "personal-anchor"
+        stance = "personal-anchor" if has_lived_anchor else "translate"
     elif lane_id == "admissions":
         stance = "personal-anchor" if has_lived_anchor and (article_kind == "news" or {"education", "admissions"} & world_domains) else "translate"
     elif lane_id in {"current-role", "enrollment-management", "therapy", "referral"}:
@@ -717,9 +724,15 @@ def _build_stance_language(stance: str, belief_summary: str, experience_summary:
             "bridge_line": ensure_period(experience_summary),
         }
     if stance == "personal-anchor":
+        if not normalize_inline_text(experience_summary):
+            return {
+                "stance_comment_open": "The concrete context is what changes the reading.",
+                "stance_repost_open": "The context behind this matters more than the abstraction.",
+                "bridge_line": "",
+            }
         return {
-            "stance_comment_open": "I have seen some version of this up close.",
-            "stance_repost_open": "This feels familiar for a reason.",
+            "stance_comment_open": "The lived detail is what changes the reading.",
+            "stance_repost_open": "The concrete experience is the part worth carrying forward.",
             "bridge_line": ensure_period(experience_summary),
         }
     if stance == "systemize":

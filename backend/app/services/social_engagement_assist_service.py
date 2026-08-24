@@ -487,14 +487,46 @@ class SocialEngagementAssistService:
             str(payload["draft_artifact_id"]),
             expected_sha256=str(payload["draft_sha256"]),
         )
+        lineage = self._stored_projection_lineage(
+            source_id=str(payload["source_id"]),
+            artifact_id=str(payload["visible_text_artifact_id"]),
+        )
         return {
             **payload,
+            **lineage,
             "event_id": event["event_id"],
             "visible_text": visible_text,
             "draft_text": draft_text,
             "provenance": json.loads(str(event["provenance_json"])),
             "allowed_actions": sorted(ALLOWED_ASSISTED_ACTIONS),
             "prohibited_backend_actions": sorted(PROHIBITED_PLATFORM_MUTATIONS),
+        }
+
+    def _stored_projection_lineage(self, *, source_id: str, artifact_id: str) -> dict[str, str | None]:
+        with self.store.connection() as connection:
+            evidence = connection.execute(
+                """SELECT evidence_id FROM evidence_records
+                   WHERE source_id=? AND artifact_id=? AND extractor_name=? AND extractor_version=?
+                   ORDER BY created_at DESC, evidence_id DESC LIMIT 1""",
+                (source_id, artifact_id, EVIDENCE_EXTRACTOR_NAME, EVIDENCE_EXTRACTOR_VERSION),
+            ).fetchone()
+            interpretation = (
+                connection.execute(
+                    """SELECT interpretation_id FROM interpretations
+                       WHERE evidence_id=? AND lens_name=? AND lens_version=?
+                       ORDER BY created_at DESC, interpretation_id DESC LIMIT 1""",
+                    (
+                        str(evidence["evidence_id"]),
+                        INTERPRETATION_LENS_NAME,
+                        INTERPRETATION_LENS_VERSION,
+                    ),
+                ).fetchone()
+                if evidence
+                else None
+            )
+        return {
+            "evidence_id": str(evidence["evidence_id"]) if evidence else None,
+            "interpretation_id": str(interpretation["interpretation_id"]) if interpretation else None,
         }
 
     def _read_artifact(self, artifact_id: str, *, expected_sha256: str) -> str:

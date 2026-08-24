@@ -24,3 +24,10 @@ test('legacy API client rejects absolute backend URLs', () => {
   );
   assert.doesNotMatch(apiClientSource, /endpoint\.startsWith\(['"]http['"]\)\s*\?/);
 });
+
+test('legacy API client never includes raw upstream bodies in browser errors', () => {
+  assert.doesNotMatch(apiClientSource, /response\.text\(/);
+  assert.doesNotMatch(apiClientSource, /response\.statusText/);
+  assert.doesNotMatch(apiClientSource, /throw error;/);
+  assert.match(apiClientSource, /Your content was not changed/);
+});

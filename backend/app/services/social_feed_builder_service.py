@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.source_feed_signal_service import SourceFeedSignalService
 from app.services.social_signal_archive_service import load_market_signal_archive_records
 from app.services.workspace_snapshot_store import get_snapshot_payload
 from app.services.social_signal_utils import (
@@ -270,6 +272,57 @@ def _read_saved_signals(
         signals_by_id.values(),
         key=lambda item: (
             _clean_text(item.get("published_at") or item.get("created_at")),
+            _clean_text(item.get("id")),
+        ),
+    )
+
+
+def _signal_fingerprint(signal: dict[str, Any]) -> tuple[str, ...]:
+    metadata = signal.get("source_metadata") if isinstance(signal.get("source_metadata"), dict) else {}
+    canonical_source_id = _clean_text(metadata.get("canonical_source_id"))
+    if canonical_source_id:
+        return ("source", canonical_source_id)
+    source_url = _clean_text(signal.get("source_url")).lower()
+    if source_url:
+        return ("url", source_url)
+    return (
+        "fallback",
+        _clean_text(signal.get("source_platform")).lower(),
+        _clean_text(signal.get("title")).lower(),
+        _clean_text(signal.get("published_at")),
+    )
+
+
+def _read_canonical_feed_signals(
+    store: IntegratedSystemStore,
+    *,
+    diagnostics: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        return SourceFeedSignalService(store).load()
+    except Exception:
+        LOGGER.exception("Canonical feed-signal ledger could not be read; compatibility inputs remain available.")
+        if diagnostics is not None:
+            diagnostics.append("canonical_feed_signal_store_unavailable")
+        return []
+
+
+def _merge_signal_inputs(
+    canonical_signals: list[dict[str, Any]],
+    compatibility_signals: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
+    for signal in [*canonical_signals, *compatibility_signals]:
+        fingerprint = _signal_fingerprint(signal)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        merged.append(signal)
+    return sorted(
+        merged,
+        key=lambda item: (
+            _clean_text(item.get("published_at") or item.get("created_at") or item.get("captured_at")),
             _clean_text(item.get("id")),
         ),
     )
@@ -733,12 +786,19 @@ def build_feed(
     workspace_root: Path | None = None,
     *,
     source_workspace_root: Path | None = None,
+    canonical_store: IntegratedSystemStore | None = None,
 ) -> dict[str, Any]:
     resolved_root = workspace_root or discover_linkedin_workspace_root()
     explicit_workspace_root = workspace_root is not None
     watchlist = _load_watchlist(source_workspace_root or resolved_root)
     input_diagnostics: list[str] = []
-    signals = _read_saved_signals(resolved_root, diagnostics=input_diagnostics)
+    canonical_signals = (
+        _read_canonical_feed_signals(canonical_store, diagnostics=input_diagnostics)
+        if canonical_store is not None
+        else []
+    )
+    compatibility_signals = _read_saved_signals(resolved_root, diagnostics=input_diagnostics)
+    signals = _merge_signal_inputs(canonical_signals, compatibility_signals)
     input_health = {
         "status": "degraded" if input_diagnostics else "ready",
         "malformed_signal_count": len(input_diagnostics),

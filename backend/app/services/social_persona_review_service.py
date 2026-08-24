@@ -9,7 +9,13 @@ import yaml
 
 from app.models import PersonaDeltaCreate, PersonaDeltaUpdate
 from app.services import persona_delta_service
-from app.services.social_long_form_signal_service import TARGET_CLAIMS, TARGET_STORIES, TARGET_VOICE, extract_long_form_candidates
+from app.services.social_long_form_signal_service import (
+    DEFAULT_MAX_SEGMENTS_PER_ASSET,
+    TARGET_CLAIMS,
+    TARGET_STORIES,
+    TARGET_VOICE,
+    extract_long_form_candidates,
+)
 
 
 CONTRAST_TERMS = (" not ", " but ", " because ", " however ", " instead ", " rather than ")
@@ -640,6 +646,9 @@ def _needs_existing_refresh(
         "system_experience_hypothesis",
         "source_context_excerpt",
         "weak_source_fragment",
+        "perspective_topic_terms",
+        "related_owner_positions",
+        "perspective_prior_position_count",
     )
     if any(existing_metadata.get(field) != metadata.get(field) for field in refresh_fields):
         return True
@@ -667,7 +676,7 @@ class SocialPersonaReviewService:
         transcripts_root: Path | None = None,
         ingestions_root: Path | None = None,
         max_assets: int = 12,
-        max_segments_per_asset: int = 2,
+        max_segments_per_asset: int = DEFAULT_MAX_SEGMENTS_PER_ASSET,
     ) -> dict[str, Any]:
         extracted = extract_long_form_candidates(
             repo_root=repo_root,
@@ -774,6 +783,36 @@ class SocialPersonaReviewService:
             )
 
             existing_delta = existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key)
+            try:
+                related_owner_positions = persona_delta_service.find_related_owner_perspectives(
+                    texts=(
+                        metadata.get("evidence_source"),
+                        segment,
+                        metadata.get("belief_summary"),
+                        metadata.get("route_reason"),
+                    ),
+                    metadata=metadata,
+                    exclude_delta_id=existing_delta.id if existing_delta else None,
+                    deltas=existing_deltas,
+                )
+            except Exception:
+                related_owner_positions = []
+            metadata["perspective_topic_terms"] = persona_delta_service.perspective_terms(
+                metadata.get("evidence_source"),
+                segment,
+                metadata.get("belief_summary"),
+                metadata.get("route_reason"),
+                metadata.get("lane_hint"),
+            )
+            metadata["related_owner_positions"] = related_owner_positions
+            metadata["perspective_prior_position_count"] = len(related_owner_positions)
+            if related_owner_positions:
+                metadata["review_prompt"] = (
+                    f"The system found {len(related_owner_positions)} related owner position"
+                    f"{'s' if len(related_owner_positions) != 1 else ''}. What is the source actually saying, "
+                    "what has held, changed, or become more nuanced in your view, and should this stay source "
+                    "intelligence, become memory, turn into a post seed, or affect canon?"
+                )
             if existing_delta:
                 existing_metadata = existing_delta.metadata if isinstance(existing_delta.metadata, dict) else {}
                 existing_review_key = _clean_text(existing_metadata.get("review_key"))

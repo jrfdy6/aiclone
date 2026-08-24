@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import NavHeader from '@/components/NavHeader';
 import { apiFetch } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
 
 type IngestJob = {
   id: string;
@@ -51,7 +52,7 @@ export default function JumpstartPage() {
         reasons: (response.headers.get('X-AI-Clone-Degraded-Reasons') || '').split(',').filter(Boolean),
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Drive knowledge import failed.');
+      setError(ownerSafeErrorMessage(cause, 'Drive knowledge import failed.'));
       setState({ firestore: 'degraded', drive: 'degraded', reasons: ['drive_ingest_request_failed'] });
     } finally {
       setRunning(null);

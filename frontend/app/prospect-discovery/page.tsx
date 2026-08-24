@@ -4,6 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import NavHeader from '@/components/NavHeader';
 
 interface Prospect {
@@ -119,10 +121,10 @@ export default function ProspectDiscoveryPage() {
           setSavedMessage(`✓ ${data.total_found} prospects saved to your pipeline`);
         }
       } else {
-        setError(data.error || 'Search failed');
+        setError(ownerSafeErrorMessage(data.error, 'Search failed'));
       }
-    } catch (err: any) {
-      setError(err.message || 'Request failed');
+    } catch (err: unknown) {
+      setError(ownerSafeErrorMessage(err, 'Request failed'));
     } finally {
       setLoading(false);
     }
@@ -159,10 +161,10 @@ export default function ProspectDiscoveryPage() {
           setSavedMessage(`✓ ${data.total_found} prospects saved to your pipeline`);
         }
       } else {
-        setError(data.error || 'Search failed');
+        setError(ownerSafeErrorMessage(data.error, 'Search failed'));
       }
-    } catch (err: any) {
-      setError(err.message || 'Request failed');
+    } catch (err: unknown) {
+      setError(ownerSafeErrorMessage(err, 'Request failed'));
     } finally {
       setLoading(false);
     }
@@ -198,10 +200,10 @@ export default function ProspectDiscoveryPage() {
           setSavedMessage(`✓ ${data.total_found} prospects saved to your pipeline`);
         }
       } else {
-        setError(data.error || 'Scraping failed');
+        setError(ownerSafeErrorMessage(data.error, 'Scraping failed'));
       }
-    } catch (err: any) {
-      setError(err.message || 'Request failed');
+    } catch (err: unknown) {
+      setError(ownerSafeErrorMessage(err, 'Request failed'));
     } finally {
       setLoading(false);
     }
@@ -240,8 +242,8 @@ export default function ProspectDiscoveryPage() {
         setSavedMessage(`✓ ${data.saved_count ?? selectedProspects.size} prospects saved to your pipeline`);
         setSelectedProspects(new Set());
       }
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to save prospects');
+    } catch (err: unknown) {
+      setError(ownerSafeErrorMessage(err, 'Failed to save prospects'));
     } finally {
       setSaving(false);
     }
@@ -627,17 +629,13 @@ export default function ProspectDiscoveryPage() {
                       <td className="px-4 py-4">
                         <div className="flex gap-2 flex-wrap">
                           {prospect.contact.email && (
-                            <a href={`mailto:${prospect.contact.email}`} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors">
-                              Email
-                            </a>
+                            <span className="px-3 py-1 bg-slate-700 text-gray-200 rounded text-sm">Email available</span>
                           )}
                           {prospect.contact.phone && (
-                            <a href={`tel:${prospect.contact.phone}`} className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-500 transition-colors">
-                              Call
-                            </a>
+                            <span className="px-3 py-1 bg-slate-700 text-gray-200 rounded text-sm">Phone available</span>
                           )}
-                          {prospect.source_url && (
-                            <a href={prospect.source_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-slate-600 text-white rounded text-sm hover:bg-slate-500 transition-colors">
+                          {safeExternalHttpsUrl(prospect.source_url) && (
+                            <a href={safeExternalHttpsUrl(prospect.source_url) ?? undefined} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-slate-600 text-white rounded text-sm hover:bg-slate-500 transition-colors">
                               Source
                             </a>
                           )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
 import { possessivePublicName, publicOwnerDisplayName } from '@/lib/public-profile';
 import styles from './neo.module.css';
 import responsiveStyles from './neo-responsive.module.css';
@@ -132,7 +133,7 @@ async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
     });
     const payload = await response.json().catch(() => ({})) as { detail?: unknown };
     if (!response.ok) {
-      const detail = typeof payload.detail === 'string' ? payload.detail : 'Something went wrong. Please try again.';
+      const detail = ownerSafeErrorMessage(payload.detail, 'Something went wrong. Please try again.');
       throw new JsonRequestError(detail, response.status);
     }
     return payload as T;
@@ -336,7 +337,7 @@ export default function NeoClient() {
           return;
         }
         if (job.status === 'failed') {
-          const jobError = typeof job.error_message === 'string' ? job.error_message : '';
+          const jobError = ownerSafeErrorMessage(job.error_message, '');
           forgetActiveResponse();
           setPartialResponse('');
           setResponding(false);
@@ -346,7 +347,7 @@ export default function NeoClient() {
         }
       } catch (issue) {
         if (pollRunRef.current !== runId) return;
-        const message = issue instanceof Error ? issue.message : 'Neo could not check this response.';
+        const message = ownerSafeErrorMessage(issue, 'Neo could not check this response.');
         if (isInvalidGuestSession(issue)) {
           endInvalidSession(message);
           return;
@@ -436,7 +437,7 @@ export default function NeoClient() {
           return;
         } catch (issue) {
           if (!componentMountedRef.current) return;
-          const message = issue instanceof Error ? issue.message : 'Neo could not confirm this response.';
+          const message = ownerSafeErrorMessage(issue, 'Neo could not confirm this response.');
           if (isInvalidGuestSession(issue)) {
             endInvalidSession(message);
             return;
@@ -489,7 +490,7 @@ export default function NeoClient() {
     try {
       await jsonRequest('/api/neo/access', { method: 'POST', body: JSON.stringify({ passcode }) });
       setReady(true); setCheckingSession(false); setPasscode('');
-    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Invite could not be verified.'); }
+    } catch (issue) { setError(ownerSafeErrorMessage(issue, 'Invite could not be verified.')); }
     finally { setBusy(false); }
   }
 
@@ -551,7 +552,7 @@ export default function NeoClient() {
       meetingSubmissionRef.current = null;
       setMeetingSent(true);
     } catch (issue) {
-      const message = issue instanceof Error ? issue.message : 'Meeting request could not be sent.';
+      const message = ownerSafeErrorMessage(issue, 'Meeting request could not be sent.');
       if (isInvalidGuestSession(issue)) endInvalidSession(message);
       else setError(message);
     }

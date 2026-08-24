@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiGet, apiPost } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
 import type { EmailProviderStatusResponse, EmailSyncResponse, EmailThread, EmailThreadListResponse } from '@/lib/email-types';
 import { formatUiNumber, formatUiTimestamp } from '@/lib/ui-dates';
 
@@ -107,7 +108,7 @@ function InboxPageContent() {
       if (cachedPayload) {
         setPayloadState({ payload: cachedPayload, workspaceFilter: nextWorkspaceFilter, humanOnly: nextHumanOnly });
       }
-      setError(issue instanceof Error ? issue.message : 'Unable to load inbox state right now.');
+      setError(ownerSafeErrorMessage(issue, 'Unable to load inbox state right now.'));
     } finally {
       if (loadId === activeLoadId.current) {
         setLoading(false);
@@ -159,7 +160,7 @@ function InboxPageContent() {
       await loadThreads(workspaceFilter, humanOnly);
       await loadProviderStatus();
     } catch (issue) {
-      setSyncState(issue instanceof Error ? issue.message : 'Unable to sync inbox state right now.');
+      setSyncState(ownerSafeErrorMessage(issue, 'Unable to sync inbox state right now.'));
     }
   }
 

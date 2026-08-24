@@ -65,6 +65,29 @@ def _lane_role_posture(lane_id: str) -> str:
     return mapping.get(lane_id, "operator")
 
 
+def _positive_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _owner_position_lineage(candidate: dict[str, Any]) -> dict[str, Any]:
+    source_delta_id = _normalize_inline_text(candidate.get("source_delta_id"))
+    if not source_delta_id:
+        return {}
+    return {
+        "source_delta_id": source_delta_id,
+        "source_capture_id": _normalize_inline_text(candidate.get("source_capture_id")) or None,
+        "resolution_capture_id": _normalize_inline_text(candidate.get("resolution_capture_id")) or None,
+        "owner_response_revision": _positive_int(candidate.get("owner_response_revision")),
+        "perspective_lineage_schema": _normalize_inline_text(candidate.get("perspective_lineage_schema")) or None,
+        "perspective_topic_key": _normalize_inline_text(candidate.get("perspective_topic_key")) or None,
+        "perspective_position_sequence": _positive_int(candidate.get("perspective_position_sequence")),
+        "perspective_prior_position_count": _positive_int(candidate.get("perspective_prior_position_count")),
+    }
+
+
 class SocialOwnerPerspectiveService:
     def build(
         self,
@@ -115,10 +138,6 @@ class SocialOwnerPerspectiveService:
             pushback = _ensure_period(belief_text) if article_kind in {"warning", "trend"} and belief_text else ""
 
         lived_addition = _ensure_period(experience_text)
-        if not lived_addition and belief_assessment.get("experience_anchor"):
-            lived_addition = _ensure_period(
-                f"I have seen some version of this through {belief_assessment.get('experience_anchor')}."
-            )
 
         what_matters_most = _ensure_period(world_stakes or article_understanding.get("world_context"))
         skepticism = ""
@@ -138,6 +157,18 @@ class SocialOwnerPerspectiveService:
             evidence.append(f"experience={selected_experience['title']}")
         if belief_assessment.get("belief_used"):
             evidence.append(f"belief_used={belief_assessment['belief_used']}")
+
+        owner_position_lineage = {
+            "selected_belief": _owner_position_lineage(selected_belief),
+            "selected_experience": _owner_position_lineage(selected_experience),
+        }
+        owner_position_lineage = {
+            key: value for key, value in owner_position_lineage.items() if value
+        }
+        for role, lineage in owner_position_lineage.items():
+            evidence.append(
+                f"{role}_owner_response_revision={lineage['owner_response_revision']}"
+            )
 
         missing_fields = []
         for key, value in {
@@ -164,6 +195,7 @@ class SocialOwnerPerspectiveService:
                 f"The lane is {lane_id}, the article reads as {article_kind or 'analysis'}, and the current stance is {stance or 'reinforce'}."
             ),
             "evidence": evidence,
+            "owner_position_lineage": owner_position_lineage,
             "missing_fields": missing_fields,
         }
 

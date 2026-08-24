@@ -57,4 +57,16 @@ test('non-HTTP job errors are bounded before a component renders them', () => {
     ownerSafeErrorMessage(new Error('Traceback from /private/tmp/decision.py'), 'Decision failed safely.'),
     'Decision failed safely.',
   );
+  assert.equal(
+    ownerSafeErrorMessage(new Error('Failed at https://example.com/path?token=PRIVATE_VALUE'), 'Decision failed safely.'),
+    'Decision failed safely.',
+  );
+  assert.equal(
+    ownerSafeErrorMessage(new Error('{"detail":"PRIVATE_VALUE"}'), 'Decision failed safely.'),
+    'Decision failed safely.',
+  );
+  assert.equal(
+    ownerSafeErrorMessage(new Error('Authorization=Bearer PRIVATE_VALUE'), 'Decision failed safely.'),
+    'Decision failed safely.',
+  );
 });

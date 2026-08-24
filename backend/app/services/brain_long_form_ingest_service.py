@@ -434,6 +434,7 @@ class BrainLongFormIngestService:
         canonical_store: IntegratedSystemStore | None = None,
         submission_ref: str | None = None,
         include_legacy_projection: bool = False,
+        owner_authorship_attested: bool = False,
     ) -> dict[str, Any]:
         """Gate and capture owner-requested long-form intake in canonical storage.
 
@@ -460,16 +461,23 @@ class BrainLongFormIngestService:
                 episode_url=normalized_url,
                 title=title,
                 publisher=author,
-                rights_state="owner_controlled",
+                rights_state=(
+                    "owner_controlled" if owner_authorship_attested else "permitted"
+                ),
+                owner_requested_route=True,
+                owner_authorship_attested=owner_authorship_attested,
             )
         elif normalized_url:
             envelope = long_form_discovery_envelope(
-                capture_route="owner_signed_local_action",
+                capture_route="owner_requested_local_action",
                 external_ref=stable_ref,
                 canonical_url=normalized_url,
                 title=title,
                 author=author,
-                rights_state="owner_controlled",
+                rights_state=(
+                    "owner_controlled" if owner_authorship_attested else "permitted"
+                ),
+                owner_authorship_attested=owner_authorship_attested,
             )
         else:
             envelope = manual_discovery_envelope(
@@ -477,7 +485,10 @@ class BrainLongFormIngestService:
                 submitted_text=submitted_body,
                 title=title,
                 author=author,
-                rights_state="owner_controlled",
+                rights_state=(
+                    "owner_controlled" if owner_authorship_attested else "permitted"
+                ),
+                owner_authorship_attested=owner_authorship_attested,
             )
 
         execution = SourceIntakeExecutionService(canonical_store or IntegratedSystemStore())
@@ -500,7 +511,7 @@ class BrainLongFormIngestService:
                 text=submitted_body,
                 capture_kind=capture_kind,
                 metadata={
-                    "capture_adapter": "owner_signed_long_form",
+                    "capture_adapter": "owner_requested_long_form",
                     "capture_version": "1.0.0",
                 },
             )

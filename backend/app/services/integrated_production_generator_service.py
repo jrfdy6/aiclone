@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
@@ -8,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 import tempfile
 from typing import Any, Mapping, Sequence
@@ -26,7 +28,8 @@ OWNER_VARIANT_STRATEGY = "integrated_linked_variant/v2"
 OWNER_INTEGRITY_GATE_SCHEMA = "integrated_generated_copy_integrity/v1"
 OWNER_VARIANT_INTEGRITY_GATE_SCHEMA = "integrated_generated_variant_integrity/v1"
 OWNER_VOICE_GATE_SCHEMA = "integrated_generated_copy_voice/v1"
-OWNER_PERSONA_GATE_SCHEMA = "integrated_persona_grounding/v1"
+LEGACY_OWNER_PERSONA_GATE_SCHEMA = "integrated_persona_grounding/v1"
+OWNER_PERSONA_GATE_SCHEMA = "integrated_persona_grounding/v2"
 
 CODEX_REMOTE_MODEL = "gpt-5.6-sol"
 CODEX_REMOTE_REASONING_EFFORT = "high"
@@ -36,8 +39,15 @@ REMOTE_PACKET_SCHEMA = "integrated_remote_safe_generation_packet/v2"
 REMOTE_PACKET_RECEIPT_SCHEMA = "integrated_remote_safe_packet_receipt/v1"
 REMOTE_PARENT_BINDING_SCHEMA = "integrated_remote_parent_binding/v1"
 VARIANT_CONTINUITY_SCHEMA = "integrated_variant_continuity_requirements/v1"
-REMOTE_PERSONA_SCHEMA = "integrated_approved_public_persona_projection/v1"
+APPROVED_PUBLIC_PERSONA_SOURCE_SCHEMA = "integrity_pinned_approved_public_persona_source/v1"
+REMOTE_PERSONA_SCHEMA = "integrated_full_system_persona_projection/v1"
+REMOTE_PERSONA_LINEAGE_SCHEMA = "integrated_full_system_persona_lineage/v1"
+REMOTE_PERSONA_ATTRIBUTION_SCHEMA = "integrated_persona_attribution_contract/v1"
+PERSONA_CONTEXT_RECEIPT_SCHEMA = "integrated_local_persona_context_receipt/v1"
+DREAM_MEMORY_READINESS_SCHEMA = "integrated_generation_dream_memory_readiness/v2"
 REMOTE_VOICE_STYLE_PROJECTION_SCHEMA = "remote_voice_style_projection/v1"
+FULL_SYSTEM_GROUNDING_MODE = "full_typed_persona_plus_classified_source_evidence"
+LEGACY_GROUNDING_MODE = "approved_public_persona_plus_classified_source_evidence"
 
 _DEFAULT_TIMEOUT_SECONDS = 240
 _DEFAULT_MINIMUM_VOICE_SCORE = 45.0
@@ -45,6 +55,8 @@ _MAX_REMOTE_PACKET_BYTES = 32_000
 MAX_REMOTE_SOURCE_EXCERPT_CHARS = 3_200
 _MAX_PARENT_BODY_CHARS = 15_000
 _MAX_COPY_CHARS = 15_000
+_DREAM_READINESS_MAX_AGE_SECONDS = 36 * 60 * 60
+_DREAM_READINESS_FUTURE_TOLERANCE_SECONDS = 5 * 60
 _MAX_VARIANT_EVIDENCE_ANCHORS = 6
 _MAX_VARIANT_EVIDENCE_ANCHOR_CHARS = 160
 _AUDIENCES = frozenset(
@@ -103,9 +115,19 @@ _OPAQUE_CREDENTIAL_RE = re.compile(
 _UNSUPPORTED_FIRST_PERSON_EXPERIENCE_RE = re.compile(
     r"\b(?:i|we)\s+(?:(?:have|had)\s+|(?:have|had)\s+personally\s+|personally\s+)?"
     r"(?:built|created|implemented|observed|saw|found|learned|tested|shipped|ran|measured|"
-    r"experienced|worked|used|proved|discovered)\b|"
+    r"experienced|worked|used|proved|discovered|designed|developed|launched|led|managed|"
+    r"migrated|tightened|transformed|delivered|applied|increased|reduced|improved|grew|"
+    r"taught|helped|founded|coached|advised)\b|"
+    r"\b(?:my|our)\s+team\s+(?:built|created|implemented|tested|shipped|ran|measured|"
+    r"designed|developed|launched|led|managed|migrated|delivered|increased|reduced|"
+    r"improved|grew|taught|helped|founded|coached|advised)\b|"
     r"\b(?:my|our)\s+(?:experience|work|research|results?|tests?|measurements?|"
-    r"observations?|findings?)\b",
+    r"observations?|findings?|career|company|organization|school|students?|clients?|customers?)\b",
+    flags=re.IGNORECASE,
+)
+_FIRST_PERSON_WORLDVIEW_RE = re.compile(
+    r"\b(?:i|we)\s+(?:currently\s+|firmly\s+|strongly\s+)?believe\b|"
+    r"\b(?:my|our)\s+(?:belief|view|worldview|position)\b",
     flags=re.IGNORECASE,
 )
 _NUMERIC_TOKEN_RE = re.compile(r"(?<![A-Za-z])\d+(?:[.,]\d+)*(?:%|x)?", flags=re.IGNORECASE)
@@ -113,6 +135,15 @@ _NUMERIC_TOKEN_RE = re.compile(r"(?<![A-Za-z])\d+(?:[.,]\d+)*(?:%|x)?", flags=re
 class IntegratedGenerationResult:
     options: tuple[str, ...]
     receipt: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class FullSystemPersonaContext:
+    projection: Mapping[str, Any]
+    receipt: Mapping[str, Any]
+    factual_support: tuple[str, ...]
+    voice_directives: tuple[str, ...]
+    voice_domain: str | None
 
 
 class CodexRemoteGenerationError(RuntimeError):
@@ -316,7 +347,7 @@ def _validated_public_text_list(raw: Any, *, limit: int, item_chars: int) -> lis
 
 
 def _approved_public_persona_projection(*, thesis: str, audience: str) -> dict[str, Any]:
-    """Select only the integrity-pinned, owner-reviewed public persona pack."""
+    """Select the integrity-pinned public baseline for the full local projection."""
 
     from app.services.neo_public_knowledge_service import (
         PUBLIC_REVIEW_STATUS,
@@ -352,7 +383,7 @@ def _approved_public_persona_projection(*, thesis: str, audience: str) -> dict[s
     if not claims:
         raise RuntimeError("approved-public persona selection produced no claims")
     return {
-        "schema_version": REMOTE_PERSONA_SCHEMA,
+        "schema_version": APPROVED_PUBLIC_PERSONA_SOURCE_SCHEMA,
         "pack_version": _compact_text(pack.get("pack_version"), limit=40),
         "review_status": PUBLIC_REVIEW_STATUS,
         "claims": claims,
@@ -361,7 +392,706 @@ def _approved_public_persona_projection(*, thesis: str, audience: str) -> dict[s
     }
 
 
-def _voice_style_projection(voice_context: Mapping[str, Any]) -> dict[str, Any]:
+def _build_typed_content_context(**kwargs: Any) -> Any:
+    """Late import avoids the existing shared generation-context schema cycle."""
+
+    from app.services.content_generation_context_service import (
+        build_content_generation_context,
+    )
+
+    return build_content_generation_context(**kwargs)
+
+
+def _merge_public_text_groups(
+    groups: Sequence[Sequence[Any]], *, limit: int, item_chars: int
+) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            text = _compact_text(item, limit=item_chars)
+            key = text.casefold()
+            if not text or key in seen:
+                continue
+            _assert_public_safe_string(text, label="full-system persona projection")
+            seen.add(key)
+            merged.append(text)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+def _selected_example_voice_directives(example_chunks: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Convert selected typed examples into style guidance without sending example text."""
+
+    directives: list[str] = []
+    seen: set[str] = set()
+    for item in example_chunks:
+        if not isinstance(item, Mapping):
+            continue
+        metadata = item.get("metadata")
+        if not isinstance(metadata, Mapping) or str(metadata.get("memory_role") or "") != "example":
+            continue
+        text = " ".join(str(item.get("chunk") or "").split()).strip()
+        match = re.search(
+            r"\bWhy it (works|fails):\s*(.+?)(?:\s+Use when:|$)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        quality = _compact_text(match.group(2).strip(" .\"'"), limit=180)
+        if not quality:
+            continue
+        prefix = (
+            "Use these topic-selected owner-voice qualities"
+            if match.group(1).casefold() == "works"
+            else "Avoid these topic-selected voice problems"
+        )
+        directive = _compact_text(f"{prefix}: {quality}.", limit=240)
+        try:
+            _assert_public_safe_string(directive, label="typed example voice directive")
+        except ValueError:
+            continue
+        key = directive.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        directives.append(directive)
+        if len(directives) >= 3:
+            break
+    return directives
+
+
+def _context_source_bucket(item: Mapping[str, Any]) -> str:
+    metadata = item.get("metadata")
+    source_kind = str(metadata.get("source_kind") or "") if isinstance(metadata, Mapping) else ""
+    if source_kind == "canonical_bundle":
+        return "canonical_bundle"
+    if source_kind == "committed_overlay":
+        return "committed_overlay"
+    if source_kind in {"persisted_runtime_context", "runtime_context"} or (
+        isinstance(metadata, Mapping) and metadata.get("runtime_context_backed") is True
+    ):
+        return "persisted_runtime"
+    if source_kind in {"legacy_persona", "legacy_firestore"}:
+        return "legacy_support"
+    if source_kind == "content_safe_operator_lessons":
+        return "dream_safe_lesson"
+    return "other"
+
+
+def _context_selection_descriptors(
+    items: Sequence[Mapping[str, Any]],
+) -> list[dict[str, str]]:
+    descriptors: list[dict[str, str]] = []
+    for item in items:
+        metadata = item.get("metadata")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        role = str(metadata.get("memory_role") or "other")
+        if role not in {"core", "proof", "story", "ambient", "example"}:
+            role = "other"
+        descriptor = {
+            "content_sha256": _sha256_text(str(item.get("chunk") or "")),
+            "reference_sha256": _sha256_text(str(item.get("source_id") or "")),
+            "role": role,
+            "source": _context_source_bucket(item),
+        }
+        source_delta_id = str(metadata.get("source_delta_id") or "").strip()
+        if source_delta_id:
+            descriptor["owner_position_lineage_sha256"] = _sha256_json(
+                {
+                    "source_delta_id": source_delta_id,
+                    "source_capture_id": str(metadata.get("source_capture_id") or ""),
+                    "resolution_capture_id": str(metadata.get("resolution_capture_id") or ""),
+                    "owner_response_revision": int(metadata.get("owner_response_revision") or 0),
+                    "perspective_topic_key": str(metadata.get("perspective_topic_key") or ""),
+                    "perspective_position_sequence": int(metadata.get("perspective_position_sequence") or 0),
+                }
+            )
+        descriptors.append(descriptor)
+    return sorted(descriptors, key=lambda item: _canonical_json(item))
+
+
+def _typed_voice_domain(content_context: Any, *, audience: str) -> str | None:
+    explicit = {
+        "tech_ai": "tech_ai",
+        "leadership": "leadership",
+        "education_admissions": "education",
+        "neurodivergent": "education",
+    }.get(audience)
+    if explicit:
+        return explicit
+    counts = {"tech_ai": 0, "education": 0, "leadership": 0}
+    domain_map = {
+        "ai_systems": "tech_ai",
+        "education_admissions": "education",
+        "neurodivergent_advocacy": "education",
+        "leadership": "leadership",
+    }
+    for item in list(content_context.persona_chunks or []):
+        if not isinstance(item, Mapping):
+            continue
+        metadata = item.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        for domain_tag in metadata.get("domain_tags") or []:
+            voice_domain = domain_map.get(str(domain_tag))
+            if voice_domain:
+                counts[voice_domain] += 1
+    strongest = max(counts, key=lambda key: counts[key])
+    return strongest if counts[strongest] > 0 else None
+
+
+def _typed_content_intent(controls: Mapping[str, str]) -> str:
+    candidate = str(controls.get("value_emphasis") or "").strip().casefold()
+    if candidate == "sales":
+        return "invitation"
+    if candidate in {"value", "invitation", "personal"}:
+        return candidate
+    return "value"
+
+
+def _persona_attribution_records(
+    texts: Sequence[str],
+    *,
+    role: str,
+    first_person_allowed: bool,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "text_sha256": _sha256_text(text),
+            "role": role,
+            "first_person_allowed": first_person_allowed,
+        }
+        for text in texts
+    ]
+
+
+def _persona_attribution_contract(projection: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": REMOTE_PERSONA_ATTRIBUTION_SCHEMA,
+        "claims": _persona_attribution_records(
+            list(projection.get("claims") or []),
+            role="owner_worldview",
+            first_person_allowed=True,
+        ),
+        "proof": _persona_attribution_records(
+            list(projection.get("proof") or []),
+            role="owner_experience_evidence",
+            first_person_allowed=True,
+        ),
+        "stories": _persona_attribution_records(
+            list(projection.get("stories") or []),
+            role="owner_experience_story",
+            first_person_allowed=True,
+        ),
+        "source_evidence_role": "external_attributed_evidence",
+        "voice_role": "style_only_not_factual_evidence",
+        "dream_memory_role": "verified_public_safe_distillation_only",
+    }
+
+
+def _persona_factual_support(projection: Mapping[str, Any]) -> list[str]:
+    attribution = projection.get("attribution_contract")
+    if not isinstance(attribution, Mapping):
+        return []
+    support: list[str] = []
+    for key in ("proof", "stories"):
+        texts = list(projection.get(key) or [])
+        records = attribution.get(key)
+        if not isinstance(records, list) or len(records) != len(texts):
+            continue
+        support.extend(
+            str(text)
+            for text, record in zip(texts, records)
+            if isinstance(record, Mapping)
+            and record.get("first_person_allowed") is True
+            and record.get("text_sha256") == _sha256_text(str(text))
+        )
+    return support
+
+
+def _persona_worldview_support(projection: Mapping[str, Any]) -> list[str]:
+    attribution = projection.get("attribution_contract")
+    if not isinstance(attribution, Mapping):
+        return []
+    texts = list(projection.get("claims") or [])
+    records = attribution.get("claims")
+    if not isinstance(records, list) or len(records) != len(texts):
+        return []
+    return [
+        str(text)
+        for text, record in zip(texts, records)
+        if isinstance(record, Mapping)
+        and record.get("role") == "owner_worldview"
+        and record.get("first_person_allowed") is True
+        and record.get("text_sha256") == _sha256_text(str(text))
+    ]
+
+
+def _dream_memory_readiness_receipt(
+    database_path: Path | None = None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    lanes = (
+        "factual_continuity",
+        "operational_continuity",
+        "reversible_pattern",
+        "identity_candidate",
+    )
+    unavailable = {
+        "schema_version": DREAM_MEMORY_READINESS_SCHEMA,
+        "state": "unavailable",
+        "latest_status": None,
+        "failed_component_present": False,
+        "verified_entry_count": 0,
+        "lane_counts": {lane: 0 for lane in lanes},
+        "readiness_id_sha256": None,
+        "last_verified_memory_at": None,
+        "age_seconds": None,
+        "freshness_reason": "database_unavailable",
+    }
+    try:
+        if database_path is None:
+            from app.services.integrated_system_store import default_database_path
+
+            database_path = default_database_path()
+        resolved = Path(database_path).expanduser().resolve()
+        if not resolved.is_file():
+            return unavailable
+        connection = sqlite3.connect(
+            f"file:{resolved}?mode=ro&immutable=1",
+            uri=True,
+        )
+        connection.row_factory = sqlite3.Row
+        try:
+            latest = connection.execute(
+                """SELECT readiness_id,status,failed_component,last_verified_memory_at,created_at
+                FROM readiness_receipts ORDER BY created_at DESC,readiness_id DESC LIMIT 1"""
+            ).fetchone()
+            rows = connection.execute(
+                """SELECT memory_lane,COUNT(*) AS count FROM structured_memory_entries
+                WHERE verification_status='verified' GROUP BY memory_lane"""
+            ).fetchall()
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error):
+        return unavailable
+    lane_counts = {lane: 0 for lane in lanes}
+    for row in rows:
+        lane = str(row["memory_lane"] or "")
+        if lane in lane_counts:
+            lane_counts[lane] = int(row["count"] or 0)
+    latest_status = str(latest["status"] or "") if latest else None
+    reference_text = str(latest["last_verified_memory_at"] or "") if latest else ""
+    age_seconds: int | None = None
+    freshness_reason = "no_receipt" if latest is None else "invalid_timestamp"
+    if reference_text:
+        try:
+            parsed = datetime.fromisoformat(reference_text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError("readiness timestamp must be timezone-aware")
+            evaluated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+            age_seconds = int((evaluated_at - parsed.astimezone(timezone.utc)).total_seconds())
+            if age_seconds < -_DREAM_READINESS_FUTURE_TOLERANCE_SECONDS:
+                freshness_reason = "future_timestamp"
+            elif age_seconds > _DREAM_READINESS_MAX_AGE_SECONDS:
+                freshness_reason = "stale"
+            else:
+                freshness_reason = "fresh"
+        except (TypeError, ValueError, OverflowError):
+            age_seconds = None
+            freshness_reason = "invalid_timestamp"
+    ready_and_fresh = bool(
+        latest
+        and latest_status == "ready"
+        and not latest["failed_component"]
+        and freshness_reason == "fresh"
+    )
+    state = "ready" if ready_and_fresh else (
+        "degraded" if latest else "unavailable"
+    )
+    if latest and latest_status != "ready" and freshness_reason == "fresh":
+        freshness_reason = "latest_not_ready"
+    return {
+        "schema_version": DREAM_MEMORY_READINESS_SCHEMA,
+        "state": state,
+        "latest_status": latest_status,
+        "failed_component_present": bool(latest and latest["failed_component"]),
+        "verified_entry_count": sum(lane_counts.values()),
+        "lane_counts": lane_counts,
+        "readiness_id_sha256": (
+            _sha256_text(str(latest["readiness_id"])) if latest else None
+        ),
+        "last_verified_memory_at": (
+            str(latest["last_verified_memory_at"] or "") or None if latest else None
+        ),
+        "age_seconds": age_seconds,
+        "freshness_reason": freshness_reason,
+    }
+
+
+def _typed_context_receipt(
+    *,
+    content_context: Any,
+    typed_projection: Mapping[str, Any],
+    remote_projection: Mapping[str, Any],
+    approved_public_pack_sha256: str,
+    voice_domain: str | None,
+    dream_memory_readiness: Mapping[str, Any],
+    source_mode: str,
+) -> dict[str, Any]:
+    persona_items = [
+        item for item in list(content_context.persona_chunks or []) if isinstance(item, Mapping)
+    ]
+    example_items = [
+        item for item in list(content_context.example_chunks or []) if isinstance(item, Mapping)
+    ]
+    all_items = persona_items + example_items
+    role_counts = {key: 0 for key in ("core", "proof", "story", "ambient", "example", "other")}
+    source_counts = {
+        key: 0
+        for key in (
+            "canonical_bundle",
+            "committed_overlay",
+            "persisted_runtime",
+            "legacy_support",
+            "dream_safe_lesson",
+            "other",
+        )
+    }
+    for item in all_items:
+        metadata = item.get("metadata")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        role = str(metadata.get("memory_role") or "other")
+        role = role if role in role_counts else "other"
+        role_counts[role] += 1
+        source_bucket = _context_source_bucket(item)
+        source_counts[source_bucket] += 1
+    descriptors = _context_selection_descriptors(all_items)
+    owner_position_lineage_hashes = sorted(
+        descriptor["owner_position_lineage_sha256"]
+        for descriptor in descriptors
+        if descriptor.get("owner_position_lineage_sha256")
+    )
+
+    def blocked_count(items: Any) -> int:
+        return sum(
+            1
+            for item in (items or [])
+            if isinstance(item, Mapping) and item.get("approval_status") != "auto"
+        )
+
+    policy = dict(content_context.content_release_policy or {})
+    return {
+        "schema_version": PERSONA_CONTEXT_RECEIPT_SCHEMA,
+        "builder": "content_generation_context_service.build_content_generation_context",
+        "source_mode": source_mode,
+        "release_surface": "linkedin_post",
+        "release_policy_version": str(policy.get("policy_version") or ""),
+        "grounding_mode": str(content_context.grounding_mode or ""),
+        "voice_domain": voice_domain,
+        "selected_context_count": len(all_items),
+        "role_counts": role_counts,
+        "source_counts": source_counts,
+        "typed_public_safe_counts": {
+            "claims": len(list(typed_projection.get("claims") or [])),
+            "proof": len(list(typed_projection.get("proof") or [])),
+            "stories": len(list(typed_projection.get("stories") or [])),
+            "voice_directives": len(list(typed_projection.get("voice_directives") or [])),
+        },
+        "blocked_projection_counts": {
+            "claims": blocked_count(content_context.public_safe_primary_claims),
+            "proof": blocked_count(content_context.public_safe_proof_packets),
+            "stories": blocked_count(content_context.public_safe_story_beats),
+        },
+        "selected_context_sha256": _sha256_json(descriptors),
+        "owner_position_lineage_count": len(owner_position_lineage_hashes),
+        "owner_position_lineage_sha256": (
+            _sha256_json(owner_position_lineage_hashes)
+            if owner_position_lineage_hashes
+            else None
+        ),
+        "grounding_reason_sha256": _sha256_text(str(content_context.grounding_reason or "")),
+        "approved_public_pack_sha256": approved_public_pack_sha256,
+        "typed_projection_sha256": _sha256_json(typed_projection),
+        "remote_projection_sha256": _sha256_json(remote_projection),
+        "full_context_connected": True,
+        "raw_private_memory_sent_remote": False,
+        "unreviewed_persona_sent_remote": False,
+        "dream_memory_readiness": dict(dream_memory_readiness),
+    }
+
+
+def _full_system_persona_context(
+    *,
+    thesis: str,
+    audience: str,
+    tone: str,
+    controls: Mapping[str, str],
+    selected_source_context: Mapping[str, Any],
+) -> FullSystemPersonaContext:
+    """Retrieve all typed persona lanes locally and emit only the governed projection."""
+
+    from app.services.neo_public_knowledge_service import (
+        APPROVED_PUBLIC_KNOWLEDGE_SHA256,
+    )
+
+    approved = _approved_public_persona_projection(thesis=thesis, audience=audience)
+    dream_memory_readiness = _dream_memory_readiness_receipt()
+    source_mode = (
+        "verified_memory"
+        if dream_memory_readiness.get("state") == "ready"
+        else "persona_only"
+    )
+    query_context = _compact_text(
+        f"{_source_name(selected_source_context)}. {selected_source_context.get('source_excerpt') or ''}",
+        limit=1_400,
+    )
+    content_context = _build_typed_content_context(
+        user_id=(str(os.getenv("DEFAULT_USER_ID") or "default-user").strip() or "default-user"),
+        topic=thesis,
+        context=query_context,
+        content_type="linkedin_post",
+        category=_typed_content_intent(controls),
+        tone=tone,
+        audience=audience,
+        source_mode=source_mode,
+        include_audit=False,
+        allow_snapshot_rebuild=False,
+    )
+    policy = dict(content_context.content_release_policy or {})
+    if (
+        policy.get("surface") != "public_social"
+        or policy.get("raw_context_access") != "blocked"
+        or not str(policy.get("policy_version") or "")
+    ):
+        raise RuntimeError("full typed persona context has no public-safe release policy")
+    grounding_mode = str(content_context.grounding_mode or "")
+    if grounding_mode not in {"proof_ready", "story_supported", "principle_only"}:
+        raise RuntimeError("full typed persona context has an invalid grounding mode")
+
+    typed_claims = _validated_public_text_list(
+        list(content_context.primary_claims or []), limit=3, item_chars=700
+    )
+    typed_proof = _validated_public_text_list(
+        list(content_context.proof_packets or []), limit=4, item_chars=900
+    )
+    typed_stories = _validated_public_text_list(
+        list(content_context.story_beats or []), limit=3, item_chars=900
+    )
+    framing_modes = _validated_public_text_list(
+        list(content_context.framing_modes or []), limit=4, item_chars=80
+    )
+    disallowed_moves = _validated_public_text_list(
+        list(content_context.disallowed_moves or []), limit=8, item_chars=500
+    )
+    voice_directives = _selected_example_voice_directives(
+        list(content_context.example_chunks or [])
+    )
+    voice_domain = _typed_voice_domain(content_context, audience=audience)
+    typed_projection = {
+        "claims": typed_claims,
+        "proof": typed_proof,
+        "stories": typed_stories,
+        "framing_modes": framing_modes,
+        "disallowed_moves": disallowed_moves,
+        "voice_directives": voice_directives,
+        "grounding_mode": grounding_mode,
+        "release_policy_version": str(policy["policy_version"]),
+    }
+    lineage = {
+        "schema_version": REMOTE_PERSONA_LINEAGE_SCHEMA,
+        "approved_public_pack_sha256": APPROVED_PUBLIC_KNOWLEDGE_SHA256,
+        "typed_context_projection_sha256": _sha256_json(typed_projection),
+        "selected_context_sha256": _sha256_json(
+            _context_selection_descriptors(
+                [
+                    item
+                    for item in list(content_context.persona_chunks or [])
+                    + list(content_context.example_chunks or [])
+                    if isinstance(item, Mapping)
+                ]
+            )
+        ),
+        "release_policy_version": str(policy["policy_version"]),
+        "raw_private_memory_included": False,
+        "unreviewed_persona_included": False,
+    }
+    projection = {
+        "schema_version": REMOTE_PERSONA_SCHEMA,
+        "pack_version": str(approved["pack_version"]),
+        "review_status": str(approved["review_status"]),
+        "grounding_mode": grounding_mode,
+        "claims": _merge_public_text_groups(
+            [typed_claims[:2], list(approved["claims"])[:2], typed_claims[2:], list(approved["claims"])[2:]],
+            limit=4,
+            item_chars=700,
+        ),
+        "proof": _merge_public_text_groups(
+            [typed_proof[:2], list(approved["proof"])[:2], typed_proof[2:], list(approved["proof"])[2:]],
+            limit=4,
+            item_chars=900,
+        ),
+        "stories": _merge_public_text_groups(
+            [typed_stories[:2], list(approved["stories"])[:1], typed_stories[2:], list(approved["stories"])[1:]],
+            limit=3,
+            item_chars=900,
+        ),
+        "framing_modes": framing_modes,
+        "disallowed_moves": disallowed_moves,
+        "lineage": lineage,
+    }
+    projection["attribution_contract"] = _persona_attribution_contract(projection)
+    if not projection["claims"]:
+        raise RuntimeError("full-system persona projection produced no approved claims")
+    _validate_persona_projection(projection)
+    receipt = _typed_context_receipt(
+        content_context=content_context,
+        typed_projection=typed_projection,
+        remote_projection=projection,
+        approved_public_pack_sha256=APPROVED_PUBLIC_KNOWLEDGE_SHA256,
+        voice_domain=voice_domain,
+        dream_memory_readiness=dream_memory_readiness,
+        source_mode=source_mode,
+    )
+    return FullSystemPersonaContext(
+        projection=projection,
+        receipt=receipt,
+        factual_support=tuple(_persona_factual_support(projection)),
+        voice_directives=tuple(voice_directives),
+        voice_domain=voice_domain,
+    )
+
+
+def _validate_persona_projection(raw: Any) -> None:
+    if not isinstance(raw, Mapping) or set(raw) != {
+        "schema_version",
+        "pack_version",
+        "review_status",
+        "grounding_mode",
+        "claims",
+        "proof",
+        "stories",
+        "framing_modes",
+        "disallowed_moves",
+        "lineage",
+        "attribution_contract",
+    }:
+        raise ValueError("full-system persona projection is not closed")
+    if (
+        raw.get("schema_version") != REMOTE_PERSONA_SCHEMA
+        or raw.get("review_status") != "approved_public"
+        or raw.get("grounding_mode")
+        not in {"proof_ready", "story_supported", "principle_only"}
+        or not isinstance(raw.get("pack_version"), str)
+        or raw.get("pack_version") != _compact_text(raw.get("pack_version"), limit=40)
+    ):
+        raise ValueError("full-system persona projection identity is invalid")
+    claims = raw.get("claims")
+    proof = raw.get("proof")
+    stories = raw.get("stories")
+    framing_modes = raw.get("framing_modes")
+    disallowed_moves = raw.get("disallowed_moves")
+    if (
+        not isinstance(claims, list)
+        or not 1 <= len(claims) <= 4
+        or not isinstance(proof, list)
+        or len(proof) > 4
+        or not isinstance(stories, list)
+        or len(stories) > 3
+        or not isinstance(framing_modes, list)
+        or len(framing_modes) > 4
+        or not isinstance(disallowed_moves, list)
+        or len(disallowed_moves) > 8
+    ):
+        raise ValueError("full-system persona projection exceeds its allowlist")
+    if _validated_public_text_list(claims, limit=4, item_chars=700) != claims:
+        raise ValueError("full-system persona claims are not canonical")
+    if _validated_public_text_list(proof, limit=4, item_chars=900) != proof:
+        raise ValueError("full-system persona proof is not canonical")
+    if _validated_public_text_list(stories, limit=3, item_chars=900) != stories:
+        raise ValueError("full-system persona stories are not canonical")
+    if _validated_public_text_list(framing_modes, limit=4, item_chars=80) != framing_modes:
+        raise ValueError("full-system persona framing is not canonical")
+    if _validated_public_text_list(disallowed_moves, limit=8, item_chars=500) != disallowed_moves:
+        raise ValueError("full-system persona guardrails are not canonical")
+    lineage = raw.get("lineage")
+    if not isinstance(lineage, Mapping) or set(lineage) != {
+        "schema_version",
+        "approved_public_pack_sha256",
+        "typed_context_projection_sha256",
+        "selected_context_sha256",
+        "release_policy_version",
+        "raw_private_memory_included",
+        "unreviewed_persona_included",
+    }:
+        raise ValueError("full-system persona lineage is not closed")
+    if (
+        lineage.get("schema_version") != REMOTE_PERSONA_LINEAGE_SCHEMA
+        or not _ARTIFACT_SHA256_RE.fullmatch(
+            str(lineage.get("approved_public_pack_sha256") or "")
+        )
+        or not _ARTIFACT_SHA256_RE.fullmatch(
+            str(lineage.get("typed_context_projection_sha256") or "")
+        )
+        or not _ARTIFACT_SHA256_RE.fullmatch(
+            str(lineage.get("selected_context_sha256") or "")
+        )
+        or not str(lineage.get("release_policy_version") or "")
+        or lineage.get("raw_private_memory_included") is not False
+        or lineage.get("unreviewed_persona_included") is not False
+    ):
+        raise ValueError("full-system persona lineage is invalid")
+    attribution = raw.get("attribution_contract")
+    if not isinstance(attribution, Mapping) or set(attribution) != {
+        "schema_version",
+        "claims",
+        "proof",
+        "stories",
+        "source_evidence_role",
+        "voice_role",
+        "dream_memory_role",
+    }:
+        raise ValueError("full-system persona attribution contract is not closed")
+    if (
+        attribution.get("schema_version") != REMOTE_PERSONA_ATTRIBUTION_SCHEMA
+        or attribution.get("source_evidence_role")
+        != "external_attributed_evidence"
+        or attribution.get("voice_role") != "style_only_not_factual_evidence"
+        or attribution.get("dream_memory_role")
+        != "verified_public_safe_distillation_only"
+    ):
+        raise ValueError("full-system persona attribution roles are invalid")
+    role_expectations = {
+        "claims": ("owner_worldview", True),
+        "proof": ("owner_experience_evidence", True),
+        "stories": ("owner_experience_story", True),
+    }
+    for key, (expected_role, expected_first_person) in role_expectations.items():
+        records = attribution.get(key)
+        texts = raw.get(key)
+        if not isinstance(records, list) or len(records) != len(texts):
+            raise ValueError("full-system persona attribution coverage is incomplete")
+        for text_value, record in zip(texts, records):
+            if (
+                not isinstance(record, Mapping)
+                or set(record)
+                != {"text_sha256", "role", "first_person_allowed"}
+                or record.get("text_sha256") != _sha256_text(str(text_value))
+                or record.get("role") != expected_role
+                or record.get("first_person_allowed") is not expected_first_person
+            ):
+                raise ValueError("full-system persona attribution binding is invalid")
+
+
+def _voice_style_projection(
+    voice_context: Mapping[str, Any],
+    *,
+    context_directives: Sequence[str] = (),
+) -> dict[str, Any]:
     """Project only aggregate shape and short approved-public fragments."""
 
     fingerprint = voice_context.get("fingerprint")
@@ -403,12 +1133,16 @@ def _voice_style_projection(voice_context: Mapping[str, Any]) -> dict[str, Any]:
             break
     if not metrics and not fragments:
         raise RuntimeError("remote generation requires a public-safe owner voice projection")
+    directives = [
+        "Use short paragraphs, direct sentences, and a conversational operator-to-peer cadence.",
+        "Lead with a concrete tension and avoid generic motivational language.",
+    ]
+    directives.extend(
+        _validated_public_text_list(list(context_directives), limit=3, item_chars=240)
+    )
     projection = {
         "schema_version": REMOTE_VOICE_STYLE_PROJECTION_SCHEMA,
-        "directives": [
-            "Use short paragraphs, direct sentences, and a conversational operator-to-peer cadence.",
-            "Lead with a concrete tension and avoid generic motivational language.",
-        ],
+        "directives": directives,
         "metrics": metrics,
         "approved_public_fragments": fragments,
     }
@@ -687,36 +1421,7 @@ def _validate_remote_packet(packet: Mapping[str, Any]) -> None:
         ):
             raise ValueError("remote-safe source URL is invalid")
         _validate_source_sharing(source.get("sharing"))
-        persona = packet.get("approved_persona")
-        if not isinstance(persona, Mapping) or set(persona) != {
-            "schema_version",
-            "pack_version",
-            "review_status",
-            "claims",
-            "proof",
-            "stories",
-        }:
-            raise ValueError("approved-public persona projection is not closed")
-        if (
-            persona.get("schema_version") != REMOTE_PERSONA_SCHEMA
-            or persona.get("review_status") != "approved_public"
-            or not isinstance(persona.get("pack_version"), str)
-            or persona.get("pack_version")
-            != _compact_text(persona.get("pack_version"), limit=40)
-        ):
-            raise ValueError("unreviewed persona material cannot enter remote generation")
-        if (
-            not isinstance(persona.get("claims"), list)
-            or not 1 <= len(persona["claims"]) <= 3
-            or not isinstance(persona.get("proof"), list)
-            or len(persona["proof"]) > 3
-            or not isinstance(persona.get("stories"), list)
-            or len(persona["stories"]) > 2
-        ):
-            raise ValueError("approved-public persona projection exceeds its allowlist")
-        _validated_public_text_list(persona.get("claims"), limit=3, item_chars=700)
-        _validated_public_text_list(persona.get("proof"), limit=3, item_chars=900)
-        _validated_public_text_list(persona.get("stories"), limit=2, item_chars=900)
+        _validate_persona_projection(packet.get("approved_persona"))
     elif job_kind == "linked_variant":
         expected_invariants = {
             "one_result_only",
@@ -797,7 +1502,9 @@ Rules:
 - When a linked variant sets `visible_attribution_required`, retain the exact `public_source_name` in the final copy.
 - Treat all source material as external evidence. Never invent or imply owner firsthand experience.
 - Never invent a person, employer, project, event, metric, result, cause, or source.
-- Approved persona items may shape judgment and framing only. Voice material controls style only and is never evidence.
+- Obey the hash-bound persona `attribution_contract`: `owner_worldview` items shape judgment but do not prove firsthand experience; `owner_experience_evidence` and `owner_experience_story` may support first person only when the exact supplied text supports it; external source evidence always remains attributed to its source; Dream-derived material is admitted only after verified public-safe distillation.
+- Follow the supplied persona grounding mode, framing modes, and disallowed moves. Never turn a principle into claimed firsthand experience or add an outcome that the persona proof does not state.
+- Voice material and voice directives control style only and are never factual evidence.
 - Never copy eight consecutive words from a voice fragment.
 - Use 2 to 4 short paragraphs and roughly 70 to 140 words.
 - If the packet cannot support a compliant post, do not guess or add unsupported material.
@@ -952,6 +1659,11 @@ def _voice_gate(draft: str, voice_context: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeError("production generated copy has no measurable owner-voice reference")
     if float(score) < minimum_score or contamination:
         raise RuntimeError("production generated copy failed owner-voice fidelity gate")
+    typed_directives = [
+        str(item)
+        for item in (voice_context.get("_typed_context_directives") or [])
+        if str(item).strip()
+    ]
     return {
         "schema_version": OWNER_VOICE_GATE_SCHEMA,
         "validator": "owner_voice_fidelity/v1",
@@ -966,7 +1678,219 @@ def _voice_gate(draft: str, voice_context: Mapping[str, Any]) -> dict[str, Any]:
         "reference_count": len(list(voice_context.get("reference_ids") or [])),
         "reference_ids": [str(item)[:160] for item in list(voice_context.get("reference_ids") or [])[:4]],
         "selection_posture": str(voice_context.get("selection_posture") or "unavailable")[:60],
+        "typed_context_directive_count": len(typed_directives),
+        "typed_context_directive_digest": _sha256_json(typed_directives),
+        "typed_context_voice_domain": voice_context.get("_typed_context_voice_domain"),
     }
+
+
+_EXPERIENCE_VERB_FORMS = {
+    "built": {"build", "building", "built"},
+    "created": {"create", "created", "creating"},
+    "implemented": {"implement", "implemented", "implementing"},
+    "observed": {"observe", "observed", "observing"},
+    "saw": {"saw", "see", "seen"},
+    "found": {"find", "finding", "found"},
+    "learned": {"learn", "learned", "learning", "learnt"},
+    "tested": {"test", "tested", "testing"},
+    "shipped": {"ship", "shipped", "shipping"},
+    "ran": {"ran", "run", "running"},
+    "measured": {"measure", "measured", "measuring"},
+    "experienced": {"experience", "experienced", "experiencing"},
+    "worked": {"work", "worked", "working"},
+    "used": {"use", "used", "using"},
+    "proved": {"prove", "proved", "proven", "proving"},
+    "discovered": {"discover", "discovered", "discovering"},
+    "designed": {"design", "designed", "designing"},
+    "developed": {"develop", "developed", "developing"},
+    "launched": {"launch", "launched", "launching"},
+    "led": {"lead", "leading", "led"},
+    "managed": {"manage", "managed", "managing"},
+    "migrated": {"migrate", "migrated", "migrating", "migration"},
+    "tightened": {"tighten", "tightened", "tightening"},
+    "transformed": {"transform", "transformed", "transforming", "transformation"},
+    "delivered": {"deliver", "delivered", "delivering"},
+    "applied": {"apply", "applied", "applying"},
+    "increased": {"increase", "increased", "increasing"},
+    "reduced": {"reduce", "reduced", "reducing"},
+    "improved": {"improve", "improved", "improving"},
+    "grew": {"grew", "grow", "growing", "grown"},
+    "taught": {"teach", "teaches", "teaching", "taught"},
+    "helped": {"help", "helped", "helping", "helps"},
+    "founded": {"found", "founded", "founding", "founder"},
+    "coached": {"coach", "coached", "coaching"},
+    "advised": {"advise", "advised", "advising", "advisor"},
+}
+
+
+def _sentence_containing_span(text: str, start: int, end: int) -> str:
+    left_candidates = [text.rfind(mark, 0, start) for mark in (".", "!", "?", "\n")]
+    left = max(left_candidates) + 1
+    right_candidates = [
+        position
+        for mark in (".", "!", "?", "\n")
+        if (position := text.find(mark, end)) >= 0
+    ]
+    right = min(right_candidates) + 1 if right_candidates else len(text)
+    return " ".join(text[left:right].split()).strip()
+
+
+def _first_person_experience_grounding(
+    *,
+    draft: str,
+    factual_support: Sequence[str],
+    lifecycle_service: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    supported: list[dict[str, Any]] = []
+    unsupported: list[str] = []
+    for match in _UNSUPPORTED_FIRST_PERSON_EXPERIENCE_RE.finditer(draft):
+        phrase = " ".join(match.group(0).split())
+        sentence = _sentence_containing_span(draft, match.start(), match.end())
+        phrase_tokens = set(re.findall(r"[a-z]+", phrase.casefold()))
+        subject_key = _first_person_subject_key(phrase)
+        claimed_verb = next(
+            (verb for verb in _EXPERIENCE_VERB_FORMS if verb in phrase_tokens),
+            None,
+        )
+        match_support: dict[str, Any] | None = None
+        for item in factual_support:
+            support_text = str(item or "").strip()
+            support_tokens = set(re.findall(r"[a-z]+", support_text.casefold()))
+            if subject_key.startswith(("my_", "our_")) and not set(
+                subject_key.split("_")
+            ).issubset(support_tokens):
+                continue
+            if claimed_verb and not (
+                _EXPERIENCE_VERB_FORMS[claimed_verb] & support_tokens
+            ):
+                continue
+            anchors = lifecycle_service.derive_grounding_anchors(
+                source_body=support_text,
+                draft_body=sentence,
+                limit=4,
+            )
+            if len(anchors) < 2:
+                continue
+            match_support = {
+                "claim": phrase[:120],
+                "anchors": anchors,
+                "support_sha256": _sha256_text(support_text),
+            }
+            break
+        if match_support is None:
+            unsupported.append(phrase[:120])
+        else:
+            supported.append(match_support)
+    return supported, sorted(set(unsupported))
+
+
+def _first_person_worldview_grounding(
+    *,
+    draft: str,
+    worldview_support: Sequence[str],
+    lifecycle_service: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    supported: list[dict[str, Any]] = []
+    unsupported: list[str] = []
+    for match in _FIRST_PERSON_WORLDVIEW_RE.finditer(draft):
+        phrase = " ".join(match.group(0).split())
+        sentence = _sentence_containing_span(draft, match.start(), match.end())
+        match_support: dict[str, Any] | None = None
+        for item in worldview_support:
+            support_text = str(item or "").strip()
+            anchors = lifecycle_service.derive_grounding_anchors(
+                source_body=support_text,
+                draft_body=sentence,
+                limit=4,
+            )
+            if len(anchors) < 2:
+                continue
+            match_support = {
+                "claim": phrase[:120],
+                "anchors": anchors,
+                "support_sha256": _sha256_text(support_text),
+            }
+            break
+        if match_support is None:
+            unsupported.append(phrase[:120])
+        else:
+            supported.append(match_support)
+    return supported, sorted(set(unsupported))
+
+
+def _first_person_subject_key(phrase: str) -> str:
+    tokens = re.findall(r"[a-z]+", phrase.casefold())
+    if not tokens:
+        return ""
+    if tokens[0] in {"i", "we"}:
+        return tokens[0]
+    return "_".join(tokens[:2]) if tokens[0] in {"my", "our"} else ""
+
+
+def _first_person_claimed_verb(phrase: str) -> str | None:
+    tokens = set(re.findall(r"[a-z]+", phrase.casefold()))
+    return next((verb for verb in _EXPERIENCE_VERB_FORMS if verb in tokens), None)
+
+
+def _variant_first_person_claim_grounding(
+    *,
+    parent_body: str,
+    variant_body: str,
+    lifecycle_service: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    parent_matches: list[tuple[str, re.Match[str]]] = [
+        ("experience", match)
+        for match in _UNSUPPORTED_FIRST_PERSON_EXPERIENCE_RE.finditer(parent_body)
+    ] + [
+        ("worldview", match)
+        for match in _FIRST_PERSON_WORLDVIEW_RE.finditer(parent_body)
+    ]
+    variant_matches: list[tuple[str, re.Match[str]]] = [
+        ("experience", match)
+        for match in _UNSUPPORTED_FIRST_PERSON_EXPERIENCE_RE.finditer(variant_body)
+    ] + [
+        ("worldview", match)
+        for match in _FIRST_PERSON_WORLDVIEW_RE.finditer(variant_body)
+    ]
+    supported: list[dict[str, Any]] = []
+    unsupported: list[str] = []
+    for kind, match in variant_matches:
+        phrase = " ".join(match.group(0).split())
+        subject = _first_person_subject_key(phrase)
+        claimed_verb = _first_person_claimed_verb(phrase)
+        variant_sentence = _sentence_containing_span(
+            variant_body, match.start(), match.end()
+        )
+        support: dict[str, Any] | None = None
+        for parent_kind, parent_match in parent_matches:
+            parent_phrase = " ".join(parent_match.group(0).split())
+            if parent_kind != kind or _first_person_subject_key(parent_phrase) != subject:
+                continue
+            parent_verb = _first_person_claimed_verb(parent_phrase)
+            if claimed_verb != parent_verb:
+                continue
+            parent_sentence = _sentence_containing_span(
+                parent_body, parent_match.start(), parent_match.end()
+            )
+            anchors = lifecycle_service.derive_grounding_anchors(
+                source_body=parent_sentence,
+                draft_body=variant_sentence,
+                limit=4,
+            )
+            if len(anchors) < 2:
+                continue
+            support = {
+                "claim": phrase[:120],
+                "parent_claim": parent_phrase[:120],
+                "anchors": anchors,
+                "parent_body_sha256": _sha256_text(parent_body),
+            }
+            break
+        if support is None:
+            unsupported.append(phrase[:120])
+        else:
+            supported.append(support)
+    return supported, sorted(set(unsupported))
 
 
 def _validate_generated_owner_copy(
@@ -976,7 +1900,8 @@ def _validate_generated_owner_copy(
     context: Mapping[str, Any],
     source_name: str,
     voice_context: Mapping[str, Any],
-    persona_constraints: Sequence[str],
+    persona_projection: Mapping[str, Any],
+    persona_context_receipt: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     from app.services.content_lifecycle_service import ContentLifecycleService
 
@@ -992,13 +1917,26 @@ def _validate_generated_owner_copy(
     )
     if len(grounding_anchors) < 2:
         raise RuntimeError("production generated copy failed authoritative evidence grounding")
-    unsupported_first_person = sorted(
-        {" ".join(match.group(0).split()) for match in _UNSUPPORTED_FIRST_PERSON_EXPERIENCE_RE.finditer(draft)}
+    factual_support = _persona_factual_support(persona_projection)
+    worldview_support = _persona_worldview_support(persona_projection)
+    supported_first_person, unsupported_first_person = _first_person_experience_grounding(
+        draft=draft,
+        factual_support=factual_support,
+        lifecycle_service=ContentLifecycleService,
     )
     if unsupported_first_person:
         raise RuntimeError("production generated copy claims unsupported firsthand experience")
+    supported_worldview, unsupported_worldview = _first_person_worldview_grounding(
+        draft=draft,
+        worldview_support=worldview_support,
+        lifecycle_service=ContentLifecycleService,
+    )
+    if unsupported_worldview:
+        raise RuntimeError("production generated copy claims an unsupported owner belief")
     source_numbers = set(_NUMERIC_TOKEN_RE.findall(source_excerpt))
-    unsupported_numbers = sorted(set(_NUMERIC_TOKEN_RE.findall(draft)) - source_numbers)
+    persona_numbers = set(_NUMERIC_TOKEN_RE.findall(" ".join(factual_support)))
+    draft_numbers = set(_NUMERIC_TOKEN_RE.findall(draft))
+    unsupported_numbers = sorted(draft_numbers - source_numbers - persona_numbers)
     if unsupported_numbers:
         raise RuntimeError("production generated copy adds unsupported numeric claims")
     lexical_integrity = ContentLifecycleService.validate_variant_integrity(
@@ -1025,19 +1963,56 @@ def _validate_generated_owner_copy(
         "evidence_retained": bool(lexical_integrity.get("evidence_retained")),
         "evidence_anchors": grounding_anchors,
         "visible_attribution_retained": visible_attribution,
+        "supported_first_person_experience": supported_first_person,
         "unsupported_first_person_experience": [],
+        "supported_first_person_worldview": supported_worldview,
+        "unsupported_first_person_worldview": [],
+        "persona_supported_numeric_claims": sorted(
+            (draft_numbers & persona_numbers) - source_numbers
+        ),
         "unsupported_numeric_claims": [],
         "truth_safety_privacy_constraints_passed": bool(
             lexical_integrity.get("truth_safety_privacy_constraints_passed")
         ),
     }
-    persona_payload = _canonical_json(list(persona_constraints))
+    _validate_persona_projection(persona_projection)
+    persona_projection_sha256 = _sha256_json(persona_projection)
+    if (
+        persona_context_receipt.get("schema_version") != PERSONA_CONTEXT_RECEIPT_SCHEMA
+        or persona_context_receipt.get("full_context_connected") is not True
+        or persona_context_receipt.get("remote_projection_sha256")
+        != persona_projection_sha256
+        or persona_context_receipt.get("raw_private_memory_sent_remote") is not False
+        or persona_context_receipt.get("unreviewed_persona_sent_remote") is not False
+    ):
+        raise RuntimeError("production persona context receipt is not fully connected")
+    persona_constraints = [
+        str(item)
+        for key in ("claims", "proof", "stories", "disallowed_moves")
+        for item in list(persona_projection.get(key) or [])
+        if str(item).strip()
+    ]
+    persona_anchors = ContentLifecycleService.derive_grounding_anchors(
+        source_body=" ".join(persona_constraints),
+        draft_body=draft,
+        exclude_text=f"{source_name} {source_excerpt}",
+        limit=4,
+    )
+    persona_payload = _canonical_json(persona_constraints)
     persona_gate = {
         "schema_version": OWNER_PERSONA_GATE_SCHEMA,
         "passed": True,
         "constraint_count": len(persona_constraints),
         "constraint_digest": _sha256_text(persona_payload),
-        "source": "integrity_pinned_approved_public_knowledge_pack",
+        "source": "full_typed_persona_context_plus_integrity_pinned_public_pack",
+        "projection_sha256": persona_projection_sha256,
+        "claims_count": len(list(persona_projection.get("claims") or [])),
+        "proof_count": len(list(persona_projection.get("proof") or [])),
+        "story_count": len(list(persona_projection.get("stories") or [])),
+        "draft_anchor_terms": persona_anchors,
+        "supported_first_person_experience": supported_first_person,
+        "supported_first_person_worldview": supported_worldview,
+        "context_receipt": dict(persona_context_receipt),
     }
     return integrity_gate, _voice_gate(draft, voice_context), persona_gate
 
@@ -1089,18 +2064,31 @@ async def generate_production_owner_post(
     controls = normalized_remote_controls(context.get("controls"))
     audience = _normalized_control(controls, "audience_emphasis", allowed=_AUDIENCES, default="general")
     tone = _normalized_control(controls, "tone", allowed=_TONES, default="expert_direct")
-    persona = _approved_public_persona_projection(thesis=thesis, audience=audience)
-    voice_context = build_voice_context(
+    persona_context = _full_system_persona_context(
+        thesis=thesis,
+        audience=audience,
+        tone=tone,
+        controls=controls,
+        selected_source_context=context,
+    )
+    persona = dict(persona_context.projection)
+    voice_context = dict(build_voice_context(
         path=voice_corpus_path,
         query=f"{thesis} {audience.replace('_', ' ')}",
         execution_mode="cloud",
         limit=2,
         use_semantic=False,
         audience=audience,
-    )
+        domain=persona_context.voice_domain,
+    ))
     if int(voice_context.get("corpus_count") or 0) < 1:
         raise RuntimeError("production owner-post generation requires an approved cloud-safe voice corpus")
-    voice_projection = _voice_style_projection(voice_context)
+    voice_context["_typed_context_directives"] = list(persona_context.voice_directives)
+    voice_context["_typed_context_voice_domain"] = persona_context.voice_domain
+    voice_projection = _voice_style_projection(
+        voice_context,
+        context_directives=persona_context.voice_directives,
+    )
     packet = _canonical_packet(
         thesis=thesis,
         context=context,
@@ -1111,14 +2099,14 @@ async def generate_production_owner_post(
         voice=voice_projection,
     )
     draft, subprocess_contract = _run_codex_remote_safe(packet)
-    constraints = list(persona["claims"])
     integrity_gate, voice_gate, persona_gate = _validate_generated_owner_copy(
         draft=draft,
         thesis=thesis,
         context=context,
         source_name=_source_name(context),
         voice_context=voice_context,
-        persona_constraints=constraints,
+        persona_projection=persona,
+        persona_context_receipt=persona_context.receipt,
     )
     trace = _provider_trace()
     return IntegratedGenerationResult(
@@ -1130,7 +2118,7 @@ async def generate_production_owner_post(
             "content_type": "canonical_post",
             "option_count": 1,
             "generation_strategy": OWNER_GENERATION_STRATEGY,
-            "grounding_mode": "approved_public_persona_plus_classified_source_evidence",
+            "grounding_mode": FULL_SYSTEM_GROUNDING_MODE,
             "provider_fallback_used": False,
             "primary_provider": "codex_cli_saved_login",
             "execution_boundary": CODEX_REMOTE_EXECUTION_BOUNDARY,
@@ -1226,6 +2214,24 @@ async def generate_production_variant(
         voice=_voice_style_projection(voice_context),
     )
     draft, subprocess_contract = _run_codex_remote_safe(packet)
+    supported_parent_claims, unsupported_parent_claims = (
+        _variant_first_person_claim_grounding(
+            parent_body=base_post,
+            variant_body=draft,
+            lifecycle_service=ContentLifecycleService,
+        )
+    )
+    if unsupported_parent_claims:
+        raise RuntimeError(
+            "production variant adds unsupported first-person claims absent from its parent"
+        )
+    parent_numbers = set(_NUMERIC_TOKEN_RE.findall(base_post))
+    variant_numbers = set(_NUMERIC_TOKEN_RE.findall(draft))
+    unsupported_numbers = sorted(variant_numbers - parent_numbers)
+    if unsupported_numbers:
+        raise RuntimeError(
+            "production variant adds unsupported numeric claims absent from its parent"
+        )
     integrity = ContentLifecycleService.validate_variant_integrity(
         parent_body=base_post,
         variant_body=draft,
@@ -1242,6 +2248,9 @@ async def generate_production_variant(
         "thesis_retained": bool(integrity.get("thesis_retained")),
         "evidence_retained": bool(integrity.get("evidence_retained")),
         "attribution_retained": bool(integrity.get("attribution_retained")),
+        "supported_parent_first_person_claims": supported_parent_claims,
+        "unsupported_parent_first_person_claims": [],
+        "unsupported_numeric_claims": [],
         "truth_safety_privacy_constraints_passed": bool(
             integrity.get("truth_safety_privacy_constraints_passed")
         ),

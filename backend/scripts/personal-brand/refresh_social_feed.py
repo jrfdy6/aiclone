@@ -101,7 +101,6 @@ def run_script(
 def run_fetcher(fetcher: Literal["reddit", "rss"], *, compact_output: bool = False) -> None:
     run_script(
         SCRIPTS_ROOT / f"fetch_{fetcher}_signals.py",
-        "--include-legacy-workspace-projection",
         compact_output=compact_output,
     )
 
@@ -278,7 +277,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-market-archive",
         action="store_true",
-        help="Skip resyncing the tracked market-signal archive before feed rebuild.",
+        help="Deprecated compatibility alias; the legacy market-signal archive is skipped by default.",
+    )
+    parser.add_argument(
+        "--include-legacy-market-archive-sync",
+        action="store_true",
+        help="Rollback only: resync the historical market-signal Markdown/JSONL archive.",
     )
     parser.add_argument(
         "--skip-brain-flow",
@@ -353,7 +357,7 @@ def main() -> None:
             run_watchlist_auto_ingest(compact_output=args.compact_output)
         run_fetcher("reddit", compact_output=args.compact_output)
         run_fetcher("rss", compact_output=args.compact_output)
-    if not args.skip_market_archive:
+    if args.include_legacy_market_archive_sync and not args.skip_market_archive:
         run_market_signal_archive_sync(compact_output=args.compact_output)
     run_script(SCRIPTS_ROOT / "build_social_feed.py", compact_output=args.compact_output)
     if not args.skip_strategy_refresh:

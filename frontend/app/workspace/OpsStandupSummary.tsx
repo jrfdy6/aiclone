@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { controlApiGet } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import { opsCanonicalDecisionDisplay } from '@/lib/ops-canonical-decision';
 
 type Item = Record<string, unknown>;
@@ -35,14 +36,8 @@ function label(item: Item): string {
 
 function evidenceUrl(item: Item): string | null {
   for (const key of ['url', 'href', 'source_url']) {
-    const value = item[key];
-    if (typeof value !== 'string') continue;
-    try {
-      const parsed = new URL(value);
-      if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password) return parsed.toString();
-    } catch {
-      // The bounded backend projection remains authoritative; malformed links stay plain text.
-    }
+    const href = safeExternalHttpsUrl(item[key]);
+    if (href) return href;
   }
   return null;
 }

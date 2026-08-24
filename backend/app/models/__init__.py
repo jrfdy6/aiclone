@@ -105,6 +105,11 @@ from .standups import (
 )
 from .timeline import TimelineEvent
 from .social_feedback import SocialFeedbackCreate
+from .social_assist import (
+    SocialEngagementActionRequest,
+    SocialEngagementOpportunityCreate,
+    SocialEngagementProjectionSyncRequest,
+)
 from .social_feed_refresh import IngestSignalRequest, RefreshSocialFeedRequest
 from .linkedin_owner_review import LinkedinOwnerReviewDecisionRequest
 from .linkedin_performance import LinkedinPerformanceEventCreate, LinkedinPerformanceLocalActionRequest
@@ -217,6 +222,9 @@ __all__ = [
     "StandupUpdate",
     "TimelineEvent",
     "SocialFeedbackCreate",
+    "SocialEngagementActionRequest",
+    "SocialEngagementOpportunityCreate",
+    "SocialEngagementProjectionSyncRequest",
     "RefreshSocialFeedRequest",
     "IngestSignalRequest",
     "LinkedinOwnerReviewDecisionRequest",

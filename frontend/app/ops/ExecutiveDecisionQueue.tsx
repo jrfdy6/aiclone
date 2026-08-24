@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
 import { normalizeDisplayText } from '@/lib/display-privacy';
 import {
   EXECUTIVE_DECISIONS_ENDPOINT,
@@ -445,8 +445,7 @@ function coverageWarning(
 }
 
 function readableError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) return error.message.trim();
-  return 'The executive decision queue could not be loaded.';
+  return ownerSafeErrorMessage(error, 'The executive decision queue could not be loaded.');
 }
 
 function humanize(value: string): string {

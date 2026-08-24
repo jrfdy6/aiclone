@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.source_authorship_policy_service import validate_rights_authorship
 from app.services.source_sharing_policy_service import validate_remote_source_sharing
 
 
@@ -126,6 +127,10 @@ class NormalizedDiscovery:
             raise ValueError("idempotency_key is required")
         if self.rights_state not in {"unknown", "permitted", "owner_controlled", "restricted", "blocked"}:
             raise ValueError("invalid rights_state")
+        validate_rights_authorship(
+            rights_state=self.rights_state,
+            metadata=self.metadata,
+        )
         canonical_source_identity(
             canonical_url=self.canonical_url,
             external_source_id=self.external_source_id,

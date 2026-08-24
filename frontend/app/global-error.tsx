@@ -22,7 +22,6 @@ export default function GlobalError({
     reportRouteError({
       error,
       route: isNeoGuest ? '/neo' : 'global',
-      detail: { surface: isNeoGuest ? 'neo-guest' : 'root-layout' },
     });
   }, [error]);
 

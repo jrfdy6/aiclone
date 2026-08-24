@@ -2,7 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import {
   AssistedSocialPlatform,
   copyDraftAndOpenNativeSurface,
@@ -48,6 +49,30 @@ type ActionReceipt = {
   owner_execution_required: boolean;
   external_mutation_performed: boolean;
 };
+
+type QueueReceipt = {
+  schema_version: 'social_engagement_queue_receipt/v1';
+  queued: true;
+  state: 'queued';
+  disposition: string;
+  action: 'social_engagement_capture' | 'social_engagement_action';
+  job_id: string;
+  card_id: string;
+  owner_execution_required: true;
+  external_mutation_performed: false;
+};
+
+type SocialEngagementJob = {
+  job_id: string;
+  card_id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  message?: string | null;
+  error?: string | null;
+};
+
+function isQueueReceipt(value: SocialEngagementOpportunity | ActionReceipt | QueueReceipt): value is QueueReceipt {
+  return 'queued' in value && value.queued === true;
+}
 
 function newRequestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -100,6 +125,7 @@ export default function SocialEngagementAssist() {
   const [opportunities, setOpportunities] = useState<SocialEngagementOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [captureJob, setCaptureJob] = useState<SocialEngagementJob | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +137,7 @@ export default function SocialEngagementAssist() {
       const payload = await controlApiGet<OpportunityListResponse>('/api/workspace/social-assist/opportunities?limit=25');
       setOpportunities(Array.isArray(payload.opportunities) ? payload.opportunities : []);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to load assisted engagement opportunities.');
+      setError(ownerSafeErrorMessage(requestError, 'Unable to load assisted engagement opportunities.'));
     } finally {
       setLoading(false);
     }
@@ -122,9 +148,54 @@ export default function SocialEngagementAssist() {
   }, [loadOpportunities]);
 
   const canCapture = useMemo(
-    () => Boolean(sourceUrl.trim() && visibleText.trim() && draftText.trim()) && !saving,
-    [draftText, saving, sourceUrl, visibleText],
+    () => Boolean(sourceUrl.trim() && visibleText.trim() && draftText.trim())
+      && !saving
+      && captureJob?.status !== 'queued'
+      && captureJob?.status !== 'running',
+    [captureJob?.status, draftText, saving, sourceUrl, visibleText],
   );
+
+  useEffect(() => {
+    const cardId = captureJob?.card_id ?? captureJob?.job_id;
+    if (!cardId || (captureJob?.status !== 'queued' && captureJob?.status !== 'running')) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const next = await controlApiGet<SocialEngagementJob>(
+          `/api/workspace/social-assist/jobs/${encodeURIComponent(cardId)}`,
+          { timeoutMs: 20_000 },
+        );
+        if (cancelled) return;
+        setCaptureJob(next);
+        if (next.status === 'completed') {
+          await loadOpportunities();
+          if (cancelled) return;
+          setSourceUrl('');
+          setSourceTitle('');
+          setSourceAuthor('');
+          setVisibleText('');
+          setDraftText('');
+          setCaptureRequestId(newRequestId());
+          setStatus('Engagement opportunity saved by the signed local worker. No platform action was taken.');
+          setError(null);
+        } else if (next.status === 'failed') {
+          setError(ownerSafeErrorMessage(next.error, 'The signed local worker did not save this engagement opportunity.'));
+        } else {
+          setStatus(next.status === 'running' ? 'Saving on the signed local worker…' : 'Queued for the signed local worker…');
+        }
+      } catch (pollError) {
+        if (!cancelled) {
+          setError(ownerSafeErrorMessage(pollError, 'Unable to read the signed local job status.'));
+        }
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [captureJob?.card_id, captureJob?.job_id, captureJob?.status, loadOpportunities]);
 
   async function captureOpportunity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -133,7 +204,7 @@ export default function SocialEngagementAssist() {
     setError(null);
     setStatus(null);
     try {
-      const created = await controlApiPost<SocialEngagementOpportunity>('/api/workspace/social-assist/opportunities', {
+      const created = await controlApiPost<SocialEngagementOpportunity | QueueReceipt>('/api/workspace/social-assist/opportunities', {
         platform,
         source_url: sourceUrl,
         visible_text: visibleText,
@@ -143,6 +214,15 @@ export default function SocialEngagementAssist() {
         author: sourceAuthor || null,
         idempotency_key: captureRequestId,
       });
+      if (isQueueReceipt(created)) {
+        setCaptureJob({
+          job_id: created.job_id,
+          card_id: created.card_id,
+          status: 'queued',
+        });
+        setStatus('Queued for the signed local worker. The form remains intact until the canonical write completes.');
+        return;
+      }
       setOpportunities((current) => [created, ...current.filter((item) => item.opportunity_id !== created.opportunity_id)]);
       setSourceUrl('');
       setSourceTitle('');
@@ -152,7 +232,7 @@ export default function SocialEngagementAssist() {
       setCaptureRequestId(newRequestId());
       setStatus(`${platformLabel(created.platform)} opportunity saved. No platform action was taken.`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to save assisted engagement opportunity.');
+      setError(ownerSafeErrorMessage(requestError, 'Unable to save assisted engagement opportunity.'));
     } finally {
       setSaving(false);
     }
@@ -163,7 +243,14 @@ export default function SocialEngagementAssist() {
     setError(null);
     setStatus(null);
     try {
-      const localAction = copyDraftAndOpenNativeSurface({
+      const recorded = await controlApiPost<ActionReceipt | QueueReceipt>(
+        `/api/workspace/social-assist/opportunities/${encodeURIComponent(opportunity.opportunity_id)}/actions`,
+        { action: 'prepare_copy', request_id: newRequestId() },
+      );
+      if (recorded.external_mutation_performed) {
+        throw new Error('Unsafe social action receipt returned by the control plane.');
+      }
+      const result = await copyDraftAndOpenNativeSurface({
         platform: opportunity.platform,
         nativeUrl: opportunity.source_url,
         draftText: opportunity.draft_text,
@@ -172,17 +259,12 @@ export default function SocialEngagementAssist() {
           openWindow: (url, target, features) => window.open(url, target, features),
         },
       });
-      const receipt = controlApiPost<ActionReceipt>(
-        `/api/workspace/social-assist/opportunities/${encodeURIComponent(opportunity.opportunity_id)}/actions`,
-        { action: 'prepare_copy', request_id: newRequestId() },
-      );
-      const [result, recorded] = await Promise.all([localAction, receipt]);
-      if (result.externalMutationPerformed || recorded.external_mutation_performed) {
+      if (result.externalMutationPerformed) {
         throw new Error('Unsafe social action receipt returned by the control plane.');
       }
-      setStatus(`Draft copied and ${platformLabel(opportunity.platform)} open requested. Use the source link if your browser blocked the new tab; you decide whether to use the draft.`);
+      setStatus(`Draft copied and ${platformLabel(opportunity.platform)} open requested. The local audit receipt ${isQueueReceipt(recorded) ? 'is queued' : 'was saved'}; you decide whether to use the draft.`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to prepare the owner-controlled action.');
+      setError(ownerSafeErrorMessage(requestError, 'Unable to prepare the owner-controlled action.'));
     } finally {
       setActingId(null);
     }
@@ -193,21 +275,24 @@ export default function SocialEngagementAssist() {
     setError(null);
     setStatus(null);
     try {
+      const receipt = await controlApiPost<ActionReceipt | QueueReceipt>(
+        `/api/workspace/social-assist/opportunities/${encodeURIComponent(opportunity.opportunity_id)}/actions`,
+        { action: 'open_native_surface', request_id: newRequestId() },
+      );
+      if (receipt.external_mutation_performed) {
+        throw new Error('Unsafe social action receipt returned by the control plane.');
+      }
       const openedUrl = openNativeSocialSurface(
         opportunity.platform,
         opportunity.source_url,
         (url, target, features) => window.open(url, target, features),
       );
-      const receipt = await controlApiPost<ActionReceipt>(
-        `/api/workspace/social-assist/opportunities/${encodeURIComponent(opportunity.opportunity_id)}/actions`,
-        { action: 'open_native_surface', request_id: newRequestId() },
-      );
-      if (receipt.native_surface_url !== openedUrl || receipt.external_mutation_performed) {
+      if (!isQueueReceipt(receipt) && receipt.native_surface_url !== openedUrl) {
         throw new Error('Native surface receipt did not match the owner-selected source.');
       }
-      setStatus(`${platformLabel(opportunity.platform)} open requested. Use the source link if your browser blocked the new tab. No platform action was taken.`);
+      setStatus(`${platformLabel(opportunity.platform)} open requested. The local audit receipt ${isQueueReceipt(receipt) ? 'is queued' : 'was saved'}. No platform action was taken.`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to open the native surface.');
+      setError(ownerSafeErrorMessage(requestError, 'Unable to open the native surface.'));
     } finally {
       setActingId(null);
     }
@@ -292,7 +377,7 @@ export default function SocialEngagementAssist() {
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="submit" disabled={!canCapture} style={actionStyle('#4ade80', !canCapture)}>
-            {saving ? 'Saving…' : 'Save engagement opportunity'}
+            {saving ? 'Queuing…' : captureJob?.status === 'queued' || captureJob?.status === 'running' ? 'Saving on Mac…' : 'Save engagement opportunity'}
           </button>
           <span style={{ color: '#64748b', fontSize: '11px' }}>Only owner-supplied text is stored. No feed automation runs.</span>
         </div>
@@ -324,7 +409,11 @@ export default function SocialEngagementAssist() {
                 </div>
                 <span style={{ color: '#86efac', fontSize: '11px', fontWeight: 700 }}>{platformLabel(opportunity.platform)} · draft ready</span>
               </div>
-              <a href={opportunity.source_url} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc', fontSize: '12px', overflowWrap: 'anywhere' }}>{opportunity.source_url}</a>
+              {safeExternalHttpsUrl(opportunity.source_url) ? (
+                <a href={safeExternalHttpsUrl(opportunity.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc', fontSize: '12px', overflowWrap: 'anywhere' }}>{opportunity.source_url}</a>
+              ) : (
+                <span style={{ color: '#94a3b8', fontSize: '12px', overflowWrap: 'anywhere' }}>Source link unavailable</span>
+              )}
               <div style={{ borderLeft: '2px solid #334155', paddingLeft: '10px', minWidth: 0, overflowWrap: 'anywhere' }}>
                 <p style={{ color: '#64748b', fontSize: '10px', fontWeight: 800, letterSpacing: '0.12em', margin: '0 0 5px', textTransform: 'uppercase' }}>Prepared draft</p>
                 <p style={{ color: '#cbd5e1', fontSize: '13px', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{opportunity.draft_text}</p>

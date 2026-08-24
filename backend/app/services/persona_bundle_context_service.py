@@ -277,11 +277,16 @@ def _infer_memory_role(rel_path: str) -> str:
 
 def _infer_domain_tags(rel_path: str, chunk: str) -> list[str]:
     normalized_chunk = " ".join((chunk or "").lower().split())
+    chunk_tokens = set(re.findall(r"[a-z0-9]+", normalized_chunk))
     tags: set[str] = set()
     if rel_path in CORE_TARGETS:
         tags.add("identity_core")
     for domain_tag, keywords in DOMAIN_KEYWORDS.items():
-        if any(keyword in normalized_chunk for keyword in keywords):
+        # Domain keywords are lexical signals, not arbitrary substrings.  The
+        # previous substring check treated words such as ``daily`` as AI proof
+        # because they contain the characters ``ai``.  That could route an
+        # unrelated initiative into an AI/operator generation packet.
+        if any(keyword in chunk_tokens for keyword in keywords):
             tags.add(domain_tag)
     if rel_path == TARGET_STORIES:
         tags.add("lived_experience")
@@ -749,9 +754,11 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
             if not content:
                 continue
             chunk = content if not evidence else f"{content} Evidence: {evidence}"
+            source_identity = str(item.get("source_delta_id") or f"{rel_path}:{idx}")
+            promotion_identity = str(item.get("id") or idx)
             chunks.append(
                 _build_chunk_record(
-                    source_id=f"overlay:{rel_path}:{idx}",
+                    source_id=f"overlay:{source_identity}:{promotion_identity}",
                     rel_path=rel_path,
                     chunk_index=idx,
                     chunk=chunk,
@@ -761,6 +768,14 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
                     extra_metadata={
                         "artifact_backed": bool(item.get("artifact_summary") or item.get("canon_proof") or item.get("proof_signal")),
                         "proof_strength": str(item.get("proof_strength") or "").lower() or None,
+                        "source_delta_id": item.get("source_delta_id"),
+                        "source_capture_id": item.get("source_capture_id"),
+                        "resolution_capture_id": item.get("resolution_capture_id"),
+                        "owner_response_revision": int(item.get("owner_response_revision") or 0),
+                        "perspective_lineage_schema": item.get("perspective_lineage_schema"),
+                        "perspective_topic_key": item.get("perspective_topic_key"),
+                        "perspective_position_sequence": int(item.get("perspective_position_sequence") or 0),
+                        "perspective_prior_position_count": int(item.get("perspective_prior_position_count") or 0),
                     },
                 )
             )

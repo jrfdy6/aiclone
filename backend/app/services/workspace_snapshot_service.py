@@ -1761,6 +1761,22 @@ def _load_content_safe_operator_lessons_payload() -> dict[str, Any] | None:
     return payload if _snapshot_is_usable(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, payload or {}) else None
 
 
+def load_content_safe_operator_lessons_read_only() -> dict[str, Any] | None:
+    """Read the last private public-safe lesson projection without rebuilding or persisting it."""
+
+    payload = _load_json(
+        _memory_report_read_path(
+            CONTENT_SAFE_OPERATOR_LESSONS_LOGICAL_REF,
+            CONTENT_SAFE_OPERATOR_LESSONS_PATH,
+        )
+    )
+    return (
+        payload
+        if _snapshot_is_usable(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, payload or {})
+        else None
+    )
+
+
 def _extract_markdown_section(text: str, heading: str) -> str:
     marker = f"## {heading}"
     start = text.find(marker)

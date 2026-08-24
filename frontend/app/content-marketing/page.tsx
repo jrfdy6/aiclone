@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import NavHeader from '@/components/NavHeader';
 import { getApiUrl } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
 
 const API_URL = getApiUrl();
 
@@ -61,7 +62,7 @@ export default function ContentMarketingPage() {
       const data = await response.json();
       setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to research content');
+      setError(ownerSafeErrorMessage(err, 'Failed to research content'));
     } finally {
       setLoading(false);
     }
@@ -95,7 +96,7 @@ export default function ContentMarketingPage() {
       const data = await response.json();
       setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to analyze internal linking');
+      setError(ownerSafeErrorMessage(err, 'Failed to analyze internal linking'));
     } finally {
       setLoading(false);
     }
@@ -130,7 +131,7 @@ export default function ContentMarketingPage() {
       const data = await response.json();
       setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate micro tool');
+      setError(ownerSafeErrorMessage(err, 'Failed to generate micro tool'));
     } finally {
       setLoading(false);
     }
@@ -166,7 +167,7 @@ export default function ContentMarketingPage() {
       const data = await response.json();
       setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate PRD');
+      setError(ownerSafeErrorMessage(err, 'Failed to generate PRD'));
     } finally {
       setLoading(false);
     }
@@ -446,7 +447,6 @@ export default function ContentMarketingPage() {
     </main>
   );
 }
-
 
 
 

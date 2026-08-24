@@ -14,4 +14,6 @@ async def create_social_feedback(payload: SocialFeedbackCreate):
         path = social_feedback_service.append_feedback(payload.dict())
         return {"path": path.relative_to(path.parents[1]).as_posix(), "status": "recorded"}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500, detail="Social feedback could not be recorded."
+        ) from exc

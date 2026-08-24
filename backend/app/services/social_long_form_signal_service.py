@@ -11,6 +11,8 @@ import yaml
 from app.services.social_belief_engine import social_belief_engine
 from app.services.social_source_asset_service import build_source_asset_inventory
 
+DEFAULT_MAX_SEGMENTS_PER_ASSET = 8
+
 CONTRAST_TERMS = (" not ", " but ", " because ", " however ", " instead ", " rather than ")
 PROCESS_TERMS = (
     "system",
@@ -1021,7 +1023,7 @@ def extract_long_form_candidates(
     transcripts_root: Path | None = None,
     ingestions_root: Path | None = None,
     max_assets: int = 12,
-    max_segments_per_asset: int = 2,
+    max_segments_per_asset: int = DEFAULT_MAX_SEGMENTS_PER_ASSET,
 ) -> dict[str, Any]:
     inventory = source_assets
     if inventory is None:
@@ -1219,7 +1221,7 @@ def build_long_form_route_summary(
     transcripts_root: Path | None = None,
     ingestions_root: Path | None = None,
     max_assets: int = 12,
-    max_segments_per_asset: int = 2,
+    max_segments_per_asset: int = DEFAULT_MAX_SEGMENTS_PER_ASSET,
 ) -> dict[str, Any]:
     extracted = extract_long_form_candidates(
         repo_root=repo_root,

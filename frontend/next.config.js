@@ -28,6 +28,15 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'i.ytimg.com',
+        pathname: '/vi/**',
+      },
+    ],
+  },
   // This service has its own lockfile and is deployed from the frontend
   // directory. Pin tracing here so a parent lockfile cannot widen the Railway
   // build context or influence dependency discovery.

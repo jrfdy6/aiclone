@@ -358,8 +358,14 @@ test('the FEEZIE workspace control chains Railway feed refresh to exact Mac sync
   assert.match(workspaceSource, /\/api\/brain\/refresh-feezie-workspace\/\$\{encodeURIComponent\(cardId\)\}/);
   assert.doesNotMatch(workspaceSource, /\/api\/pm\/cards\/\$\{encodeURIComponent\(cardId\)\}\/execution-source/);
   assert.match(workspaceSource, /sections\?\.weekly_plan\?\.state !== 'fresh'/);
+  assert.match(workspaceSource, /publication_performance_status\?\.state !== 'fresh'/);
+  assert.match(workspaceSource, /performanceGeneratedAt < boundFloor/);
   assert.match(workspaceSource, /isFeeziePrivateRuntimeContextReady\(refreshedSnapshot\.private_runtime_context_status\)/);
   assert.match(workspaceSource, /Refresh FEEZIE workspace/);
+  assert.match(workspaceSource, /data-feezie-workspace-refresh="canonical"/);
+  const canonicalRefreshIndex = workspaceSource.indexOf('data-feezie-workspace-refresh="canonical"');
+  const legacyReviewIndex = workspaceSource.indexOf('data-legacy-owner-review-compatibility="true"');
+  assert.ok(canonicalRefreshIndex >= 0 && canonicalRefreshIndex < legacyReviewIndex);
   assert.match(workspaceSource, /signed Mac runner/);
 });
 

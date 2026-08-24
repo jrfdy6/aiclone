@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import os
 from pathlib import Path
+import tempfile
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Response, UploadFile
 from starlette.concurrency import run_in_threadpool
+from runtime_paths import workspace_state_path
 
 from app.models import (
     IngestSignalRequest,
@@ -47,9 +50,9 @@ from app.services.linkedin_performance_ledger_service import (
     linkedin_performance_lifecycle_snapshot_type,
     linkedin_performance_ledger_service,
 )
-from app.services.workspace_registry_service import WORKSPACES_ROOT, workspace_registry_payload
+from app.services.workspace_registry_service import workspace_registry_payload
 from app.services.social_feed_preview_service import social_feed_preview_service
-from app.services.social_feed_refresh import InvalidRefreshState
+from app.services.social_feed_refresh import InvalidRefreshState, RefreshStatusStoreUnavailable
 from app.services.workspace_snapshot_service import (
     project_linkedin_os_snapshot_for_browser,
     workspace_snapshot_service,
@@ -85,6 +88,8 @@ router = APIRouter(tags=["Workspace"], prefix="/api/workspace")
 WORKSPACE_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 WORKSPACE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 WORKSPACE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+WORKSPACE_IMAGE_WORKSPACE_KEY = "feezie-os"
+WORKSPACE_IMAGE_LOGICAL_ROOT = Path("workspaces/linkedin-content-os")
 INTEGRATED_OWNER_ACTION_ERROR_SCHEMA = "integrated_owner_action_error/v1"
 _OWNER_ACTION_ERROR_MESSAGES = {
     **CONTROLLER_READINESS_MESSAGES,
@@ -273,6 +278,21 @@ def _browser_refresh_status(status: dict) -> dict:
     return projected
 
 
+def _workspace_image_upload_available() -> bool:
+    """Uploads are local-only until Railway has a durable Mac handoff."""
+
+    return not any(
+        str(os.getenv(name) or "").strip()
+        for name in (
+            "RAILWAY_DEPLOYMENT_ID",
+            "RAILWAY_ENVIRONMENT",
+            "RAILWAY_ENVIRONMENT_ID",
+            "RAILWAY_PROJECT_ID",
+            "RAILWAY_SERVICE_ID",
+        )
+    )
+
+
 def _resolve_workspace_image_target(raw_path: str) -> tuple[str, Path]:
     text = str(raw_path or "").strip()
     if not text:
@@ -287,11 +307,65 @@ def _resolve_workspace_image_target(raw_path: str) -> tuple[str, Path]:
     normalized = candidate.as_posix()
     if Path(normalized).suffix.lower() not in WORKSPACE_IMAGE_SUFFIXES:
         raise HTTPException(status_code=400, detail="Only .png, .jpg, .jpeg, or .webp workspace images are allowed.")
-    workspaces_root = WORKSPACES_ROOT.resolve()
-    target = (workspaces_root.parent / normalized).resolve()
-    if target != workspaces_root and workspaces_root not in target.parents:
-        raise HTTPException(status_code=400, detail="Artifact path must resolve inside the repo workspaces root.")
+    try:
+        relative = candidate.relative_to(WORKSPACE_IMAGE_LOGICAL_ROOT)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Artifact path must stay inside the LinkedIn content workspace.",
+        ) from exc
+    if relative == Path("."):
+        raise HTTPException(status_code=400, detail="Artifact path must name an image.")
+    try:
+        target = workspace_state_path(WORKSPACE_IMAGE_WORKSPACE_KEY, relative)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Artifact path is invalid.") from exc
     return normalized, target
+
+
+def _workspace_image_signature(payload: bytes) -> str | None:
+    if len(payload) >= 24 and payload.startswith(b"\x89PNG\r\n\x1a\n") and payload[12:16] == b"IHDR":
+        return "image/png"
+    if len(payload) >= 4 and payload.startswith(b"\xff\xd8\xff") and payload.endswith(b"\xff\xd9"):
+        return "image/jpeg"
+    if len(payload) >= 12 and payload.startswith(b"RIFF") and payload[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _persist_workspace_image(target: Path, payload: bytes, digest: str) -> bool:
+    """Atomically create a private artifact; exact replay is idempotent."""
+
+    if target.exists():
+        if target.is_symlink() or not target.is_file():
+            raise HTTPException(status_code=409, detail="Artifact target is not a regular file.")
+        if hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+            return True
+        raise HTTPException(status_code=409, detail="Artifact path already contains different bytes.")
+
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary_raw = tempfile.mkstemp(
+        prefix=f".{target.name}.",
+        suffix=".upload",
+        dir=str(target.parent),
+    )
+    temporary = Path(temporary_raw)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, target)
+            return False
+        except FileExistsError:
+            if target.is_file() and not target.is_symlink():
+                if hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+                    return True
+            raise HTTPException(status_code=409, detail="Artifact path already contains different bytes.")
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _redact_publication_evidence_from_source_lifecycle(value):
@@ -660,7 +734,9 @@ async def get_linkedin_os_owner_review(include_resolved: bool = False):
     try:
         return list_owner_review_items(include_resolved=include_resolved)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500, detail="LinkedIn owner-review items are temporarily unavailable."
+        ) from exc
 
 
 @router.post("/linkedin-os-owner-review/{queue_id}")
@@ -683,7 +759,9 @@ async def post_linkedin_os_owner_review(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500, detail="LinkedIn owner-review decision could not be recorded."
+        ) from exc
 
 
 @router.post("/linkedin-performance/events")
@@ -848,6 +926,8 @@ async def refresh_social_feed(payload: RefreshSocialFeedRequest, background_task
         queued = social_feed_refresh_service.queue_refresh()
     except InvalidRefreshState:
         raise HTTPException(status_code=409, detail="Social feed refresh already running.")
+    except RefreshStatusStoreUnavailable:
+        raise HTTPException(status_code=503, detail="Social feed refresh status is unavailable.")
     run_id = str(queued.get("run_id") or "")
     background_tasks.add_task(
         social_feed_refresh_service.run_refresh_background,
@@ -880,7 +960,7 @@ async def ingest_signal(payload: IngestSignalRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Signal preview generation failed.") from exc
     return {
         "message": "Signal preview generated",
         "preview_item": preview_item,
@@ -889,20 +969,34 @@ async def ingest_signal(payload: IngestSignalRequest):
 
 @router.post("/artifacts/upload-image")
 async def upload_workspace_image(path: str = Form(...), image: UploadFile = File(...)):
+    if not _workspace_image_upload_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Screenshot upload is unavailable until durable local artifact handoff is configured.",
+        )
     content_type = str(image.content_type or "").strip().lower()
     if content_type not in WORKSPACE_IMAGE_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="Only PNG, JPEG, or WEBP images can be uploaded to workspace artifacts.")
     normalized_path, target_path = _resolve_workspace_image_target(path)
-    payload = await image.read()
+    payload = await image.read(WORKSPACE_IMAGE_MAX_BYTES + 1)
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded image was empty.")
     if len(payload) > WORKSPACE_IMAGE_MAX_BYTES:
         raise HTTPException(status_code=413, detail="Uploaded image exceeds the 10 MB workspace artifact limit.")
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_bytes(payload)
+    detected_type = _workspace_image_signature(payload)
+    if detected_type != content_type:
+        raise HTTPException(status_code=400, detail="Uploaded bytes do not match the declared image type.")
+    expected_type = "image/jpeg" if target_path.suffix.lower() in {".jpg", ".jpeg"} else f"image/{target_path.suffix.lower()[1:]}"
+    if detected_type != expected_type:
+        raise HTTPException(status_code=400, detail="Uploaded bytes do not match the artifact extension.")
+    digest = hashlib.sha256(payload).hexdigest()
+    reused = await run_in_threadpool(_persist_workspace_image, target_path, payload, digest)
     return {
         "path": normalized_path,
+        "artifact_id": f"sha256:{digest}",
+        "sha256": digest,
         "content_type": content_type,
         "bytes_written": len(payload),
+        "reused": reused,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }

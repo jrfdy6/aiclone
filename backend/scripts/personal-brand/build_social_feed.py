@@ -15,6 +15,7 @@ for candidate in (ROOT / "backend", ROOT):
         break
 
 from app.services.social_feed_builder_service import build_feed, discover_linkedin_workspace_root, write_feed_artifacts
+from app.services.integrated_system_store import IntegratedSystemStore
 try:
     from scripts.runtime_paths import workspace_state_root
 except ModuleNotFoundError:
@@ -30,6 +31,7 @@ def main() -> None:
     feed = build_feed(
         generated_workspace_root,
         source_workspace_root=source_workspace_root,
+        canonical_store=IntegratedSystemStore(),
     )
     write_feed_artifacts(feed, generated_workspace_root)
 

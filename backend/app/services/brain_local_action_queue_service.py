@@ -17,6 +17,8 @@ from app.models import (
     CanonicalDecisionActionRequest,
     CanonicalDecisionCreateRequest,
     LinkedinPerformanceLocalActionRequest,
+    SocialEngagementActionRequest,
+    SocialEngagementOpportunityCreate,
     IntegratedContentVariantRequest,
     IntegratedOwnerPostRequest,
     IntegratedContentManualEditRequest,
@@ -41,6 +43,8 @@ BRAIN_LOCAL_ACTIONS = frozenset(
         "signal_intake",
         "long_form_ingest",
         "linkedin_performance_record",
+        "social_engagement_capture",
+        "social_engagement_action",
         "youtube_watchlist_ingest",
         "refresh_feezie_workspace",
         "refresh_persona_review",
@@ -61,6 +65,8 @@ _ACTION_TITLES = {
     "signal_intake": "Brain: run local signal intake",
     "long_form_ingest": "Brain: ingest long-form source locally",
     "linkedin_performance_record": "Brain: record LinkedIn evidence locally",
+    "social_engagement_capture": "FEEZIE: capture assisted social opportunity locally",
+    "social_engagement_action": "FEEZIE: record assisted social preparation locally",
     "youtube_watchlist_ingest": "Brain: ingest YouTube source locally",
     "refresh_feezie_workspace": "Brain: refresh FEEZIE workspace locally",
     "refresh_persona_review": "Brain: refresh persona review locally",
@@ -220,6 +226,32 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
                 label="linkedin_performance_record request",
             )
         }
+    elif action == "social_engagement_capture":
+        raw = _validate_exact_keys(parameters, {"request"}, label="social_engagement_capture parameters")
+        normalized = {
+            "request": _validated_model_payload(
+                SocialEngagementOpportunityCreate,
+                raw.get("request"),
+                label="social_engagement_capture request",
+            )
+        }
+    elif action == "social_engagement_action":
+        raw = _validate_exact_keys(
+            parameters,
+            {"opportunity_id", "request"},
+            label="social_engagement_action parameters",
+        )
+        opportunity_id = str(raw.get("opportunity_id") or "").strip()
+        if not opportunity_id or len(opportunity_id) > 128:
+            raise ValueError("social_engagement_action requires a bounded opportunity_id.")
+        request = _validated_model_payload(
+            SocialEngagementActionRequest,
+            raw.get("request"),
+            label="social_engagement_action request",
+        )
+        if request.get("action") not in {"prepare_copy", "open_native_surface"}:
+            raise ValueError("social_engagement_action permits only prepare_copy or open_native_surface.")
+        normalized = {"opportunity_id": opportunity_id, "request": request}
     elif action == "youtube_watchlist_ingest":
         raw = _validate_exact_keys(parameters, {"request"}, label="youtube_watchlist_ingest parameters")
         normalized = {
@@ -515,6 +547,18 @@ def _get_integrated_content_job(card_id: str, expected_action: str) -> dict[str,
 
 def get_integrated_content_variant_job(card_id: str) -> dict[str, Any]:
     return _get_integrated_content_job(card_id, "integrated_content_variant")
+
+
+def get_social_engagement_job(card_id: str) -> dict[str, Any]:
+    card = pm_card_service.get_card(card_id)
+    if card is None:
+        raise ValueError("Social engagement action card not found.")
+    if not verify_execution_payload(card.id, dict(card.payload or {})):
+        raise ValueError("Social engagement action card signature is invalid.")
+    action = validate_brain_local_action(dict(card.payload or {}).get("brain_local_action"))
+    if action["action"] not in {"social_engagement_capture", "social_engagement_action"}:
+        raise ValueError("Brain local-action PM card does not authorize social engagement work.")
+    return _get_integrated_content_job(card_id, action["action"])
 
 
 def get_integrated_owner_post_job(card_id: str) -> dict[str, Any]:

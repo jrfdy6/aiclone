@@ -203,7 +203,7 @@ def test_snapshot_builder_reads_the_generated_feed_not_the_absent_workspace_tree
     build_feed.assert_called_once_with(generated_root, source_workspace_root=source_root)
 
 
-def test_public_refresh_fetchers_materialize_ephemeral_feed_inputs() -> None:
+def test_public_refresh_fetchers_use_the_canonical_feed_signal_ledger() -> None:
     script_path = PUBLIC_ROOT / "backend" / "scripts" / "personal-brand" / "refresh_social_feed.py"
     if not script_path.is_file():
         script_path = PUBLIC_ROOT / "scripts" / "personal-brand" / "refresh_social_feed.py"
@@ -217,7 +217,6 @@ def test_public_refresh_fetchers_materialize_ephemeral_feed_inputs() -> None:
 
     run_script.assert_called_once_with(
         module.SCRIPTS_ROOT / "fetch_rss_signals.py",
-        "--include-legacy-workspace-projection",
         compact_output=True,
     )
 

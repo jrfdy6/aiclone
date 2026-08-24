@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
 import NavHeader from '@/components/NavHeader';
 
 interface Theme {
@@ -100,10 +101,10 @@ export default function TopicIntelligencePage() {
       if (data.success && data.result) {
         setResult(data.result);
       } else {
-        setError(data.error || 'Failed to run intelligence');
+        setError(ownerSafeErrorMessage(data.error, 'Failed to run intelligence'));
       }
-    } catch (err: any) {
-      setError(err.message || 'Request failed');
+    } catch (err: unknown) {
+      setError(ownerSafeErrorMessage(err, 'Request failed'));
     } finally {
       setLoading(false);
     }

@@ -5,6 +5,60 @@ const SENSITIVE_FILE_PATTERN = /\b(?:control_plane\.env|credentials?\.json|secre
 const LOCAL_ABSOLUTE_PATH_PATTERN = /(?<![A-Za-z0-9:])(?:\/(?:Users|home)\/[^/\s]+(?:\/[^\s]*)?|\/(?:private\/(?:tmp|var)|var\/folders|opt|srv|root|tmp)(?:\/[^\s]*)?|\/app(?:\/[^\s]*)?)/gi;
 const LOCAL_HIDDEN_PATH_PATTERN = /(^|[\s([{"'])\.[a-z][a-z0-9_-]*(?:\/[^\s]*)*/gi;
 const TRAILING_PATH_PUNCTUATION = /[\])}>.,;:'"`]+$/;
+const URL_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
+
+export type SafeExternalHttpsUrlOptions = {
+  allowedHosts?: readonly string[];
+  allowSubdomains?: boolean;
+};
+
+/**
+ * Convert untrusted source metadata into a browser-safe external navigation.
+ *
+ * React escapes attributes, but it does not reject active URL schemes. Every
+ * external URL coming from a database, source feed, or query string must pass
+ * this gate before it reaches `href` or `window.open`.
+ */
+export function safeExternalHttpsUrl(
+  value: unknown,
+  options: SafeExternalHttpsUrlOptions = {},
+): string | null {
+  if (typeof value !== 'string' || URL_CONTROL_CHARACTER_PATTERN.test(value)) {
+    return null;
+  }
+  const candidate = value.trim();
+  if (!candidate) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+
+  if (
+    parsed.protocol !== 'https:'
+    || !parsed.hostname
+    || parsed.username
+    || parsed.password
+  ) {
+    return null;
+  }
+
+  const allowedHosts = (options.allowedHosts ?? [])
+    .map((host) => host.trim().toLowerCase().replace(/\.$/, ''))
+    .filter(Boolean);
+  if (allowedHosts.length) {
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    const permitted = allowedHosts.some((host) => (
+      hostname === host
+      || (options.allowSubdomains === true && hostname.endsWith(`.${host}`))
+    ));
+    if (!permitted) return null;
+  }
+
+  return parsed.toString();
+}
 
 function safeRelativePath(value: string) {
   const trailing = value.match(TRAILING_PATH_PUNCTUATION)?.[0] ?? '';

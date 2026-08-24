@@ -13,28 +13,22 @@ export default function ClientErrorReporter({
   environment: string;
   service: string;
 }) {
-  const { href, pathname, search } = useClientLocation();
+  const { pathname } = useClientLocation();
 
   useEffect(() => {
-    const route = search ? `${pathname || '/'}${search}` : pathname || '/';
+    const route = pathname || '/';
 
     const handleWindowError = (event: ErrorEvent) => {
-      const normalized = normalizeWindowError(event.error, event.message || 'Window error');
+      const normalized = normalizeWindowError(event.error, 'Window error');
       reportClientError({
         kind: 'window_error',
-        message: normalized.message,
-        stack: normalized.stack,
+        reasonCode: normalized.reasonCode,
         route,
-        href: href || route,
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
         release,
         environment,
-        detail: {
-          service,
-          source: event.filename || null,
-          line: event.lineno || null,
-          column: event.colno || null,
-        },
+        service,
+        line: event.lineno || null,
+        column: event.colno || null,
       });
     };
 
@@ -42,16 +36,11 @@ export default function ClientErrorReporter({
       const normalized = normalizeRejectionReason(event.reason);
       reportClientError({
         kind: 'unhandled_rejection',
-        message: normalized.message,
-        stack: normalized.stack,
+        reasonCode: normalized.reasonCode,
         route,
-        href: href || route,
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
         release,
         environment,
-        detail: {
-          service,
-        },
+        service,
       });
     };
 
@@ -62,7 +51,7 @@ export default function ClientErrorReporter({
       window.removeEventListener('error', handleWindowError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
-  }, [environment, href, pathname, release, search, service]);
+  }, [environment, pathname, release, service]);
 
   return null;
 }

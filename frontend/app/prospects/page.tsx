@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import NavHeader from '@/components/NavHeader';
 
 type Prospect = {
@@ -110,7 +112,7 @@ export default function ProspectsPage() {
         setError('The prospect API returned an invalid contract.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load prospects');
+      setError(ownerSafeErrorMessage(err, 'Failed to load prospects'));
     } finally {
       setLoading(false);
     }
@@ -132,7 +134,7 @@ export default function ProspectsPage() {
         setError(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update prospect status.');
+      setError(ownerSafeErrorMessage(err, 'Failed to update prospect status.'));
     }
     setEditingStatus(null);
   };
@@ -513,16 +515,11 @@ export default function ProspectsPage() {
                                 DM
                               </Link>
                               {prospect.email && (
-                                <a
-                                  href={`mailto:${prospect.email}`}
-                                  style={{ color: '#9ca3af', fontSize: '14px', textDecoration: 'none' }}
-                                >
-                                  Email
-                                </a>
+                                <span style={{ color: '#9ca3af', fontSize: '14px' }}>Email available</span>
                               )}
-                              {prospect.source_url && (
+                              {safeExternalHttpsUrl(prospect.source_url) && (
                                 <a
-                                  href={prospect.source_url}
+                                  href={safeExternalHttpsUrl(prospect.source_url) ?? undefined}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   style={{ color: '#6b7280', fontSize: '14px', textDecoration: 'none' }}
@@ -542,11 +539,11 @@ export default function ProspectsPage() {
                                   <h4 style={{ fontWeight: 500, color: 'white', marginBottom: '8px' }}>Contact Info</h4>
                                   <div style={{ color: '#9ca3af' }}>
                                     {prospect.email && <div>📧 {prospect.email}</div>}
-                                    {prospect.source_url && (
+                                    {safeExternalHttpsUrl(prospect.source_url) && (
                                       <div>
                                         🔗{' '}
-                                        <a href={prospect.source_url} target="_blank" style={{ color: '#3b82f6' }}>
-                                          {prospect.source_url.slice(0, 50)}...
+                                        <a href={safeExternalHttpsUrl(prospect.source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#3b82f6' }}>
+                                          {safeExternalHttpsUrl(prospect.source_url)?.slice(0, 50)}...
                                         </a>
                                       </div>
                                     )}

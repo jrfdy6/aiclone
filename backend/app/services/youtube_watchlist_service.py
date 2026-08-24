@@ -24,6 +24,7 @@ import yaml
 from app.services.brain_long_form_ingest_service import brain_long_form_ingest_service
 from app.services.content_lifecycle_service import PrivateContentArtifactStore
 from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.open_brain_db import database_configured
 from app.services.source_intake_adapter_service import SourceIntakeAdapterService, youtube_discovery_envelope
 from app.services.source_intake_execution_service import SourceIntakeExecutionService
 from app.services.source_processing_service import SourceProcessingService
@@ -481,7 +482,8 @@ def _fetch_youtube_feed_entries(
         return payload
 
     videos: list[dict[str, Any]] = []
-    for entry in root.findall("atom:entry", ATOM_NS)[:limit]:
+    seen_video_keys: set[str] = set()
+    for entry in root.findall("atom:entry", ATOM_NS):
         title = _clean_text(entry.findtext("atom:title", default="", namespaces=ATOM_NS))
         video_id = _clean_text(entry.findtext("yt:videoId", default="", namespaces=ATOM_NS))
         video_url = _clean_text(entry.findtext("atom:link", default="", namespaces=ATOM_NS))
@@ -489,6 +491,13 @@ def _fetch_youtube_feed_entries(
             video_url = f"https://www.youtube.com/watch?v={video_id}"
         if not video_url or not title:
             continue
+        # YouTube playlist Atom feeds can repeat the same entry. Collapse only
+        # duplicates inside this feed route so channel-versus-playlist
+        # discoveries remain distinct canonical lineage events.
+        video_key = video_id or video_url
+        if video_key in seen_video_keys:
+            continue
+        seen_video_keys.add(video_key)
         author_name = _clean_text(entry.findtext("atom:author/atom:name", default="", namespaces=ATOM_NS)) or source_name
         published_at = _parse_published(entry.findtext("atom:published", default="", namespaces=ATOM_NS))
         summary = _truncate(
@@ -514,6 +523,8 @@ def _fetch_youtube_feed_entries(
                 "already_ingested": video_url in existing_urls,
             }
         )
+        if len(videos) >= limit:
+            break
     payload["videos"] = videos
     return payload
 
@@ -2014,13 +2025,25 @@ def sync_watchlist_auto_ingest(
         playlist_payloads=playlist_payloads,
         data_mode="local_runner_refresh",
     )
-    watchlist_snapshot_persisted = _persist_youtube_watchlist_payload(watchlist_payload)
-    if not watchlist_snapshot_persisted:
+    snapshot_store_configured = database_configured()
+    watchlist_snapshot_persisted = (
+        _persist_youtube_watchlist_payload(watchlist_payload)
+        if snapshot_store_configured
+        else False
+    )
+    watchlist_snapshot_persistence = (
+        "persisted"
+        if watchlist_snapshot_persisted
+        else "failed"
+        if snapshot_store_configured
+        else "not_configured"
+    )
+    if snapshot_store_configured and not watchlist_snapshot_persisted:
         warnings.append(
             {
                 "kind": "watchlist_snapshot_persist_failed",
                 "stage": "watchlist_snapshot",
-                "reason": "canonical_snapshot_store_unavailable",
+                "reason": "configured_snapshot_store_unavailable",
             }
         )
 
@@ -2042,7 +2065,11 @@ def sync_watchlist_auto_ingest(
         disposition=disposition,
         counts=counts,
         errors=[*errors, *warnings],
-        provenance={"trigger": "local_scheduler", "snapshot_persisted": watchlist_snapshot_persisted},
+        provenance={
+            "trigger": "local_scheduler",
+            "snapshot_store_configured": snapshot_store_configured,
+            "snapshot_persistence": watchlist_snapshot_persistence,
+        },
     )
     return {
         "enabled": True,
@@ -2054,6 +2081,7 @@ def sync_watchlist_auto_ingest(
         "warnings": warnings,
         "errors": errors,
         "watchlist_snapshot_persisted": watchlist_snapshot_persisted,
+        "watchlist_snapshot_persistence": watchlist_snapshot_persistence,
         "receipt": {"event_id": receipt["event_id"], "disposition": disposition},
         # The local automation reuses the payload for its authenticated
         # Railway mirror. Keeping it private to the caller avoids fetching

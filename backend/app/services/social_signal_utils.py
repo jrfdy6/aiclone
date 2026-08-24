@@ -257,14 +257,14 @@ STANCE_OPEN_OPTIONS = {
     },
     "personal-anchor": {
         "comment": [
-            "I have seen some version of this up close.",
-            "This feels familiar for a reason.",
-            "I know this pattern a little too well.",
+            "The lived detail is what changes the reading.",
+            "The concrete experience is the part worth examining.",
+            "The context behind this matters more than the abstraction.",
         ],
         "repost": [
-            "This feels familiar for a reason.",
-            "I have seen this pattern up close before.",
-            "This one sounds different when you have lived some version of it.",
+            "The lived detail changes how this reads.",
+            "The concrete experience is the part worth carrying forward.",
+            "This needs an actual experience anchor, not an implied one.",
         ],
     },
     "systemize": {
@@ -1608,9 +1608,9 @@ def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                 ctx,
                 "personal-repost-main",
                 [
-                    "I have learned some version of this the hard way.",
-                    "I know this pattern from the lived side, not just the ideas side.",
-                    "This one feels familiar because I have seen some version of it up close.",
+                    "The concrete lived detail is what makes the lesson useful.",
+                    "This pattern only becomes useful when it is tied to the actual experience.",
+                    "The experience behind this matters more than the abstract idea.",
                 ],
             ),
             close=pick_option(

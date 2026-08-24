@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from app.services.content_lifecycle_service import PrivateContentArtifactStore
 from app.services.integrated_system_store import IntegratedSystemStore, _canonical_json, _utcnow
+from app.services.source_authorship_policy_service import conservative_combined_rights
 
 
 SOURCE_GATE_RECEIPT_SCHEMA = "source_gate_receipt/v2"
@@ -366,16 +367,12 @@ class SourceProcessingService:
         ).fetchone()
         if not target or not loser or loser["merged_into_source_id"]:
             return
-        rights_rank = {
-            "unknown": 0,
-            "permitted": 1,
-            "owner_controlled": 2,
-            "restricted": 3,
-            "blocked": 4,
-        }
         admissibility_rank = {"pending": 0, "admissible": 1, "restricted": 2, "blocked": 3}
-        rights_state = max(
-            (target["rights_state"], loser["rights_state"]), key=rights_rank.__getitem__
+        rights_state = conservative_combined_rights(
+            left_state=str(target["rights_state"]),
+            left_metadata=target["metadata_json"],
+            right_state=str(loser["rights_state"]),
+            right_metadata=loser["metadata_json"],
         )
         admissibility_state = max(
             (target["admissibility_state"], loser["admissibility_state"]),

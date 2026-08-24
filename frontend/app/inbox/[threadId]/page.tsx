@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiGet, apiPost } from '@/lib/api-client';
+import { ownerSafeErrorMessage } from '@/lib/control-api';
 import type {
   EmailDraftEngine,
   EmailThreadDraftLifecycleAction,
@@ -85,7 +86,7 @@ export default function InboxThreadPage() {
       setDraftEngine(result.draft_engine ?? defaultDraftEngine(result));
       setOperatorNotes(existingOperatorNotes(result));
     } catch (issue) {
-      setError(issue instanceof Error ? issue.message : 'Unable to load email thread right now.');
+      setError(ownerSafeErrorMessage(issue, 'Unable to load email thread right now.'));
     } finally {
       setLoading(false);
     }
@@ -137,7 +138,7 @@ export default function InboxThreadPage() {
       setThread(result);
       setStatus('Routing saved.');
     } catch (issue) {
-      setStatus(issue instanceof Error ? issue.message : 'Unable to save routing right now.');
+      setStatus(ownerSafeErrorMessage(issue, 'Unable to save routing right now.'));
     }
   }
 
@@ -152,7 +153,7 @@ export default function InboxThreadPage() {
       setLane(result.lane);
       setStatus('Auto routing restored.');
     } catch (issue) {
-      setStatus(issue instanceof Error ? issue.message : 'Unable to restore auto routing right now.');
+      setStatus(ownerSafeErrorMessage(issue, 'Unable to restore auto routing right now.'));
     }
   }
 
@@ -173,7 +174,7 @@ export default function InboxThreadPage() {
       setDraftEngine(result.thread.draft_engine ?? draftEngine);
       setStatus(draftStatusMessage(result.thread, result.draft_type));
     } catch (issue) {
-      setStatus(issue instanceof Error ? issue.message : 'Unable to generate draft right now.');
+      setStatus(ownerSafeErrorMessage(issue, 'Unable to generate draft right now.'));
     }
   }
 
@@ -192,9 +193,9 @@ export default function InboxThreadPage() {
         timeoutMs: EMAIL_THREAD_ESCALATE_TIMEOUT_MS,
       });
       setThread(result.thread);
-      setStatus(result.pm_card_id ? `Escalated and linked to PM card ${result.pm_card_id}.` : result.message);
+      setStatus(result.pm_card_id ? `Escalated and linked to PM card ${result.pm_card_id}.` : ownerSafeErrorMessage(result.message, 'Thread escalated.'));
     } catch (issue) {
-      setStatus(issue instanceof Error ? issue.message : 'Unable to escalate thread right now.');
+      setStatus(ownerSafeErrorMessage(issue, 'Unable to escalate thread right now.'));
     }
   }
 
@@ -207,9 +208,9 @@ export default function InboxThreadPage() {
         timeoutMs: EMAIL_THREAD_SAVE_DRAFT_TIMEOUT_MS,
       });
       setThread(result.thread);
-      setStatus(result.message);
+      setStatus(ownerSafeErrorMessage(result.message, 'Gmail draft saved.'));
     } catch (issue) {
-      setStatus(issue instanceof Error ? issue.message : 'Unable to save the Gmail draft right now.');
+      setStatus(ownerSafeErrorMessage(issue, 'Unable to save the Gmail draft right now.'));
     }
   }
 
@@ -226,9 +227,9 @@ export default function InboxThreadPage() {
       setDraftMode(result.thread.draft_mode ?? 'email_reply');
       setDraftEngine(result.thread.draft_engine ?? defaultDraftEngine(result.thread));
       setOperatorNotes(existingOperatorNotes(result.thread));
-      setStatus(result.message);
+      setStatus(ownerSafeErrorMessage(result.message, 'Draft lifecycle updated.'));
     } catch (issue) {
-      setStatus(issue instanceof Error ? issue.message : 'Unable to update draft lifecycle right now.');
+      setStatus(ownerSafeErrorMessage(issue, 'Unable to update draft lifecycle right now.'));
     }
   }
 

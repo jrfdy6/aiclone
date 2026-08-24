@@ -340,6 +340,7 @@ class IntegratedMemoryReadinessService:
         retrieval_refresh: Callable[[], dict[str, Any]],
         recall_search: Callable[[str], list[dict[str, Any]]],
         now: datetime | None = None,
+        force_recheck: bool = False,
     ) -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         self.store.migrate()
@@ -348,7 +349,7 @@ class IntegratedMemoryReadinessService:
             existing = connection.execute(
                 "SELECT * FROM readiness_receipts WHERE idempotency_key=?", (idempotency_key,)
             ).fetchone()
-            if existing and existing["status"] == "ready":
+            if existing and existing["status"] == "ready" and not force_recheck:
                 return self._readiness_response(dict(existing))
 
         failed_component: str | None = None
@@ -447,16 +448,20 @@ class IntegratedMemoryReadinessService:
                 current = connection.execute(
                     "SELECT * FROM readiness_receipts WHERE idempotency_key=?", (idempotency_key,)
                 ).fetchone()
-                if current and current["status"] == "ready":
+                if current and current["status"] == "ready" and not force_recheck:
                     connection.execute("COMMIT")
                     return self._readiness_response(dict(current))
                 prior_status = current["status"] if current else None
-                prior_ready = connection.execute(
-                    """SELECT readiness_id,consolidation_id,last_verified_memory_at
-                    FROM readiness_receipts WHERE status='ready' AND readiness_id<>?
-                    ORDER BY created_at DESC LIMIT 1""",
-                    (readiness_id,),
-                ).fetchone()
+                prior_ready = (
+                    current
+                    if current and current["status"] == "ready"
+                    else connection.execute(
+                        """SELECT readiness_id,consolidation_id,last_verified_memory_at
+                        FROM readiness_receipts WHERE status='ready' AND readiness_id<>?
+                        ORDER BY created_at DESC LIMIT 1""",
+                        (readiness_id,),
+                    ).fetchone()
+                )
                 last_verified = (
                     now_text
                     if status == "ready"

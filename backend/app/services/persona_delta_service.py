@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Iterable, List, Optional
 from uuid import uuid4
 
 from psycopg.rows import dict_row
@@ -10,6 +12,253 @@ from psycopg.types.json import Json, Jsonb
 from app.models import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
 from app.services.open_brain_db import get_pool
 from app.services.persona_review_queue_service import has_selectable_promotion_metadata
+
+
+_PERSPECTIVE_STOPWORDS = {
+    "about",
+    "after",
+    "again",
+    "against",
+    "also",
+    "and",
+    "because",
+    "being",
+    "but",
+    "from",
+    "have",
+    "into",
+    "just",
+    "more",
+    "only",
+    "over",
+    "same",
+    "some",
+    "that",
+    "their",
+    "them",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "what",
+    "when",
+    "where",
+    "which",
+    "with",
+    "would",
+    "your",
+}
+_OWNER_PERSPECTIVE_LINEAGE_SCHEMA = "owner_perspective_lineage/v1"
+_OWNER_RESPONSE_HISTORY_SCHEMA = "owner_response_history/v1"
+
+
+def perspective_terms(*values: Any, limit: int = 18) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for token in re.findall(r"[a-z0-9]+", str(value or "").lower()):
+            if len(token) <= 2 or token in _PERSPECTIVE_STOPWORDS or token in seen:
+                continue
+            seen.add(token)
+            terms.append(token)
+            if len(terms) >= limit:
+                return terms
+    return terms
+
+
+def _perspective_source_title(delta: PersonaDelta) -> str:
+    metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+    return str(
+        metadata.get("evidence_source")
+        or metadata.get("brief_item_title")
+        or metadata.get("source_asset_id")
+        or delta.trait
+        or "Owner perspective"
+    ).strip()
+
+
+def find_related_owner_perspectives(
+    *,
+    texts: Iterable[Any],
+    metadata: dict[str, Any] | None = None,
+    exclude_delta_id: str | None = None,
+    limit: int = 4,
+    deltas: Iterable[PersonaDelta] | None = None,
+) -> list[dict[str, Any]]:
+    """Return bounded owner-authored positions related to a source question.
+
+    This is retrieval context, not a semantic judgment.  It never labels an
+    opinion as changed, reinforced, or canonical; only the owner may do that.
+    """
+
+    current_metadata = metadata if isinstance(metadata, dict) else {}
+    current_terms = set(
+        perspective_terms(
+            *texts,
+            current_metadata.get("priority_lane"),
+            current_metadata.get("lane_hint"),
+            current_metadata.get("target_file"),
+        )
+    )
+    current_url = str(current_metadata.get("source_url") or "").strip()
+    current_item_key = str(current_metadata.get("brief_item_key") or "").strip()
+    current_lane = str(current_metadata.get("priority_lane") or current_metadata.get("lane_hint") or "").strip().lower()
+    candidates = list(deltas) if deltas is not None else list_deltas(limit=400)
+    ranked: list[tuple[float, float, dict[str, Any]]] = []
+    for delta in candidates:
+        if exclude_delta_id and delta.id == exclude_delta_id:
+            continue
+        prior_metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+        excerpt = str(prior_metadata.get("owner_response_excerpt") or "").strip()
+        if not excerpt:
+            continue
+        prior_terms = set(
+            str(value).strip().lower()
+            for value in prior_metadata.get("perspective_topic_terms") or []
+            if str(value).strip()
+        )
+        if not prior_terms:
+            prior_terms = set(
+                perspective_terms(
+                    delta.trait,
+                    delta.notes,
+                    prior_metadata.get("evidence_source"),
+                    prior_metadata.get("brief_item_title"),
+                    prior_metadata.get("brief_item_summary"),
+                    prior_metadata.get("priority_lane"),
+                    prior_metadata.get("lane_hint"),
+                    prior_metadata.get("target_file"),
+                )
+            )
+        overlap = len(current_terms.intersection(prior_terms))
+        denominator = max(1, min(len(current_terms), len(prior_terms)))
+        overlap_ratio = overlap / denominator
+        prior_url = str(prior_metadata.get("source_url") or "").strip()
+        exact_source = bool(current_url and prior_url and current_url == prior_url)
+        prior_item_key = str(prior_metadata.get("brief_item_key") or "").strip()
+        exact_item = bool(current_item_key and prior_item_key and current_item_key == prior_item_key)
+        prior_lane = str(prior_metadata.get("priority_lane") or prior_metadata.get("lane_hint") or "").strip().lower()
+        same_lane = bool(current_lane and prior_lane and current_lane == prior_lane)
+        if not exact_source and not exact_item and (overlap < 2 or overlap_ratio < 0.24):
+            continue
+        score = (
+            (12.0 if exact_item else 0.0)
+            + (10.0 if exact_source else 0.0)
+            + (overlap * 1.5)
+            + (overlap_ratio * 4.0)
+            + (1.0 if same_lane else 0.0)
+        )
+        created_timestamp = delta.created_at.timestamp() if delta.created_at else 0.0
+        ranked.append(
+            (
+                score,
+                created_timestamp,
+                {
+                    "delta_id": delta.id,
+                    "trait": delta.trait,
+                    "response_kind": str(prior_metadata.get("owner_response_kind") or "nuance"),
+                    "excerpt": excerpt[:500],
+                    "source_title": _perspective_source_title(delta)[:240],
+                    "target_file": str(prior_metadata.get("target_file") or "") or None,
+                    "review_source": str(prior_metadata.get("review_source") or "") or None,
+                    "created_at": delta.created_at.isoformat() if delta.created_at else None,
+                    "position_sequence": int(prior_metadata.get("perspective_position_sequence") or 1),
+                    "relationship_status": "owner_not_explicitly_classified",
+                },
+            )
+        )
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item for _, _, item in ranked[: max(0, min(limit, 12))]]
+
+
+def build_owner_perspective_lineage(
+    *,
+    texts: Iterable[Any],
+    metadata: dict[str, Any] | None = None,
+    exclude_delta_id: str | None = None,
+    deltas: Iterable[PersonaDelta] | None = None,
+) -> dict[str, Any]:
+    current_metadata = metadata if isinstance(metadata, dict) else {}
+    terms = perspective_terms(
+        *texts,
+        current_metadata.get("priority_lane"),
+        current_metadata.get("lane_hint"),
+        current_metadata.get("target_file"),
+    )
+    related = find_related_owner_perspectives(
+        texts=texts,
+        metadata=current_metadata,
+        exclude_delta_id=exclude_delta_id,
+        deltas=deltas,
+    )
+    previous_sequences = [int(item.get("position_sequence") or 1) for item in related]
+    existing_response_revision = int(current_metadata.get("owner_response_revision") or 0)
+    if existing_response_revision <= 0 and current_metadata.get("owner_response_excerpt"):
+        existing_response_revision = 1
+    existing_position_sequence = int(
+        current_metadata.get("perspective_position_sequence") or existing_response_revision or 0
+    )
+    if existing_position_sequence > 0:
+        previous_sequences.append(existing_position_sequence)
+    topic_key = hashlib.sha256("|".join(sorted(terms)).encode("utf-8")).hexdigest()[:24]
+    return {
+        "perspective_lineage_schema": _OWNER_PERSPECTIVE_LINEAGE_SCHEMA,
+        "perspective_topic_key": f"perspective-{topic_key}",
+        "perspective_topic_terms": terms,
+        "perspective_position_sequence": (max(previous_sequences) if previous_sequences else 0) + 1,
+        "perspective_prior_position_count": len(related) + existing_response_revision,
+        "perspective_prior_delta_ids": [str(item["delta_id"]) for item in related],
+        "related_owner_positions": related,
+        "perspective_relationship_status": (
+            "owner_not_explicitly_classified"
+            if related or existing_response_revision
+            else "initial_position"
+        ),
+    }
+
+
+def build_owner_response_history_metadata(
+    existing_metadata: dict[str, Any] | None,
+    *,
+    response_kind: str,
+    excerpt: str,
+    recorded_at: str,
+    capture_id: str | None,
+) -> dict[str, Any]:
+    metadata = existing_metadata if isinstance(existing_metadata, dict) else {}
+    history = [dict(item) for item in metadata.get("owner_response_history") or [] if isinstance(item, dict)]
+    prior_revision = int(metadata.get("owner_response_revision") or 0)
+    if prior_revision <= 0 and history:
+        prior_revision = max(int(item.get("revision") or 0) for item in history)
+    if not history and metadata.get("owner_response_excerpt"):
+        prior_revision = max(1, prior_revision)
+        history.append(
+            {
+                "revision": prior_revision,
+                "response_kind": str(metadata.get("owner_response_kind") or "nuance"),
+                "excerpt": str(metadata.get("owner_response_excerpt") or "")[:500],
+                "recorded_at": metadata.get("owner_response_updated_at"),
+                "capture_id": metadata.get("resolution_capture_id"),
+            }
+        )
+    revision = prior_revision + 1 if prior_revision else 1
+    history.append(
+        {
+            "revision": revision,
+            "response_kind": response_kind,
+            "excerpt": excerpt[:500],
+            "recorded_at": recorded_at,
+            "capture_id": capture_id,
+        }
+    )
+    return {
+        "owner_response_history_schema": _OWNER_RESPONSE_HISTORY_SCHEMA,
+        "owner_response_revision": revision,
+        "owner_response_history": history[-20:],
+        "owner_response_history_truncated": len(history) > 20,
+    }
 
 
 def list_deltas(limit: int = 50, status: Optional[str] = None) -> List[PersonaDelta]:
@@ -204,6 +453,37 @@ def apply_brain_review(
     keep_selectable_source_open = normalized_mode == "reviewed" and has_selectable_promotion_metadata(existing_metadata)
     review_status = "approved" if normalized_mode == "approved" else ("in_review" if keep_selectable_source_open else "reviewed")
     reviewed_at = datetime.now(timezone.utc).isoformat()
+    perspective_texts = (
+        existing.trait,
+        existing.notes,
+        existing_metadata.get("evidence_source"),
+        existing_metadata.get("brief_item_title"),
+        existing_metadata.get("brief_item_summary"),
+        existing_metadata.get("segment_excerpt"),
+        existing_metadata.get("source_context_excerpt"),
+    )
+    try:
+        perspective_lineage = build_owner_perspective_lineage(
+            texts=perspective_texts,
+            metadata=existing_metadata,
+            exclude_delta_id=existing.id,
+        )
+    except Exception:
+        perspective_lineage = {
+            "perspective_lineage_schema": _OWNER_PERSPECTIVE_LINEAGE_SCHEMA,
+            "perspective_topic_terms": perspective_terms(*perspective_texts),
+            "perspective_prior_position_count": 0,
+            "perspective_prior_delta_ids": [],
+            "related_owner_positions": [],
+            "perspective_relationship_status": "lineage_retrieval_unavailable",
+        }
+    response_history = build_owner_response_history_metadata(
+        existing_metadata,
+        response_kind=response_kind,
+        excerpt=trimmed_excerpt,
+        recorded_at=reviewed_at,
+        capture_id=resolution_capture_id,
+    )
 
     update_metadata = {
         "review_state": review_status,
@@ -217,6 +497,8 @@ def apply_brain_review(
         "selected_promotion_item_ids": [str(item.get("id") or "") for item in promotion_items if str(item.get("id") or "")],
         "selected_promotion_count": len(promotion_items),
         "last_reviewed_at": reviewed_at,
+        **perspective_lineage,
+        **response_history,
     }
     if normalized_mode != "approved":
         update_metadata["pending_promotion"] = False

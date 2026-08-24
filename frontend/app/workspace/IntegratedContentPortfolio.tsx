@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import {
   forgetPendingIntegratedVariantJob,
   IntegratedContentJobError,
@@ -285,7 +286,7 @@ export default function IntegratedContentPortfolio() {
       if (payload.schema_version !== 'integrated_content_portfolio/v1') throw new Error('The integrated content projection is invalid.');
       setProjection(payload);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The integrated content portfolio is unavailable.');
+      setError(ownerSafeErrorMessage(caught, 'The integrated content portfolio is unavailable.'));
     } finally {
       setLoading(false);
     }
@@ -357,7 +358,7 @@ export default function IntegratedContentPortfolio() {
       if (queuedJobId && (!(caught instanceof IntegratedContentJobError) || !caught.retryable)) {
         forgetPendingIntegratedVariantJob(queuedJobId);
       }
-      setVariantStatus((current) => ({ ...current, [post.post_id]: caught instanceof Error ? caught.message : 'Variant request failed.' }));
+      setVariantStatus((current) => ({ ...current, [post.post_id]: ownerSafeErrorMessage(caught, 'Variant request failed.') }));
     } finally {
       variantActionLocks.current.delete(post.post_id);
       setVariantBusy((current) => ({ ...current, [post.post_id]: false }));
@@ -405,7 +406,7 @@ export default function IntegratedContentPortfolio() {
         if (!cancelled) {
           setVariantStatus((current) => ({
             ...current,
-            [pending.post_id]: caught instanceof Error ? caught.message : 'The saved variant job could not be resumed.',
+            [pending.post_id]: ownerSafeErrorMessage(caught, 'The saved variant job could not be resumed.'),
           }));
         }
       }).finally(() => {
@@ -458,7 +459,7 @@ export default function IntegratedContentPortfolio() {
     } catch (caught) {
       setOwnerActionStatus((current) => ({
         ...current,
-        [postId]: caught instanceof Error ? caught.message : 'The owner action failed.',
+        [postId]: ownerSafeErrorMessage(caught, 'The owner action failed.'),
       }));
     } finally {
       ownerActionLocks.current.delete(postId);
@@ -489,7 +490,7 @@ export default function IntegratedContentPortfolio() {
     } catch (caught) {
       setOwnerActionStatus((current) => ({
         ...current,
-        [post.post_id]: caught instanceof Error ? caught.message : 'The manual edit could not be queued.',
+        [post.post_id]: ownerSafeErrorMessage(caught, 'The manual edit could not be queued.'),
       }));
     }
   }, [runOwnerAction]);
@@ -539,7 +540,7 @@ export default function IntegratedContentPortfolio() {
     } catch (caught) {
       setOwnerActionStatus((current) => ({
         ...current,
-        [post.post_id]: caught instanceof Error ? caught.message : 'The learning action could not be queued.',
+        [post.post_id]: ownerSafeErrorMessage(caught, 'The learning action could not be queued.'),
       }));
     }
   }, [runOwnerAction]);
@@ -594,7 +595,7 @@ export default function IntegratedContentPortfolio() {
     } catch (caught) {
       setPersonaReversalStatus((current) => ({
         ...current,
-        [candidateId]: caught instanceof Error ? caught.message : 'Persona reversal failed.',
+        [candidateId]: ownerSafeErrorMessage(caught, 'Persona reversal failed.'),
       }));
     } finally {
       personaReversalLocks.current.delete(candidateId);
@@ -636,7 +637,7 @@ export default function IntegratedContentPortfolio() {
       setSourceRequestStatus((current) => ({ ...current, [source.source_id]: 'Canonical post completed and the owner portfolio was refreshed.' }));
       await load();
     } catch (caught) {
-      setSourceRequestStatus((current) => ({ ...current, [source.source_id]: caught instanceof Error ? caught.message : 'Post request failed.' }));
+      setSourceRequestStatus((current) => ({ ...current, [source.source_id]: ownerSafeErrorMessage(caught, 'Post request failed.') }));
     } finally {
       sourceRequestLocks.current.delete(source.source_id);
       setSourceRequestBusy((current) => ({ ...current, [source.source_id]: false }));
@@ -702,7 +703,7 @@ export default function IntegratedContentPortfolio() {
                 return <article key={source.source_id} style={cardStyle}>
                   <div style={cardHeaderStyle}>
                     <div><strong style={{ color: 'white' }}>{source.title}</strong><p style={helperStyle}>{source.author_or_publisher || readable(source.source_kind)}</p></div>
-                    {source.canonical_url ? <a href={source.canonical_url} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc', fontSize: '12px' }}>Open original</a> : null}
+                    {safeExternalHttpsUrl(source.canonical_url) ? <a href={safeExternalHttpsUrl(source.canonical_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc', fontSize: '12px' }}>Open original</a> : null}
                   </div>
                   <div style={pillRowStyle}>
                     {source.origins.map((origin) => <span key={origin} style={pillStyle}>{readable(origin)}</span>)}
@@ -737,7 +738,7 @@ export default function IntegratedContentPortfolio() {
                         {source.merged_source_aliases.map((alias) => (
                           <li key={alias.source_id}>
                             <strong>{alias.source_id}</strong> · {readable(alias.source_kind)}
-                            {alias.canonical_url ? <> · <a href={alias.canonical_url} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>Open alias origin</a></> : null}
+                            {safeExternalHttpsUrl(alias.canonical_url) ? <> · <a href={safeExternalHttpsUrl(alias.canonical_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>Open alias origin</a></> : null}
                           </li>
                         ))}
                       </ul>
@@ -1035,8 +1036,8 @@ export default function IntegratedContentPortfolio() {
                         {variantStatus[post.post_id] ? <p role="status" style={helperStyle}>{variantStatus[post.post_id]}</p> : null}
                         {revision.attribution.required ? (
                           <p style={helperStyle}>
-                            Attribution: {revision.attribution.public_source_url ? (
-                              <a href={revision.attribution.public_source_url} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>
+                            Attribution: {safeExternalHttpsUrl(revision.attribution.public_source_url) ? (
+                              <a href={safeExternalHttpsUrl(revision.attribution.public_source_url) ?? undefined} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>
                                 {revision.attribution.public_source_name || 'Original source'}
                               </a>
                             ) : revision.attribution.public_source_name || 'Required before publication'}

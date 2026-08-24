@@ -657,7 +657,20 @@ def _load_content_safe_operator_lessons_payload(*, allow_runtime_rebuild: bool =
             load_persisted_feezie_anonymized_proof_payload,
         )
 
-        return load_persisted_feezie_anonymized_proof_payload()
+        persisted_runtime_payload = load_persisted_feezie_anonymized_proof_payload()
+        if has_lessons(persisted_runtime_payload):
+            return persisted_runtime_payload
+        try:
+            from app.services.workspace_snapshot_service import (
+                load_content_safe_operator_lessons_read_only,
+            )
+
+            runtime_payload = load_content_safe_operator_lessons_read_only()
+        except Exception:
+            runtime_payload = None
+        if has_lessons(runtime_payload):
+            return runtime_payload
+        return None
     try:
         from app.services.workspace_snapshot_service import SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, _load_snapshot
 
@@ -788,20 +801,21 @@ def _content_reservoir_lane_bonus(lane: str) -> int:
 
 def _content_safe_operator_lesson_domain_tags(*texts: str) -> list[str]:
     normalized = " ".join(" ".join((text or "").lower().split()) for text in texts if text)
+    tokens = set(re.findall(r"[a-z0-9]+", normalized))
     tags: list[str] = []
-    if any(term in normalized for term in ("ai", "agent", "automation", "operator", "ops", "prompt", "routing", "workflow")):
+    if tokens & {"ai", "agent", "automation", "operator", "ops", "prompt", "routing", "workflow"}:
         tags.extend(["ai_systems", "operator_workflows"])
-    if any(term in normalized for term in ("process", "system", "systems", "execution", "operations", "playbook")):
+    if tokens & {"process", "system", "systems", "execution", "operations", "playbook"}:
         tags.append("systems_operations")
-    if any(term in normalized for term in ("leadership", "manager", "management", "team", "culture", "decision")):
+    if tokens & {"leadership", "manager", "management", "team", "culture", "decision"}:
         tags.append("leadership")
-    if any(term in normalized for term in ("content", "post", "linkedin", "writing", "story")):
+    if tokens & {"content", "post", "linkedin", "writing", "story"}:
         tags.append("content_strategy")
-    if any(term in normalized for term in ("admissions", "enrollment", "student", "students", "family", "families", "school")):
+    if tokens & {"admissions", "enrollment", "student", "students", "family", "families", "school"}:
         tags.append("education_admissions")
-    if any(term in normalized for term in ("neurodivergent", "adhd", "autism", "learning")):
+    if tokens & {"neurodivergent", "adhd", "autism", "learning"}:
         tags.append("neurodivergent_advocacy")
-    if any(term in normalized for term in ("fashion", "style", "outfit", "wardrobe", "closet")):
+    if tokens & {"fashion", "style", "outfit", "wardrobe", "closet"}:
         tags.append("fashion_identity")
     deduped: list[str] = []
     seen: set[str] = set()
@@ -914,6 +928,11 @@ def retrieve_content_safe_operator_lesson_chunks(
     ranked: list[tuple[str, int, int, dict[str, Any]]] = []
     for raw_lesson in lessons:
         if not isinstance(raw_lesson, dict):
+            continue
+        if (
+            str(raw_lesson.get("visibility") or "") != "public_safe"
+            or int(raw_lesson.get("private_marker_count") or 0) != 0
+        ):
             continue
         hydrated = _hydrate_content_safe_operator_lesson(raw_lesson)
         chunk = str(hydrated.get("chunk") or "")
@@ -1943,13 +1962,19 @@ def build_content_generation_context(
     normalized_source_mode = " ".join((source_mode or "persona_only").lower().split())
     if normalized_source_mode not in {
         "persona_only",
+        "verified_memory",
         "reservoir_ranked",
         "selected_source",
         "recent_signals",
         "email_thread_grounded",
     }:
         normalized_source_mode = "persona_only"
-    retrieval_priority_mode = normalized_source_mode in {"reservoir_ranked", "selected_source", "recent_signals"}
+    retrieval_priority_mode = normalized_source_mode in {
+        "verified_memory",
+        "reservoir_ranked",
+        "selected_source",
+        "recent_signals",
+    }
     selected_source_chunk = (
         _selected_source_request_chunk(context)
         if normalized_source_mode == "selected_source"
@@ -1986,7 +2011,12 @@ def build_content_generation_context(
     content_signal_chunks: list[dict[str, Any]] = []
     retrieved_persona_chunks = []
     retrieval_source = "persona_only"
-    if normalized_source_mode in {"reservoir_ranked", "recent_signals", "selected_source"}:
+    if normalized_source_mode in {
+        "verified_memory",
+        "reservoir_ranked",
+        "recent_signals",
+        "selected_source",
+    }:
         retrieval_strategy = "recent" if normalized_source_mode == "recent_signals" else "ranked"
         if content_type == "linkedin_post":
             content_safe_operator_lesson_chunks = retrieve_content_safe_operator_lesson_chunks(
@@ -1997,14 +2027,15 @@ def build_content_generation_context(
                 strategy=retrieval_strategy,
                 allow_runtime_rebuild=allow_snapshot_rebuild,
             )
-        content_reservoir_chunks = retrieve_content_reservoir_chunks(
-            topic=topic,
-            audience=audience,
-            category=category,
-            top_k=8,
-            strategy=retrieval_strategy,
-            allow_runtime_rebuild=allow_snapshot_rebuild,
-        )
+        if normalized_source_mode != "verified_memory":
+            content_reservoir_chunks = retrieve_content_reservoir_chunks(
+                topic=topic,
+                audience=audience,
+                category=category,
+                top_k=8,
+                strategy=retrieval_strategy,
+                allow_runtime_rebuild=allow_snapshot_rebuild,
+            )
         content_signal_chunks = _merge_content_signal_chunks(
             content_reservoir_chunks,
             content_safe_operator_lesson_chunks,

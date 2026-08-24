@@ -8,6 +8,11 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.source_authorship_policy_service import (
+    AUTHORSHIP_POLICY_VERSION,
+    OWNER_AUTHORSHIP_ATTESTATION_KEY,
+    OWNER_REQUESTED_ROUTE_KEY,
+)
 from app.services.source_intake_contract_service import (
     NormalizedDiscovery,
     SourceIntakeContractService,
@@ -78,6 +83,29 @@ def _compact_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     if len(encoded.encode("utf-8")) > 4096:
         raise ValueError("adapter metadata exceeds the compact event limit")
     return compact
+
+
+def _authorship_metadata(
+    *, owner_requested_route: bool, owner_authorship_attested: bool
+) -> dict[str, Any]:
+    return {
+        "authorship_policy_version": AUTHORSHIP_POLICY_VERSION,
+        OWNER_REQUESTED_ROUTE_KEY: bool(owner_requested_route),
+        OWNER_AUTHORSHIP_ATTESTATION_KEY: bool(owner_authorship_attested),
+    }
+
+
+def _owner_routed_rights(
+    rights_state: str | None, *, owner_authorship_attested: bool
+) -> str:
+    effective = _clean(rights_state).lower() or (
+        "owner_controlled" if owner_authorship_attested else "permitted"
+    )
+    if effective == "owner_controlled" and not owner_authorship_attested:
+        raise ValueError(
+            "owner_controlled sources require an explicit owner_authorship_attested=true"
+        )
+    return effective
 
 
 @dataclass(frozen=True)
@@ -269,57 +297,90 @@ def linkedin_discovery_envelope(
 
 def manual_discovery_envelope(
     *, submission_id: str, canonical_url: str | None = None, submitted_text: str | None = None,
-    title: str | None = None, author: str | None = None, rights_state: str = "owner_controlled",
+    title: str | None = None, author: str | None = None, rights_state: str | None = None,
+    owner_authorship_attested: bool = False,
     shared_external_source_id: str | None = None,
     source_sharing: Mapping[str, Any] | None = None,
 ) -> SourceAdapterEnvelope:
     body = str(submitted_text or "")
     if not _clean(canonical_url) and not body.strip():
         raise ValueError("manual submission requires a URL or submitted text")
+    effective_rights = _owner_routed_rights(
+        rights_state, owner_authorship_attested=owner_authorship_attested
+    )
     return SourceAdapterEnvelope(
         origin="manual", adapter_name="manual_owner_submission", source_kind=_source_kind_for_url(canonical_url) if _clean(canonical_url) else "owner_material",
         discovery_route="manual:owner_submission", external_ref=_clean(submission_id), canonical_url=canonical_url,
         content_sha256=_sha256_text(body) if body.strip() and not _clean(canonical_url) else None,
         shared_external_source_id=shared_external_source_id,
-        title=title, author_or_publisher=author, rights_state=rights_state,
+        title=title, author_or_publisher=author, rights_state=effective_rights,
         source_sharing=source_sharing,
-        metadata={"submission_id": _clean(submission_id), "has_submitted_text": bool(body.strip())},
+        metadata={
+            "submission_id": _clean(submission_id),
+            "has_submitted_text": bool(body.strip()),
+            **_authorship_metadata(
+                owner_requested_route=True,
+                owner_authorship_attested=owner_authorship_attested,
+            ),
+        },
     )
 
 
 def podcast_discovery_envelope(
     *, feed_url: str, episode_guid: str, episode_url: str | None = None, title: str | None = None,
     publisher: str | None = None, published_at: str | None = None, rights_state: str = "permitted",
+    owner_requested_route: bool = False, owner_authorship_attested: bool = False,
     share_public_content: bool = False,
 ) -> SourceAdapterEnvelope:
+    effective_rights = _owner_routed_rights(
+        rights_state, owner_authorship_attested=owner_authorship_attested
+    ) if owner_requested_route or rights_state == "owner_controlled" else rights_state
     return SourceAdapterEnvelope(
         origin="podcast", adapter_name="podcast_feed",
         source_kind=_source_kind_for_url(episode_url, fallback="external_content") if _clean(episode_url) else "podcast_episode",
         discovery_route=f"podcast:{_clean(feed_url)}", external_ref=_clean(episode_guid) or _clean(episode_url),
         canonical_url=episode_url, external_source_id=None if _clean(episode_url) else _namespaced_external_id("podcast", episode_guid, scope=feed_url),
         shared_external_source_id=_namespaced_external_id("feed_item", episode_guid, scope=feed_url) or None,
-        title=title, author_or_publisher=publisher, rights_state=rights_state,
+        title=title, author_or_publisher=publisher, rights_state=effective_rights,
         source_sharing=_public_adapter_sharing(
             share_public_content=share_public_content,
-            rights_state=rights_state,
+            rights_state=effective_rights,
             canonical_url=episode_url,
         ),
-        metadata={"feed_url": _clean(feed_url), "episode_guid": _clean(episode_guid), "published_at": _clean(published_at)},
+        metadata={
+            "feed_url": _clean(feed_url),
+            "episode_guid": _clean(episode_guid),
+            "published_at": _clean(published_at),
+            **_authorship_metadata(
+                owner_requested_route=owner_requested_route,
+                owner_authorship_attested=owner_authorship_attested,
+            ),
+        },
     )
 
 
 def long_form_discovery_envelope(
     *, capture_route: str, external_ref: str, canonical_url: str | None = None, content_sha256: str | None = None,
-    title: str | None = None, author: str | None = None, rights_state: str = "owner_controlled",
+    title: str | None = None, author: str | None = None, rights_state: str | None = None,
+    owner_authorship_attested: bool = False,
     shared_external_source_id: str | None = None,
     source_sharing: Mapping[str, Any] | None = None,
 ) -> SourceAdapterEnvelope:
+    effective_rights = _owner_routed_rights(
+        rights_state, owner_authorship_attested=owner_authorship_attested
+    )
     return SourceAdapterEnvelope(
         origin="long_form", adapter_name="long_form_capture", source_kind=_source_kind_for_url(canonical_url, fallback="external_content") if _clean(canonical_url) else "long_form_document",
         discovery_route=f"long_form:{_clean(capture_route)}", external_ref=_clean(external_ref),
         canonical_url=canonical_url, content_sha256=content_sha256,
         shared_external_source_id=shared_external_source_id, title=title,
-        author_or_publisher=author, rights_state=rights_state,
+        author_or_publisher=author, rights_state=effective_rights,
         source_sharing=source_sharing,
-        metadata={"capture_route": _clean(capture_route)},
+        metadata={
+            "capture_route": _clean(capture_route),
+            **_authorship_metadata(
+                owner_requested_route=True,
+                owner_authorship_attested=owner_authorship_attested,
+            ),
+        },
     )

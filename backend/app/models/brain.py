@@ -74,6 +74,13 @@ class BrainLongFormIngestRequest(BaseModel):
     transcript_text: str | None = Field(default=None, max_length=200_000)
     source_type: str | None = Field(default=None, max_length=120)
     author: str | None = Field(default=None, max_length=300)
+    owner_authorship_attested: bool | None = Field(
+        default=None,
+        description=(
+            "Explicitly attest that the submitted words are the owner's own authorship; "
+            "owner-requested external material remains attribution-required by default."
+        ),
+    )
     run_refresh: bool = True
 
     @model_validator(mode="after")

@@ -862,6 +862,14 @@ class SocialPersonaRetrievalService:
                     "artifact_backed": bool(metadata.get("artifact_backed")),
                     "proof_strength": proof_strength or "weak",
                     "claim_type": str(metadata.get("claim_type") or ""),
+                    "source_delta_id": str(metadata.get("source_delta_id") or "") or None,
+                    "source_capture_id": str(metadata.get("source_capture_id") or "") or None,
+                    "resolution_capture_id": str(metadata.get("resolution_capture_id") or "") or None,
+                    "owner_response_revision": int(metadata.get("owner_response_revision") or 0),
+                    "perspective_lineage_schema": str(metadata.get("perspective_lineage_schema") or "") or None,
+                    "perspective_topic_key": str(metadata.get("perspective_topic_key") or "") or None,
+                    "perspective_position_sequence": int(metadata.get("perspective_position_sequence") or 0),
+                    "perspective_prior_position_count": int(metadata.get("perspective_prior_position_count") or 0),
                 }
             )
 

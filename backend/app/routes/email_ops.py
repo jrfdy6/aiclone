@@ -41,7 +41,7 @@ async def get_gmail_provider_status():
     try:
         return EmailProviderStatusResponse(**gmail_connection_status())
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email provider status is unavailable.") from exc
 
 
 @router.get("/canary")
@@ -50,7 +50,7 @@ async def get_email_draft_canary(response: Response):
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return build_email_draft_canary_report()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email draft canary is unavailable.") from exc
 
 
 @router.get("/threads", response_model=EmailThreadListResponse)
@@ -70,7 +70,7 @@ async def get_email_threads(
             limit=limit,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email threads are temporarily unavailable.") from exc
 
 
 @router.get("/threads/{thread_id}", response_model=EmailThread)
@@ -86,7 +86,7 @@ async def post_email_sync():
     try:
         return sync_threads()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email synchronization failed.") from exc
 
 
 @router.post("/threads/{thread_id}/route", response_model=EmailThread)
@@ -96,7 +96,7 @@ async def post_email_route(thread_id: str, payload: EmailThreadRouteRequest):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email routing could not be updated.") from exc
 
 
 @router.post("/threads/{thread_id}/route/reset", response_model=EmailThread)
@@ -106,7 +106,7 @@ async def post_email_route_reset(thread_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Automatic email routing could not be restored.") from exc
 
 
 @router.post("/threads/{thread_id}/draft", response_model=EmailThreadDraftResponse)
@@ -116,7 +116,7 @@ async def post_email_draft(thread_id: str, payload: EmailThreadDraftRequest):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email draft generation failed.") from exc
 
 
 @router.post("/threads/{thread_id}/draft/save", response_model=EmailThreadSaveDraftResponse)
@@ -126,7 +126,7 @@ async def post_email_draft_save(thread_id: str, payload: EmailThreadSaveDraftReq
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email draft could not be saved.") from exc
 
 
 @router.post("/threads/{thread_id}/draft/lifecycle", response_model=EmailThreadDraftLifecycleResponse)
@@ -141,7 +141,7 @@ async def post_email_draft_lifecycle(thread_id: str, payload: EmailThreadDraftLi
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email draft lifecycle could not be updated.") from exc
 
 
 @router.post("/threads/{thread_id}/escalate", response_model=EmailThreadEscalateResponse)
@@ -151,4 +151,4 @@ async def post_email_escalate(thread_id: str, payload: EmailThreadEscalateReques
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Email thread escalation failed.") from exc

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { shouldUseSecureSessionCookie } from '@/lib/control-cookie-policy';
+import { loginRateStatus, recordLoginFailure, resetLoginRateLimit } from '@/lib/control-login-rate-limit';
 import { createSessionValue, SESSION_COOKIE, SESSION_SECONDS } from '@/lib/control-session';
 
 export const runtime = 'nodejs';
@@ -17,13 +18,43 @@ export async function POST(request: NextRequest) {
   if (!configuredPassword || !sessionSecret) {
     return NextResponse.json({ status: 'error', message: 'Login is not configured.' }, { status: 503 });
   }
+  const rateStatus = loginRateStatus();
+  if (rateStatus.blocked) {
+    return NextResponse.json(
+      { status: 'error', message: 'Too many login attempts. Try again later.' },
+      {
+        status: 429,
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+          'Retry-After': String(rateStatus.retryAfterSeconds),
+        },
+      },
+    );
+  }
   const body = (await request.json().catch(() => ({}))) as { password?: unknown };
-  const suppliedPassword = typeof body.password === 'string' ? body.password : '';
+  const suppliedPassword = typeof body.password === 'string' && body.password.length <= 512 ? body.password : '';
   if (!safeEqual(suppliedPassword, configuredPassword)) {
+    const failedStatus = recordLoginFailure();
     await new Promise((resolve) => setTimeout(resolve, 750));
-    return NextResponse.json({ status: 'error', message: 'Invalid password.' }, { status: 401 });
+    if (failedStatus.blocked) {
+      return NextResponse.json(
+        { status: 'error', message: 'Too many login attempts. Try again later.' },
+        {
+          status: 429,
+          headers: {
+            'Cache-Control': 'no-store, max-age=0',
+            'Retry-After': String(failedStatus.retryAfterSeconds),
+          },
+        },
+      );
+    }
+    return NextResponse.json(
+      { status: 'error', message: 'Invalid password.' },
+      { status: 401, headers: { 'Cache-Control': 'no-store, max-age=0' } },
+    );
   }
 
+  resetLoginRateLimit();
   const response = NextResponse.json({ status: 'ok' });
   response.cookies.set({
     name: SESSION_COOKIE,

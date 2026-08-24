@@ -35,14 +35,14 @@ function fallbackMessage(status: number) {
 
 function boundedOwnerMessage(value: unknown) {
   if (typeof value !== 'string') return null;
+  if (/[\u0000-\u001f\u007f]/.test(value)) return null;
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (!normalized || normalized.length > 280) return null;
-  const unsafe = /(traceback|exception|\/users\/|\/private\/|postgres(?:ql)?:\/\/|bearer\s|secret|api[_ -]?key|stack trace)/i;
+  const unsafe = /(traceback|exception|stack trace|(?:\/users|\/home|\/private|\/app|\/root|\/tmp)\/|[a-z]:\\|file:\/\/|postgres(?:ql)?:\/\/|bearer\s|authorization\s*[:=]|(?:token|secret|password|api[_ -]?key)\s*[:=]|https?:\/\/\S*[?#]|^\s*[\[{]|<\/?[a-z])/i;
   return unsafe.test(normalized) ? null : normalized;
 }
 
 export function ownerSafeErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ControlApiError) return error.message;
   return boundedOwnerMessage(error instanceof Error ? error.message : error) ?? fallback;
 }
 
@@ -106,7 +106,11 @@ async function controlApiFetch(endpoint: string, options: ControlFetchOptions = 
         { status: 504, reasonCode: 'control_request_timeout' },
       );
     }
-    throw error;
+    if (error instanceof ControlApiError) throw error;
+    throw new ControlApiError(
+      'The authenticated control plane could not be reached. Your content was not changed.',
+      { status: 503, reasonCode: 'control_network_unavailable' },
+    );
   } finally {
     clearTimeout(timeoutId);
   }

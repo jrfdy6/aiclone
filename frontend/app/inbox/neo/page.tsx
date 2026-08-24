@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { controlApiGet, controlApiPatch, controlApiPost } from '@/lib/control-api';
+import { controlApiGet, controlApiPatch, controlApiPost, ownerSafeErrorMessage } from '@/lib/control-api';
 
 type Invite = { id: string; label: string; status: string; expires_at?: string; created_at: string; session_count: number };
 type Meeting = { id: string; visitor_name: string; visitor_email: string; visitor_phone: string; purpose: string; preferred_times: string[]; timezone: string; status: string; created_at: string; owner_notes?: string };
@@ -26,7 +26,7 @@ export default function NeoInboxPage() {
         controlApiGet<{ items: Invite[] }>('/api/neo/operator/invites'),
       ]);
       setInbox(nextInbox); setInvites(nextInvites.items); setError('');
-    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Unable to load Neo Inbox.'); }
+    } catch (issue) { setError(ownerSafeErrorMessage(issue, 'Unable to load Neo Inbox.')); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -37,7 +37,7 @@ export default function NeoInboxPage() {
     try {
       await controlApiPost('/api/neo/operator/invites', { label: form.get('label'), passcode: form.get('passcode'), expires_at: null });
       formElement.reset(); await load();
-    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Invite could not be created.'); }
+    } catch (issue) { setError(ownerSafeErrorMessage(issue, 'Invite could not be created.')); }
     finally { setBusy(false); }
   }
   async function revoke(id: string) { if (!window.confirm('Revoke this invite and all active sessions created by it?')) return; setBusy(true); try { await controlApiPost(`/api/neo/operator/invites/${id}/revoke`, {}); await load(); } finally { setBusy(false); } }

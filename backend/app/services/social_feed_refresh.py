@@ -5,10 +5,13 @@ import os
 import subprocess
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
+
+from app.services.open_brain_db import database_configured
+from app.services.social_feed_refresh_status_store import social_feed_refresh_status_store
 
 
 def resolve_workspace_root() -> Path:
@@ -27,9 +30,13 @@ def resolve_workspace_root() -> Path:
 ROOT = resolve_workspace_root()
 SCRIPT_PATH = ROOT / "scripts" / "personal-brand" / "refresh_social_feed.py"
 REFRESH_TIMEOUT_SECONDS = max(30, int(os.getenv("SOCIAL_FEED_REFRESH_TIMEOUT_SECONDS", "180")))
+REFRESH_LEASE_SECONDS = max(
+    REFRESH_TIMEOUT_SECONDS + 60,
+    int(os.getenv("SOCIAL_FEED_REFRESH_LEASE_SECONDS", str(REFRESH_TIMEOUT_SECONDS + 60))),
+)
 
 _state_lock = threading.Lock()
-_state: dict[str, None | bool | datetime | str] = {
+_state: dict[str, Any] = {
     "running": False,
     "state": "idle",
     "run_id": None,
@@ -47,6 +54,43 @@ class InvalidRefreshState(Exception):
 
 class SocialFeedPersistenceError(RuntimeError):
     """Raised when a refresh does not produce and durably store a usable feed."""
+
+
+class RefreshStatusStoreUnavailable(RuntimeError):
+    """Raised when a configured shared refresh authority cannot be reached."""
+
+
+def _durable_status_enabled() -> bool:
+    return database_configured()
+
+
+def _status_with_error_marker(status: dict[str, Any]) -> dict[str, Any]:
+    projected = dict(status)
+    error_code = str(projected.get("error_code") or "").strip()
+    projected["error"] = error_code or projected.get("error")
+    return projected
+
+
+def _sync_process_state(status: dict[str, Any]) -> dict[str, Any]:
+    normalized = _status_with_error_marker(status)
+    with _state_lock:
+        _state.clear()
+        _state.update(normalized)
+    return dict(normalized)
+
+
+def _bounded_failure_code(exc: Exception) -> str:
+    if isinstance(exc, SocialFeedPersistenceError):
+        return "social_feed_persistence_failed"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "social_feed_refresh_timeout"
+    if isinstance(exc, subprocess.CalledProcessError):
+        return "social_feed_refresh_process_failed"
+    if isinstance(exc, FileNotFoundError):
+        return "social_feed_refresh_runtime_unavailable"
+    if isinstance(exc, InvalidRefreshState):
+        return "social_feed_refresh_state_conflict"
+    return "social_feed_refresh_failed"
 
 
 def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
@@ -128,14 +172,30 @@ def _persist_workspace_snapshots() -> None:
 
 
 class SocialFeedRefreshService:
-    def queue_refresh(self) -> dict[str, None | bool | datetime | str]:
+    def queue_refresh(self) -> dict[str, Any]:
         """Reserve one refresh attempt before the response queues its background task."""
+
+        queued_at = datetime.now(timezone.utc)
+        run_id = str(uuid4())
+        if _durable_status_enabled():
+            try:
+                reserved = social_feed_refresh_status_store.reserve(
+                    run_id=run_id,
+                    queued_at=queued_at,
+                    lease_expires_at=queued_at + timedelta(seconds=REFRESH_LEASE_SECONDS),
+                )
+            except Exception as exc:
+                logging.exception("Shared social-feed refresh reservation failed", exc_info=exc)
+                raise RefreshStatusStoreUnavailable(
+                    "Shared social-feed refresh status is unavailable."
+                ) from exc
+            if reserved is None:
+                raise InvalidRefreshState("Social feed refresh already running.")
+            return _sync_process_state(reserved)
 
         with _state_lock:
             if _state["running"]:
                 raise InvalidRefreshState("Social feed refresh already running.")
-            queued_at = datetime.now(timezone.utc)
-            run_id = str(uuid4())
             _state["running"] = True
             _state["state"] = "queued"
             _state["run_id"] = run_id
@@ -156,30 +216,74 @@ class SocialFeedRefreshService:
             queued = self.queue_refresh()
             run_id = str(queued["run_id"])
 
-        with _state_lock:
-            if _state["run_id"] != run_id or _state["state"] != "queued":
+        durable = _durable_status_enabled()
+        started_at = datetime.now(timezone.utc)
+        if durable:
+            try:
+                started = social_feed_refresh_status_store.start(
+                    run_id=run_id,
+                    started_at=started_at,
+                    lease_expires_at=started_at + timedelta(seconds=REFRESH_LEASE_SECONDS),
+                )
+            except Exception as exc:
+                logging.exception("Shared social-feed refresh start failed", exc_info=exc)
+                raise RefreshStatusStoreUnavailable(
+                    "Shared social-feed refresh status is unavailable."
+                ) from exc
+            if started is None:
                 raise InvalidRefreshState("Social feed refresh attempt is no longer queued.")
-            _state["state"] = "running"
-            _state["started_at"] = datetime.now(timezone.utc)
+            _sync_process_state(started)
+        else:
+            with _state_lock:
+                if _state["run_id"] != run_id or _state["state"] != "queued":
+                    raise InvalidRefreshState("Social feed refresh attempt is no longer queued.")
+                _state["state"] = "running"
+                _state["started_at"] = started_at
 
         try:
             _run_command(skip_fetch, sources)
             _persist_workspace_snapshots()
-            with _state_lock:
-                completed_at = datetime.now(timezone.utc)
-                _state["last_run"] = completed_at
-                _state["completed_at"] = completed_at
-                _state["state"] = "succeeded"
+            completed_at = datetime.now(timezone.utc)
+            if durable:
+                completed = social_feed_refresh_status_store.succeed(
+                    run_id=run_id,
+                    completed_at=completed_at,
+                )
+                if completed is None:
+                    raise InvalidRefreshState("Social feed refresh attempt was superseded before completion.")
+                _sync_process_state(completed)
+            else:
+                with _state_lock:
+                    _state["last_run"] = completed_at
+                    _state["completed_at"] = completed_at
+                    _state["state"] = "succeeded"
         except Exception as exc:
             logging.exception("Social feed refresh failed", exc_info=exc)
-            with _state_lock:
-                _state["error"] = str(exc)
-                _state["completed_at"] = datetime.now(timezone.utc)
-                _state["state"] = "failed"
+            completed_at = datetime.now(timezone.utc)
+            if durable:
+                try:
+                    failed = social_feed_refresh_status_store.fail(
+                        run_id=run_id,
+                        completed_at=completed_at,
+                        error_code=_bounded_failure_code(exc),
+                    )
+                    if failed is not None:
+                        _sync_process_state(failed)
+                except Exception as status_exc:
+                    logging.exception(
+                        "Shared social-feed refresh failure receipt could not be committed",
+                        exc_info=status_exc,
+                    )
+            else:
+                with _state_lock:
+                    _state["error"] = str(exc)
+                    _state["completed_at"] = completed_at
+                    _state["state"] = "failed"
             raise
         finally:
-            with _state_lock:
-                _state["running"] = False
+            if not durable:
+                with _state_lock:
+                    _state["running"] = False
 
     def run_refresh_background(
         self,
@@ -196,7 +300,23 @@ class SocialFeedRefreshService:
             # mislabels an honestly degraded run as an unhandled request error.
             pass
 
-    def get_status(self) -> dict[str, None | bool | datetime | str]:
+    def get_status(self) -> dict[str, Any]:
+        if _durable_status_enabled():
+            try:
+                return _sync_process_state(social_feed_refresh_status_store.get_status())
+            except Exception as exc:
+                logging.exception("Shared social-feed refresh status read failed", exc_info=exc)
+                return {
+                    "running": False,
+                    "state": "failed",
+                    "run_id": None,
+                    "queued_at": None,
+                    "last_run": None,
+                    "started_at": None,
+                    "completed_at": None,
+                    "error": "refresh_status_store_unavailable",
+                    "error_code": "refresh_status_store_unavailable",
+                }
         with _state_lock:
             return dict(_state)
 

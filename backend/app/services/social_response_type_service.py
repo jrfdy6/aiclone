@@ -128,8 +128,8 @@ class SocialResponseTypeService:
             repost_open_override = "The framing is close, but I would take it one layer lower."
             bridge_override = _ensure_period(pushback)
         elif selected_type == "personal_story":
-            comment_open_override = "I have lived some version of this."
-            repost_open_override = "This feels familiar for a reason."
+            comment_open_override = "The lived detail is the part worth carrying forward."
+            repost_open_override = "The concrete experience changes how this reads."
             bridge_override = _ensure_period(lived_addition)
         elif selected_type == "humor":
             comment_open_override = "This would be funny if teams did not keep making the same mistake."

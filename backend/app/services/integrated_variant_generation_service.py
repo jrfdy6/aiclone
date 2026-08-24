@@ -254,6 +254,9 @@ def _validate_variant_receipt(
         or integrity.get("thesis_retained") is not True
         or integrity.get("evidence_retained") is not True
         or integrity.get("attribution_retained") is not True
+        or not isinstance(integrity.get("supported_parent_first_person_claims"), list)
+        or integrity.get("unsupported_parent_first_person_claims") != []
+        or integrity.get("unsupported_numeric_claims") != []
         or integrity.get("truth_safety_privacy_constraints_passed") is not True
     ):
         raise ContentLifecycleConflict("variant generation receipt failed its exact-byte integrity binding")
