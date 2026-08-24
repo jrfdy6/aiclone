@@ -12,8 +12,8 @@
       {
         "mode": 420,
         "path": ".github/workflows/public-release.yml",
-        "sha256": "cacf6c10a7d0840a401abc70b4d41971632ee1ab6060b101c074e1a10d873f12",
-        "size": 8436
+        "sha256": "29442c96382f16f41494bd417f44527be8679a4591aad665b71025a12690b50f",
+        "size": 8493
       },
       {
         "mode": 420,
@@ -3136,7 +3136,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "cdfd5c95275da032b5f038bbaabff9d9ffc102e070c2dbabde094ea53babb91a"
+    "tree_sha256": "2f8fb52b088ecbdd225b81c9d8f9e0444b3b19d3f0e8f5d690f394da5d2f407f"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
