@@ -67,8 +67,15 @@ do not exist in the public projection.
 3. Use the exact non-personal Git identity `AI Clone Release` with a GitHub no-reply address.
 4. Push a new `codex/public-source-*` topic branch without rewriting existing refs.
 5. Review the exact committed tree and GitHub Actions result.
-6. Promote a clean public default branch only with exact owner approval because changing the default branch and retiring legacy refs changes the repository control plane.
-7. Never merge the orphan public lineage into a contaminated branch or merge a contaminated branch into it.
+6. After the exact topic SHA passes the required protected check, promote it
+   only by a non-force fast-forward push of that unchanged SHA to
+   `public-release`. Do not use GitHub merge, squash, or rebase buttons for this
+   release lane: GitHub can rewrite the committer identity, making the
+   protected history differ from the verified commit.
+7. Immediately prove `public-release` resolves to that exact SHA and that
+   force-push and deletion remain disabled.
+8. Promote a clean public default branch only with exact owner approval because changing the default branch and retiring legacy refs changes the repository control plane.
+9. Never merge the orphan public lineage into a contaminated branch or merge a contaminated branch into it.
 
 An unrelated-history pull request is not a safe promotion mechanism. Review happens against the receipt and commit tree until a clean public base branch exists.
 

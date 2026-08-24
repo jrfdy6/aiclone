@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "steps": {
+    "install": {
+      "deployOutputs": [],
+      "commands": [
+        {
+          "src": "requirements.lock.txt",
+          "dest": "requirements.lock.txt"
+        },
+        "..."
+      ]
+    }
+  }
+}

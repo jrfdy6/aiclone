@@ -9,6 +9,7 @@
     "backend/.env.example",
     "backend/Procfile",
     "backend/app",
+    "backend/railpack.json",
     "backend/railway.toml",
     "backend/requirements-dev.txt",
     "backend/requirements.lock.txt",
@@ -70,7 +71,7 @@
     "scripts/personal-brand/refresh_social_feed.py": "backend/scripts/personal-brand/refresh_social_feed.py",
     "scripts/personal-brand/sync_market_signal_archive.py": "backend/scripts/personal-brand/sync_market_signal_archive.py"
   },
-  "inventory_sha256": "3dc1464d7da6de29125114b1d947cda308dc77fb61026e5aa2f14748ce240283",
+  "inventory_sha256": "98f31993ff2b159ce03450435693cddd6dd40aca16b45b02147e91c2ed0cb5c3",
   "excludes": [
     "**/.DS_Store",
     "**/.mypy_cache",
@@ -98,6 +99,7 @@
     "backend/.python-version",
     "backend/Procfile",
     "backend/app/main.py",
+    "backend/railpack.json",
     "backend/railway.toml",
     "backend/requirements.lock.txt",
     "backend/requirements.txt",

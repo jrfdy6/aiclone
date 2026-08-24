@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 522,
+    "file_count": 523,
     "files": [
       {
         "mode": 493,
@@ -1967,6 +1967,12 @@
       },
       {
         "mode": 420,
+        "path": "backend/railpack.json",
+        "sha256": "ba0762bb1d8f228d86cb86dfa28269971876e7e4284de4c397dce9a82465ceef",
+        "size": 262
+      },
+      {
+        "mode": 420,
         "path": "backend/railway.toml",
         "sha256": "d4d9eba9aaacb70c9343a0afd9f1244f89639aa80ac619d0ad186c4c67eb2fff",
         "size": 220
@@ -2082,8 +2088,8 @@
       {
         "mode": 420,
         "path": "docs/public_github_release_sop.md",
-        "sha256": "edfcc54382151c975b6ec3d7a656bfaccf555524a35c9274ceaedbd8639ba302",
-        "size": 10266
+        "sha256": "4e569ddf6120c8142a2c0b91f1fde823b2bc55d3c620072020b48ebd371501e3",
+        "size": 10733
       },
       {
         "mode": 420,
@@ -3090,8 +3096,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "6545566676449e53a2bfa28ccccae0455b3d232792190ad9f06c4d1698052063",
-        "size": 5753
+        "sha256": "96ed570371331897dbb206b4d4529fd7edd8f1cb6fd316d404a576208a29e0d2",
+        "size": 5811
       },
       {
         "mode": 493,
@@ -3136,15 +3142,15 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "2f8fb52b088ecbdd225b81c9d8f9e0444b3b19d3f0e8f5d690f394da5d2f407f"
+    "tree_sha256": "07cab7c33d42fe8c5e0be5a5f7ba1a2e4a12d2d27eb78e70bed67039c7070b8b"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "6545566676449e53a2bfa28ccccae0455b3d232792190ad9f06c4d1698052063"
+    "sha256": "96ed570371331897dbb206b4d4529fd7edd8f1cb6fd316d404a576208a29e0d2"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "3dc1464d7da6de29125114b1d947cda308dc77fb61026e5aa2f14748ce240283",
+    "inventory_sha256": "98f31993ff2b159ce03450435693cddd6dd40aca16b45b02147e91c2ed0cb5c3",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },
