@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -9,11 +10,14 @@ import yaml
 
 from app.models import PersonaDeltaCreate, PersonaDeltaUpdate
 from app.services import persona_delta_service
+from app.services.content_lifecycle_service import PrivateContentArtifactStore
+from app.services.integrated_system_store import IntegratedSystemStore
 from app.services.social_long_form_signal_service import (
     DEFAULT_MAX_SEGMENTS_PER_ASSET,
     TARGET_CLAIMS,
     TARGET_STORIES,
     TARGET_VOICE,
+    build_canonical_long_form_source_assets,
     extract_long_form_candidates,
 )
 
@@ -120,6 +124,9 @@ NOISY_LINE_TERMS = (
 )
 NOISY_SECTION_HEADINGS = ("owner notes", "follow-ups")
 PERSONA_TARGET = "feeze.core"
+CANONICAL_PERSONA_REVIEW_PROJECTION_SCHEMA = "canonical_persona_review_projection/v1"
+CANONICAL_PERSONA_REVIEW_DELIVERY_EVENT = "persona.review_projection_delivered"
+CANONICAL_PERSONA_REVIEW_DELIVERY_ACTOR = "canonical_persona_review_projection"
 
 
 def _clean_text(value: Any) -> str:
@@ -569,6 +576,19 @@ def _build_metadata(asset: dict[str, Any], segment: str, lane_id: str, target_fi
         "source_type": _clean_text(asset.get("source_type")),
         "source_url": _clean_text(asset.get("source_url")),
         "source_path": _clean_text(asset.get("source_path")),
+        "canonical_source_id": _clean_text(asset.get("canonical_source_id")),
+        "canonical_artifact_id": _clean_text(asset.get("canonical_artifact_id")),
+        "source_author": _clean_text(asset.get("author")),
+        "source_attribution_kind": _clean_text(asset.get("attribution_kind"))
+        or "attributed_external",
+        "source_claim_owner": (
+            "owner"
+            if _clean_text(asset.get("attribution_kind")) == "owner_attested"
+            else "external"
+        ),
+        "owner_experience_attested": bool(
+            _clean_text(asset.get("attribution_kind")) == "owner_attested"
+        ),
         "evidence_source": source_label,
         "lane_hint": lane_id,
         "review_stage": "source_first",
@@ -667,20 +687,307 @@ def _needs_existing_refresh(
     return False
 
 
+def _bounded_text(value: Any, limit: int) -> str:
+    return _clean_text(value)[: max(0, int(limit))].strip()
+
+
+def _canonical_projection_item(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Return the closed, bounded source excerpt that may leave local state."""
+
+    asset = candidate.get("asset") if isinstance(candidate.get("asset"), dict) else {}
+    source_id = _clean_text(asset.get("canonical_source_id"))
+    artifact_id = _clean_text(asset.get("canonical_artifact_id"))
+    if not source_id or not artifact_id:
+        raise ValueError("canonical Persona review candidates require source and artifact identity")
+    attribution_kind = _clean_text(asset.get("attribution_kind")) or "attributed_external"
+    if attribution_kind not in {"attributed_external", "owner_attested"}:
+        raise ValueError("canonical Persona review attribution is invalid")
+    return {
+        "review_key": _clean_text(candidate.get("candidate_id")),
+        "canonical_source_id": source_id,
+        "canonical_artifact_id": artifact_id,
+        "source_asset_id": _clean_text(asset.get("asset_id")),
+        "source_title": _bounded_text(asset.get("title"), 300) or "Canonical source",
+        "source_author": _bounded_text(asset.get("author"), 300) or None,
+        "source_channel": _bounded_text(asset.get("source_channel"), 80) or "canonical_source",
+        "source_type": _bounded_text(asset.get("source_type"), 120) or "long_form_source",
+        "source_capture_kind": _bounded_text(asset.get("capture_kind"), 40) or "raw",
+        "source_url": _bounded_text(asset.get("source_url"), 2_048),
+        "source_attribution_kind": attribution_kind,
+        "segment_index": int(candidate.get("segment_index") or 1),
+        "segment_total": int(candidate.get("segment_total") or 1),
+        "segment_excerpt": _bounded_text(candidate.get("segment"), 2_000),
+        "source_context_excerpt": _bounded_text(candidate.get("source_context_excerpt"), 4_000),
+        "source_context_before": [
+            _bounded_text(item, 1_000)
+            for item in (candidate.get("source_context_before") or [])[:2]
+            if _clean_text(item)
+        ],
+        "source_context_after": [
+            _bounded_text(item, 1_000)
+            for item in (candidate.get("source_context_after") or [])[:2]
+            if _clean_text(item)
+        ],
+        "lane_hint": _bounded_text(candidate.get("lane_hint"), 120) or "current-role",
+        "target_file": _bounded_text(candidate.get("target_file"), 500) or TARGET_CLAIMS,
+        "response_modes": [
+            _bounded_text(item, 40)
+            for item in (candidate.get("response_modes") or [])[:4]
+            if _clean_text(item)
+        ],
+        "primary_route": _bounded_text(candidate.get("primary_route"), 40) or "post_seed",
+        "route_reason": _bounded_text(candidate.get("route_reason"), 1_000),
+        "route_score": int(candidate.get("route_score") or 0),
+        "worldview_score": int(candidate.get("worldview_score") or 0),
+        "handoff_lane": _bounded_text(candidate.get("handoff_lane"), 40) or "brief_only",
+        "handoff_reason": _bounded_text(candidate.get("handoff_reason"), 1_000),
+        "secondary_consumers": [
+            _bounded_text(item, 40)
+            for item in (candidate.get("secondary_consumers") or [])[:4]
+            if _clean_text(item)
+        ],
+        "stance": _bounded_text(candidate.get("stance"), 80),
+        "agreement_level": _bounded_text((candidate.get("assessment") or {}).get("agreement_level"), 80),
+        "belief_relation": _bounded_text(candidate.get("belief_relation"), 80),
+        "belief_used": _bounded_text((candidate.get("assessment") or {}).get("belief_used"), 1_000),
+        "belief_summary": _bounded_text(candidate.get("belief_summary"), 1_000),
+        "experience_anchor": _bounded_text((candidate.get("assessment") or {}).get("experience_anchor"), 1_000),
+        "experience_summary": _bounded_text(candidate.get("experience_summary"), 1_000),
+        "role_safety": _bounded_text((candidate.get("assessment") or {}).get("role_safety"), 120),
+        "weak_source_fragment": bool(candidate.get("weak_source_fragment")),
+        "source_review_fallback": bool(candidate.get("source_review_fallback")),
+    }
+
+
+def build_canonical_persona_review_projection(
+    *,
+    repo_root: Path,
+    store: IntegratedSystemStore,
+    artifact_store: PrivateContentArtifactStore,
+    max_sources: int = 6,
+    max_segments_per_source: int = DEFAULT_MAX_SEGMENTS_PER_ASSET,
+) -> dict[str, Any]:
+    """Build one bounded projection into the existing Railway Persona queue.
+
+    The canonical SQL rows and artifact bodies remain local.  Only public-safe,
+    attributed excerpts and their stable lineage identifiers are projected.
+    """
+
+    source_limit = max(1, min(int(max_sources), 12))
+    segment_limit = max(1, min(int(max_segments_per_source), DEFAULT_MAX_SEGMENTS_PER_ASSET))
+    canonical_assets = build_canonical_long_form_source_assets(
+        store=store,
+        artifact_store=artifact_store,
+        limit=source_limit,
+        exclude_delivered=True,
+    )
+    extracted = extract_long_form_candidates(
+        repo_root=repo_root,
+        source_assets={"items": []},
+        canonical_source_assets=canonical_assets,
+        max_assets=source_limit,
+        max_segments_per_asset=segment_limit,
+    )
+    source_order = {
+        _clean_text(asset.get("canonical_source_id")): index
+        for index, asset in enumerate(canonical_assets)
+        if _clean_text(asset.get("canonical_source_id"))
+    }
+    items = [
+        _canonical_projection_item(candidate)
+        for candidate in (extracted.get("candidates") or [])
+        if _clean_text((candidate.get("asset") or {}).get("canonical_source_id"))
+    ]
+    items.sort(
+        key=lambda item: (
+            source_order.get(_clean_text(item.get("canonical_source_id")), 10_000),
+            int(item.get("segment_index") or 1),
+            _clean_text(item.get("review_key")),
+        )
+    )
+    sources: list[dict[str, Any]] = []
+    for asset in canonical_assets:
+        source_id = _clean_text(asset.get("canonical_source_id"))
+        source_items = [item for item in items if item["canonical_source_id"] == source_id]
+        if not source_items:
+            continue
+        sources.append(
+            {
+                "canonical_source_id": source_id,
+                "canonical_artifact_id": _clean_text(asset.get("canonical_artifact_id")),
+                "review_keys": [str(item["review_key"]) for item in source_items],
+                "candidate_count": len(source_items),
+            }
+        )
+    return {
+        "schema_version": CANONICAL_PERSONA_REVIEW_PROJECTION_SCHEMA,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "codex_local_runner",
+        "items": items,
+        "sources": sources,
+        "counts": {
+            "sources_considered": len(canonical_assets),
+            "sources_projected": len(sources),
+            "candidate_count": len(items),
+            "skipped_no_segments": int(extracted.get("skipped_no_segments") or 0),
+        },
+    }
+
+
+def projected_candidate_to_delta_payload(item: dict[str, Any]) -> PersonaDeltaCreate:
+    """Materialize one validated projection into the existing Persona model."""
+
+    segment = _clean_text(item.get("segment_excerpt"))
+    if not segment:
+        raise ValueError("projected Persona candidate requires a source excerpt")
+    attribution_kind = _clean_text(item.get("source_attribution_kind"))
+    asset = {
+        "asset_id": _clean_text(item.get("source_asset_id")),
+        "canonical_source_id": _clean_text(item.get("canonical_source_id")),
+        "canonical_artifact_id": _clean_text(item.get("canonical_artifact_id")),
+        "title": _clean_text(item.get("source_title")),
+        "author": _clean_text(item.get("source_author")),
+        "source_class": "long_form_media",
+        "source_channel": _clean_text(item.get("source_channel")),
+        "source_type": _clean_text(item.get("source_type")),
+        "source_url": _clean_text(item.get("source_url")),
+        "source_path": "",
+        "attribution_kind": attribution_kind,
+    }
+    assessment = {
+        key: _clean_text(item.get(key))
+        for key in (
+            "stance",
+            "agreement_level",
+            "belief_relation",
+            "belief_used",
+            "belief_summary",
+            "experience_anchor",
+            "experience_summary",
+            "role_safety",
+        )
+    }
+    target_file = _clean_text(item.get("target_file")) or TARGET_CLAIMS
+    lane_id = _clean_text(item.get("lane_hint")) or "current-role"
+    metadata = _build_metadata(asset, segment, lane_id, target_file, assessment)
+    metadata.update(
+        {
+            "review_key": _clean_text(item.get("review_key")),
+            "review_origin": "canonical_sql",
+            "review_purpose": (
+                "persona_canon_consideration"
+                if attribution_kind == "owner_attested"
+                and _clean_text(item.get("handoff_lane")) == "persona_candidate"
+                else "source_reaction"
+            ),
+            "segment_index": int(item.get("segment_index") or 1),
+            "segment_total": int(item.get("segment_total") or 1),
+            "response_modes": list(item.get("response_modes") or []),
+            "primary_route": _clean_text(item.get("primary_route")),
+            "route_reason": _clean_text(item.get("route_reason")),
+            "route_score": int(item.get("route_score") or 0),
+            "worldview_score": int(item.get("worldview_score") or 0),
+            "handoff_lane": _clean_text(item.get("handoff_lane")),
+            "handoff_reason": _clean_text(item.get("handoff_reason")),
+            "secondary_consumers": list(item.get("secondary_consumers") or []),
+            "source_capture_kind": _clean_text(item.get("source_capture_kind")),
+            "source_context_excerpt": _clean_text(item.get("source_context_excerpt")),
+            "source_context_before": list(item.get("source_context_before") or []),
+            "source_context_after": list(item.get("source_context_after") or []),
+            "weak_source_fragment": bool(item.get("weak_source_fragment")),
+            "source_review_fallback": bool(item.get("source_review_fallback")),
+        }
+    )
+    if attribution_kind != "owner_attested":
+        # External words may support a reaction, but they are never selectable
+        # owner canon, proof, voice, or lived experience by themselves.
+        for key in ("talking_points", "phrase_candidates", "frameworks", "anecdotes", "stats"):
+            metadata[key] = []
+        metadata.update(
+            {
+                "promotion_requires_owner_authored_response": True,
+                "why_showing": (
+                    f"This is an attributed excerpt from {asset['title'] or 'an external source'}. "
+                    "It is here for your reaction; it is not your belief, wording, proof, or lived experience."
+                ),
+                "review_prompt": (
+                    "What do you think about this attributed source claim? You can respond in your own words, "
+                    "or skip the claim or entire source without creating owner evidence."
+                ),
+            }
+        )
+        notes = "\n".join(
+            [
+                f"Attributed external source: {asset['title'] or 'Untitled source'}",
+                f"Source channel: {asset['source_channel'] or 'unknown'}",
+                "",
+                "Source excerpt:",
+                segment,
+                *(
+                    ["", "Surrounding source context:", metadata["source_context_excerpt"]]
+                    if metadata["source_context_excerpt"]
+                    and metadata["source_context_excerpt"].lower() != segment.lower()
+                    else []
+                ),
+                "",
+                "This remains attributed external evidence unless the owner supplies a separate response.",
+            ]
+        )
+    else:
+        notes = _build_notes(
+            asset,
+            segment,
+            lane_id,
+            target_file,
+            assessment,
+            primary_route=metadata["primary_route"],
+            response_modes=metadata["response_modes"],
+            source_context_excerpt=metadata["source_context_excerpt"],
+        )
+    return PersonaDeltaCreate(
+        persona_target=PERSONA_TARGET,
+        trait=_trait_label(segment, target_file),
+        notes=notes,
+        metadata=metadata,
+    )
+
+
 class SocialPersonaReviewService:
     def sync_long_form_worldview_reviews(
         self,
         *,
         repo_root: Path,
         source_assets: dict[str, Any] | None = None,
+        canonical_store: IntegratedSystemStore | None = None,
+        canonical_artifact_store: PrivateContentArtifactStore | None = None,
         transcripts_root: Path | None = None,
         ingestions_root: Path | None = None,
         max_assets: int = 12,
         max_segments_per_asset: int = DEFAULT_MAX_SEGMENTS_PER_ASSET,
     ) -> dict[str, Any]:
+        try:
+            existing_deltas = persona_delta_service.list_deltas(limit=400)
+        except Exception:
+            existing_deltas = []
+        represented_canonical_source_ids = {
+            _clean_text((delta.metadata or {}).get("canonical_source_id"))
+            for delta in existing_deltas
+            if isinstance(delta.metadata, dict)
+            and _clean_text((delta.metadata or {}).get("canonical_source_id"))
+        }
+        canonical_assets: list[dict[str, Any]] = []
+        if canonical_store is not None and canonical_artifact_store is not None:
+            canonical_assets = build_canonical_long_form_source_assets(
+                store=canonical_store,
+                artifact_store=canonical_artifact_store,
+                excluded_source_ids=represented_canonical_source_ids,
+                limit=max_assets,
+                exclude_delivered=False,
+            )
         extracted = extract_long_form_candidates(
             repo_root=repo_root,
             source_assets=source_assets,
+            canonical_source_assets=canonical_assets,
             transcripts_root=transcripts_root,
             ingestions_root=ingestions_root,
             max_assets=max_assets,
@@ -689,7 +996,8 @@ class SocialPersonaReviewService:
         candidates = [
             item
             for item in extracted.get("candidates") or []
-            if _clean_text(item.get("handoff_lane")) == "persona_candidate"
+            if _clean_text((item.get("asset") or {}).get("canonical_source_id"))
+            or _clean_text(item.get("handoff_lane")) == "persona_candidate"
             or (_clean_text(item.get("handoff_lane")) == "" and _clean_text(item.get("primary_route")) == "belief_evidence")
         ]
         inventory_asset_ids: set[str] = {
@@ -697,11 +1005,12 @@ class SocialPersonaReviewService:
             for item in ((source_assets or {}).get("items") or [])
             if _clean_text(item.get("asset_id"))
         }
+        inventory_asset_ids.update(
+            _clean_text(item.get("asset_id"))
+            for item in canonical_assets
+            if _clean_text(item.get("asset_id"))
+        )
 
-        try:
-            existing_deltas = persona_delta_service.list_deltas(limit=400)
-        except Exception:
-            existing_deltas = []
         existing_review_keys: dict[str, Any] = {}
         for delta in existing_deltas:
             metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
@@ -770,17 +1079,28 @@ class SocialPersonaReviewService:
                 if _clean_text(item)
             ]
             metadata["weak_source_fragment"] = bool(candidate.get("weak_source_fragment"))
-            trait = _trait_label(segment, target_file)
-            notes = _build_notes(
-                asset,
-                segment,
-                lane_id,
-                target_file,
-                assessment,
-                primary_route=metadata["primary_route"],
-                response_modes=metadata["response_modes"],
-                source_context_excerpt=metadata["source_context_excerpt"],
-            )
+            metadata["source_review_fallback"] = bool(candidate.get("source_review_fallback"))
+            is_canonical = bool(_clean_text(asset.get("canonical_source_id")))
+            if is_canonical:
+                projected_payload = projected_candidate_to_delta_payload(
+                    _canonical_projection_item(candidate)
+                )
+                trait = projected_payload.trait
+                notes = projected_payload.notes or ""
+                metadata = dict(projected_payload.metadata)
+            else:
+                metadata["review_purpose"] = "persona_canon_consideration"
+                trait = _trait_label(segment, target_file)
+                notes = _build_notes(
+                    asset,
+                    segment,
+                    lane_id,
+                    target_file,
+                    assessment,
+                    primary_route=metadata["primary_route"],
+                    response_modes=metadata["response_modes"],
+                    source_context_excerpt=metadata["source_context_excerpt"],
+                )
 
             existing_delta = existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key)
             try:
@@ -852,6 +1172,11 @@ class SocialPersonaReviewService:
             if review_key in desired_review_keys:
                 continue
             source_asset_id = _clean_text(metadata.get("source_asset_id"))
+            if _clean_text(metadata.get("canonical_source_id")):
+                # Canonical projections are bounded delivery batches. Their
+                # absence from a later batch is not evidence that the source
+                # or review item became stale.
+                continue
             legacy_primary_route = _clean_text(metadata.get("primary_route"))
             stale_reason = ""
             sync_state = ""
@@ -893,6 +1218,12 @@ class SocialPersonaReviewService:
             "refreshed_existing": refreshed_existing,
             "skipped_no_segments": skipped_no_segments,
             "resolved_stale": resolved_stale,
+            "canonical_assets_considered": len(canonical_assets),
+            "canonical_candidate_count": sum(
+                1
+                for candidate in candidates
+                if _clean_text((candidate.get("asset") or {}).get("canonical_source_id"))
+            ),
             "created": created,
         }
 

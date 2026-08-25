@@ -21,6 +21,7 @@ const {
   adjacentPersonaReviewDeltaId,
   findPersonaReviewPosition,
   groupPersonaReviewDeltas,
+  nextPersonaReviewSourceDeltaId,
   personaResponsePlaceholder,
   youtubeThumbnailUrl,
   youtubeVideoId,
@@ -38,6 +39,13 @@ test('response categories provide unsaved guidance without supplying owner evide
   assert.match(queueTemplateSource, /setSelectedResponseKind\(kind\)/);
   assert.doesNotMatch(queueTemplateSource, /setReflectionText/);
   assert.equal((clientSource.match(/placeholder=\{personaResponsePlaceholder\(selectedResponseKind\)\}/g) || []).length, 2);
+});
+
+test('an empty Persona batch cannot masquerade as an empty ingestion backlog', () => {
+  assert.match(clientSource, /No review cards are currently loaded\./);
+  assert.match(clientSource, /This is not an empty-source claim\./);
+  assert.match(clientSource, /sources awaiting transcripts remain in the ingestion backlog\./);
+  assert.match(clientSource, /Refresh Persona Queue on Mac/);
 });
 
 function delta(id, metadata = {}, createdAt = '2026-08-24T12:00:00Z') {
@@ -76,6 +84,9 @@ test('advances claim to claim and then source to source', () => {
     claimIndex: 1,
     source: groups[0],
   });
+  assert.equal(nextPersonaReviewSourceDeltaId(groups, 'claim-1'), 'article-1');
+  assert.equal(nextPersonaReviewSourceDeltaId(groups, 'claim-2'), 'article-1');
+  assert.equal(nextPersonaReviewSourceDeltaId(groups, 'article-1'), null);
 });
 
 test('derives safe YouTube thumbnail URLs from supported public video URLs', () => {
@@ -101,6 +112,19 @@ test('Persona keeps the approved iPhone review inside the existing surface', () 
   assert.match(clientSource, /no different source was selected automatically/);
   assert.match(clientSource, /aiclone\.brain\.persona-review-drafts\.v1/);
   assert.match(clientSource, /excluded from canon, Dream, and learning/);
+  assert.match(clientSource, />\s*Skip claim\s*</);
+  assert.match(clientSource, />\s*Skip source\s*</);
+  assert.match(clientSource, /Skip records no opinion\. The source stays attributed external knowledge\./);
+  const skipStart = clientSource.indexOf("async function skipPersonaReview(scope: 'claim' | 'source')");
+  const skipEnd = clientSource.indexOf('async function saveMobilePersonaReview()', skipStart);
+  assert.ok(skipStart >= 0 && skipEnd > skipStart);
+  const skipSource = clientSource.slice(skipStart, skipEnd);
+  assert.match(skipSource, /\/api\/brain\/persona-review\/\$\{encodeURIComponent\(selectedDelta\.id\)\}\/skip/);
+  assert.match(skipSource, /owner_evidence_created !== false/);
+  assert.match(skipSource, /nextPersonaSourceDeltaId/);
+  assert.doesNotMatch(skipSource, /\/api\/capture\//);
+  assert.match(clientSource, /reviewPurpose === 'source_reaction'/);
+  assert.match(clientSource, /persona\/deltas\?limit=100&view=brain_queue/);
   const mobileQueueStart = clientSource.indexOf("mobilePersonaSheet === 'queue' ?");
   const mobileQueueEnd = clientSource.indexOf("                  ) : (", mobileQueueStart);
   assert.ok(mobileQueueStart >= 0 && mobileQueueEnd > mobileQueueStart);

@@ -168,6 +168,19 @@ test('Brain renders private grounding and source registry as aggregate status on
   assert.match(clientSource, /Exact titles, identifiers, and paths remain outside this aggregate view/);
 });
 
+test('Brain distinguishes complete playlist coverage from its bounded review window', () => {
+  assert.match(clientSource, /designated_playlists/);
+  assert.match(clientSource, /Playlist unique/);
+  assert.match(clientSource, /Full manifest checked/);
+  assert.match(clientSource, /Awaiting transcript/);
+  assert.match(clientSource, /Awaiting first attempt/);
+  assert.match(clientSource, /Retry pending/);
+  assert.match(clientSource, /Duplicates collapsed/);
+  assert.match(clientSource, /Counts reflect only YouTube&apos;s bounded feed window/);
+  assert.match(clientSource, /Discovered · awaiting first transcript attempt/);
+  assert.match(clientSource, /Discovered · transcript retry pending/);
+});
+
 test('redacts private host paths and credential names from every Brain display string', () => {
   assert.equal(
     normalizeBrainDisplayText('Result in /opt/aiclone/private-runtime/jobs/result.json.'),

@@ -72,7 +72,7 @@
     "scripts/personal-brand/refresh_social_feed.py": "backend/scripts/personal-brand/refresh_social_feed.py",
     "scripts/personal-brand/sync_market_signal_archive.py": "backend/scripts/personal-brand/sync_market_signal_archive.py"
   },
-  "inventory_sha256": "1dc77466d088c43c731cb6b4fb5bdc6bd0c30cffb6da8525e1245536a3371839",
+  "inventory_sha256": "91b39e42cddfccdb289f1f3a58c2fb27e5eeb655f12084f5e999af97d61b0b1b",
   "excludes": [
     "**/.DS_Store",
     "**/.mypy_cache",

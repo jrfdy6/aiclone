@@ -424,6 +424,253 @@ def get_delta_by_review_key(review_key: str) -> Optional[PersonaDelta]:
     return _row_to_delta(row) if row else None
 
 
+def sync_projected_review_candidates(
+    items: list[dict[str, Any]],
+    *,
+    active_source_limit: int = 8,
+) -> dict[str, Any]:
+    """Idempotently add bounded canonical-source excerpts to Persona.
+
+    One server-side advisory lock owns capacity and review-key arbitration.
+    The canonical source body never reaches this function; each item is the
+    already bounded, explicitly attributed projection validated by the route.
+    """
+
+    from app.services.social_persona_review_service import (
+        projected_candidate_to_delta_payload,
+    )
+
+    bounded_limit = max(1, min(int(active_source_limit), 20))
+    grouped: dict[str, list[tuple[dict[str, Any], PersonaDeltaCreate]]] = {}
+    for raw_item in items:
+        item = dict(raw_item)
+        source_id = str(item.get("canonical_source_id") or "").strip()
+        if not source_id:
+            raise ValueError("canonical Persona projection is missing source identity")
+        grouped.setdefault(source_id, []).append(
+            (item, projected_candidate_to_delta_payload(item))
+        )
+
+    receipts: list[dict[str, Any]] = []
+    created_count = 0
+    existing_count = 0
+    deferred_count = 0
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                ("canonical-persona-review-candidate-sync/v1",),
+            )
+            cur.execute(
+                """SELECT DISTINCT metadata->>'canonical_source_id' AS source_id
+                   FROM persona_deltas
+                   WHERE status IN ('draft','pending','in_review')
+                     AND metadata->>'review_origin'='canonical_sql'
+                     AND COALESCE(metadata->>'canonical_source_id','') <> ''"""
+            )
+            active_sources = {
+                str(row.get("source_id") or "").strip()
+                for row in (cur.fetchall() or [])
+                if str(row.get("source_id") or "").strip()
+            }
+
+            for source_id, source_items in grouped.items():
+                review_keys = [str(item[0]["review_key"]) for item in source_items]
+                cur.execute(
+                    """SELECT id::text AS id,status,metadata
+                       FROM persona_deltas
+                       WHERE metadata->>'review_key' = ANY(%s)""",
+                    (review_keys,),
+                )
+                existing_rows = cur.fetchall() or []
+                existing_by_key: dict[str, dict[str, Any]] = {}
+                for row in existing_rows:
+                    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+                    review_key = str(metadata.get("review_key") or "").strip()
+                    if (
+                        str(metadata.get("canonical_source_id") or "").strip() != source_id
+                        or str(metadata.get("canonical_artifact_id") or "").strip()
+                        != str(source_items[0][0]["canonical_artifact_id"])
+                    ):
+                        raise ValueError("canonical Persona review key belongs to different lineage")
+                    existing_by_key[review_key] = dict(row)
+
+                missing_candidate_count = len(source_items) - len(existing_by_key)
+                would_open_active_source = (
+                    missing_candidate_count > 0 and source_id not in active_sources
+                )
+                if would_open_active_source and len(active_sources) >= bounded_limit:
+                    deferred_count += len(source_items)
+                    receipts.append(
+                        {
+                            "canonical_source_id": source_id,
+                            "canonical_artifact_id": str(source_items[0][0]["canonical_artifact_id"]),
+                            "disposition": "deferred_capacity",
+                            "candidate_count": len(source_items),
+                            "created_count": 0,
+                            "existing_count": 0,
+                            "review_keys": review_keys,
+                        }
+                    )
+                    continue
+
+                source_created = 0
+                source_existing = 0
+                delta_ids: list[str] = []
+                for item, payload in source_items:
+                    review_key = str(item["review_key"])
+                    existing = existing_by_key.get(review_key)
+                    if existing is not None:
+                        source_existing += 1
+                        delta_ids.append(str(existing["id"]))
+                        continue
+                    cur.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        (review_key,),
+                    )
+                    cur.execute(
+                        """SELECT id::text AS id,status,metadata
+                           FROM persona_deltas
+                           WHERE metadata->>'review_key'=%s
+                           ORDER BY created_at DESC
+                           LIMIT 1""",
+                        (review_key,),
+                    )
+                    raced = cur.fetchone()
+                    if raced is not None:
+                        raced_metadata = raced.get("metadata") if isinstance(raced.get("metadata"), dict) else {}
+                        if (
+                            str(raced_metadata.get("canonical_source_id") or "").strip() != source_id
+                            or str(raced_metadata.get("canonical_artifact_id") or "").strip()
+                            != str(item["canonical_artifact_id"])
+                        ):
+                            raise ValueError("canonical Persona review key belongs to different lineage")
+                        source_existing += 1
+                        delta_ids.append(str(raced["id"]))
+                        continue
+                    delta_id = str(uuid4())
+                    cur.execute(
+                        """INSERT INTO persona_deltas(
+                               id,capture_id,persona_target,trait,notes,status,metadata
+                           ) VALUES (%s,%s,%s,%s,%s,'draft',%s)
+                           RETURNING id::text AS id""",
+                        (
+                            delta_id,
+                            payload.capture_id,
+                            payload.persona_target,
+                            payload.trait,
+                            payload.notes,
+                            Jsonb(payload.metadata or {}),
+                        ),
+                    )
+                    inserted = cur.fetchone()
+                    if inserted is None:
+                        raise RuntimeError("canonical Persona review candidate was not stored")
+                    source_created += 1
+                    delta_ids.append(str(inserted["id"]))
+
+                if source_created:
+                    active_sources.add(source_id)
+                created_count += source_created
+                existing_count += source_existing
+                receipts.append(
+                    {
+                        "canonical_source_id": source_id,
+                        "canonical_artifact_id": str(source_items[0][0]["canonical_artifact_id"]),
+                        "disposition": "created" if source_created else "idempotent_existing",
+                        "candidate_count": len(source_items),
+                        "created_count": source_created,
+                        "existing_count": source_existing,
+                        "review_keys": review_keys,
+                        "delta_ids": delta_ids,
+                    }
+                )
+        conn.commit()
+    return {
+        "created_count": created_count,
+        "existing_count": existing_count,
+        "deferred_count": deferred_count,
+        "active_source_count": len(active_sources),
+        "active_source_limit": bounded_limit,
+        "source_receipts": receipts,
+    }
+
+
+def skip_brain_review(delta_id: str, *, scope: str) -> dict[str, Any] | None:
+    """Resolve a claim or source without recording an owner opinion."""
+
+    normalized_scope = str(scope or "source").strip().lower()
+    if normalized_scope not in {"claim", "source"}:
+        raise ValueError("Unsupported Persona review skip scope.")
+    pool = get_pool()
+    skipped_at = datetime.now(timezone.utc).isoformat()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """SELECT id::text AS id,status,metadata
+                   FROM persona_deltas
+                   WHERE id=%s
+                   FOR UPDATE""",
+                (delta_id,),
+            )
+            selected = cur.fetchone()
+            if selected is None:
+                return None
+            metadata = selected.get("metadata") if isinstance(selected.get("metadata"), dict) else {}
+            if str(metadata.get("review_source") or "").strip() != "long_form_media.segment":
+                raise ValueError("Only source-review claims can be skipped through this action.")
+            source_asset_id = str(metadata.get("source_asset_id") or "").strip()
+            if normalized_scope == "source" and not source_asset_id:
+                raise ValueError("This review item does not have a stable source identity.")
+
+            if normalized_scope == "claim":
+                cur.execute(
+                    """SELECT id::text AS id
+                       FROM persona_deltas
+                       WHERE id=%s AND status IN ('draft','pending','in_review')""",
+                    (delta_id,),
+                )
+            else:
+                cur.execute(
+                    """SELECT id::text AS id
+                       FROM persona_deltas
+                       WHERE metadata->>'source_asset_id'=%s
+                         AND metadata->>'review_source'='long_form_media.segment'
+                         AND status IN ('draft','pending','in_review')
+                       ORDER BY created_at,id""",
+                    (source_asset_id,),
+                )
+            target_ids = [str(row["id"]) for row in (cur.fetchall() or [])]
+            if target_ids:
+                skip_metadata = {
+                    "review_disposition": "skipped",
+                    "review_skip_scope": normalized_scope,
+                    "review_skipped_at": skipped_at,
+                    "review_completed": True,
+                    "owner_comment_status": "declined",
+                    "owner_evidence_created": False,
+                    "source_retention": "attributed_external_knowledge",
+                    "retrieval_policy": "unchanged",
+                }
+                cur.execute(
+                    """UPDATE persona_deltas
+                       SET status='resolved',
+                           metadata=COALESCE(metadata,'{}'::jsonb) || %s
+                       WHERE id = ANY(%s)""",
+                    (Jsonb(skip_metadata), target_ids),
+                )
+        conn.commit()
+    return {
+        "scope": normalized_scope,
+        "source_asset_id": source_asset_id or None,
+        "skipped_count": len(target_ids),
+        "skipped_delta_ids": target_ids,
+        "owner_evidence_created": False,
+        "source_retention": "attributed_external_knowledge",
+    }
+
+
 def apply_brain_review(
     delta_id: str,
     *,

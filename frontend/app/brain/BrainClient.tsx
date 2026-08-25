@@ -20,6 +20,7 @@ import {
   adjacentPersonaReviewDeltaId,
   findPersonaReviewPosition,
   groupPersonaReviewDeltas,
+  nextPersonaReviewSourceDeltaId,
   personaResponsePlaceholder,
   youtubeThumbnailUrl,
 } from './personaReviewMobile';
@@ -400,6 +401,7 @@ type WorkspaceSocialFeed = {
 };
 
 type YouTubeWatchlistVideo = {
+  video_id?: string;
   title?: string;
   url?: string;
   author?: string;
@@ -408,7 +410,29 @@ type YouTubeWatchlistVideo = {
   priority_lane?: string;
   channel_name?: string;
   channel_url?: string;
+  playlist_position?: number;
+  live_status?: string | null;
+  canonical_registered?: boolean;
   already_ingested?: boolean;
+  transcript_attempt_count?: number;
+  last_transcript_attempt_status?: string | null;
+};
+
+type YouTubePlaylistCoverage = {
+  manifest_entries?: number;
+  unique_videos?: number;
+  duplicate_entries?: number;
+  registered?: number;
+  newly_registered_this_run?: number;
+  captured?: number;
+  backlog?: number;
+  unattempted_backlog?: number;
+  retry_pending?: number;
+  selected_for_capture_this_run?: number;
+  captured_this_run?: number;
+  capture_reused_this_run?: number;
+  capture_deferred_this_run?: number;
+  capture_failed_this_run?: number;
 };
 
 type YouTubeWatchlistChannel = {
@@ -418,6 +442,15 @@ type YouTubeWatchlistChannel = {
   priority_lane?: string;
   error?: string;
   videos?: YouTubeWatchlistVideo[];
+  inspection_window_count?: number;
+};
+
+type YouTubeWatchlistPlaylist = YouTubeWatchlistChannel & {
+  playlist_id?: string | null;
+  discovery_mode?: string;
+  coverage_state?: string;
+  manifest_warning?: string;
+  coverage?: YouTubePlaylistCoverage;
 };
 
 type YouTubeWatchlistPayload = {
@@ -437,10 +470,21 @@ type YouTubeWatchlistPayload = {
     per_channel_limit?: number;
   };
   channels?: YouTubeWatchlistChannel[];
+  designated_playlists?: YouTubeWatchlistPlaylist[];
   counts?: {
     channels?: number;
+    designated_playlists?: number;
     videos?: number;
     already_ingested?: number;
+    pending_transcript_backfill?: number;
+    playlist_manifest_entries?: number;
+    playlist_unique_videos?: number;
+    playlist_duplicate_entries?: number;
+    playlist_registered?: number;
+    playlist_captured?: number;
+    playlist_backlog?: number;
+    playlist_unattempted_backlog?: number;
+    playlist_retry_pending?: number;
   };
 };
 
@@ -791,6 +835,16 @@ type CaptureResponsePayload = {
   chunk_ids: string[];
   chunk_count: number;
   expires_at?: string | null;
+};
+
+type BrainPersonaReviewSkipResponse = {
+  message?: string;
+  scope: 'claim' | 'source';
+  source_asset_id?: string | null;
+  skipped_count: number;
+  skipped_delta_ids: string[];
+  owner_evidence_created: false;
+  source_retention: 'attributed_external_knowledge';
 };
 
 type BrainPromotionResponse = {
@@ -1239,7 +1293,7 @@ export default function BrainClient({
     if (shouldLoad('personaDeltas')) {
       setPersonaDeltasLoadState((current) => (current === 'ready' ? 'refreshing' : 'loading'));
       requests.push(
-        fetchFreshJson<PersonaDeltaEntry[]>('/api/persona/deltas?limit=50&view=brain_queue', BRAIN_PERSONA_TIMEOUT_MS)
+        fetchFreshJson<PersonaDeltaEntry[]>('/api/persona/deltas?limit=100&view=brain_queue', BRAIN_PERSONA_TIMEOUT_MS)
           .then((items) => {
             if (isCancelled() || !Array.isArray(items)) return;
             setPersonaDeltas(items);
@@ -2689,6 +2743,11 @@ function BrainLongFormIngestPanel({
   const [queueStatus, setQueueStatus] = useState<string | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const watchlistChannels = youtubeWatchlist?.channels ?? [];
+  const watchlistPlaylists = youtubeWatchlist?.designated_playlists ?? [];
+  const watchlistSources = [
+    ...watchlistPlaylists.map((source) => ({ ...source, watchlistKind: 'playlist' as const })),
+    ...watchlistChannels.map((source) => ({ ...source, watchlistKind: 'channel' as const })),
+  ];
   const recentJobs = youtubeIngestJobs.slice(0, 6);
   const canQueueLongForm = Boolean(value.url.trim() || value.transcriptText.trim() || value.notes.trim());
   const longFormQueueDisabled = submitting || !canQueueLongForm;
@@ -2852,7 +2911,7 @@ function BrainLongFormIngestPanel({
             <div>
               <p style={{ color: '#fbbf24', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase' }}>YouTube Watchlist</p>
               <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '820px' }}>
-                These tracked channels route into the same Brain ingest path. If the local media runtime is available, Brain can pull audio and transcript automatically.
+                Tracked channels and the owner-designated playlist route into the same canonical Brain ingest path. Playlist totals cover the full deduplicated manifest; only a small newest-first inspection window is shown below.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2872,9 +2931,31 @@ function BrainLongFormIngestPanel({
                 tone="#38bdf8"
               />
               <InlineBadge
-                label={`Videos ${numberMeta(youtubeWatchlist?.counts?.videos)}`}
+                label={`Playlists ${numberMeta(youtubeWatchlist?.counts?.designated_playlists)}`}
+                tone="#38bdf8"
+              />
+              <InlineBadge
+                label={`Discovered videos ${numberMeta(youtubeWatchlist?.counts?.videos)}`}
                 tone="#818cf8"
               />
+              {(youtubeWatchlist?.counts?.playlist_unique_videos ?? 0) > 0 && (
+                <InlineBadge
+                  label={`Playlist unique ${numberMeta(youtubeWatchlist?.counts?.playlist_unique_videos)}`}
+                  tone="#a78bfa"
+                />
+              )}
+              {(youtubeWatchlist?.counts?.playlist_captured ?? 0) > 0 && (
+                <InlineBadge
+                  label={`Transcripts ready ${numberMeta(youtubeWatchlist?.counts?.playlist_captured)}`}
+                  tone="#22c55e"
+                />
+              )}
+              {(youtubeWatchlist?.counts?.playlist_backlog ?? 0) > 0 && (
+                <InlineBadge
+                  label={`Awaiting transcript ${numberMeta(youtubeWatchlist?.counts?.playlist_backlog)}`}
+                  tone="#f59e0b"
+                />
+              )}
               {youtubeWatchlist?.auto_ingest?.enabled && (
                 <InlineBadge
                   label={`Auto ingest ${numberMeta(youtubeWatchlist?.auto_ingest?.max_videos_per_run)}/run`}
@@ -2889,38 +2970,75 @@ function BrainLongFormIngestPanel({
           {queueError && <p role="alert" style={{ color: '#f87171', fontSize: '12px' }}>{queueError}</p>}
 
           <div style={{ display: 'grid', gap: '12px' }}>
-            {watchlistChannels.length > 0 ? (
-              watchlistChannels.map((channel, channelIndex) => (
+            {watchlistSources.length > 0 ? (
+              watchlistSources.map((source, sourceIndex) => {
+                const isPlaylist = source.watchlistKind === 'playlist';
+                const coverage = isPlaylist ? source.coverage : undefined;
+                const sourceLabel = source.name || (isPlaylist ? 'YouTube playlist' : 'YouTube channel');
+                const sourceErrorLabel = isPlaylist ? 'Playlist lookup failed.' : 'Channel lookup failed.';
+                return (
                 <div
-                  key={`${channel.name || 'channel'}-${channelIndex}`}
+                  key={`${source.watchlistKind}-${source.url || source.name || sourceIndex}`}
                   style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#030712', padding: '14px', display: 'grid', gap: '12px' }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     <div style={{ display: 'grid', gap: '6px' }}>
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <p style={{ color: 'white', fontSize: '15px', fontWeight: 600 }}>{channel.name || 'YouTube channel'}</p>
-                        {channel.priority_lane && <InlineBadge label={humanizeSnakeCase(channel.priority_lane)} tone="#38bdf8" />}
-                        {channel.error && <InlineBadge label="Feed lookup failed" tone="#f97316" />}
+                        <p style={{ color: 'white', fontSize: '15px', fontWeight: 600 }}>{sourceLabel}</p>
+                        <InlineBadge label={isPlaylist ? 'Owner playlist' : 'Tracked channel'} tone={isPlaylist ? '#a78bfa' : '#38bdf8'} />
+                        {source.priority_lane && <InlineBadge label={humanizeSnakeCase(source.priority_lane)} tone="#38bdf8" />}
+                        {source.error && <InlineBadge label="Feed lookup failed" tone="#f97316" />}
+                        {isPlaylist && source.coverage_state && (
+                          <InlineBadge
+                            label={source.coverage_state === 'complete_manifest' ? 'Full manifest checked' : 'Bounded fallback only'}
+                            tone={source.coverage_state === 'complete_manifest' ? '#22c55e' : '#f59e0b'}
+                          />
+                        )}
                       </div>
-                      {channel.purpose && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.5 }}>{channel.purpose}</p>}
+                      {source.purpose && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.5 }}>{source.purpose}</p>}
+                      {isPlaylist && coverage && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          <InlineBadge label={`Unique ${numberMeta(coverage.unique_videos)}`} tone="#a78bfa" />
+                          <InlineBadge label={`Registered ${numberMeta(coverage.registered)}`} tone="#38bdf8" />
+                          <InlineBadge label={`Transcripts ready ${numberMeta(coverage.captured)}`} tone="#22c55e" />
+                          <InlineBadge label={`Awaiting transcript ${numberMeta(coverage.backlog)}`} tone="#f59e0b" />
+                          {(coverage.unattempted_backlog ?? 0) > 0 && (
+                            <InlineBadge label={`Awaiting first attempt ${numberMeta(coverage.unattempted_backlog)}`} tone="#fbbf24" />
+                          )}
+                          {(coverage.retry_pending ?? 0) > 0 && (
+                            <InlineBadge label={`Retry pending ${numberMeta(coverage.retry_pending)}`} tone="#f97316" />
+                          )}
+                          {(coverage.duplicate_entries ?? 0) > 0 && (
+                            <InlineBadge label={`Duplicates collapsed ${numberMeta(coverage.duplicate_entries)}`} tone="#64748b" />
+                          )}
+                        </div>
+                      )}
+                      {isPlaylist && source.coverage_state === 'degraded_bounded_fallback' && (
+                        <p role="alert" style={{ color: '#fbbf24', fontSize: '12px', lineHeight: 1.5 }}>
+                          The full playlist could not be checked during this run. Counts reflect only YouTube&apos;s bounded feed window and must not be read as complete coverage.
+                        </p>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {safeExternalHttpsUrl(channel.url) && (
-                        <a href={safeExternalHttpsUrl(channel.url) ?? undefined} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
-                          Open channel
+                      {safeExternalHttpsUrl(source.url) && (
+                        <a href={safeExternalHttpsUrl(source.url) ?? undefined} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
+                          {isPlaylist ? 'Open playlist' : 'Open channel'}
                         </a>
                       )}
-                      {channel.videos && channel.videos.length > 0 && (
-                        <InlineBadge label={`${channel.videos.length} recent`} tone="#64748b" />
+                      {source.videos && source.videos.length > 0 && (
+                        <InlineBadge
+                          label={`${source.videos.length} ${isPlaylist ? 'shown' : 'recent'}`}
+                          tone="#64748b"
+                        />
                       )}
                     </div>
                   </div>
 
-                  {channel.error ? (
-                    <p style={{ color: '#fca5a5', fontSize: '12px' }}>{ownerSafeErrorMessage(channel.error, 'Channel lookup failed.')}</p>
-                  ) : channel.videos && channel.videos.length > 0 ? (
+                  {source.error ? (
+                    <p style={{ color: '#fca5a5', fontSize: '12px' }}>{ownerSafeErrorMessage(source.error, sourceErrorLabel)}</p>
+                  ) : source.videos && source.videos.length > 0 ? (
                     <div style={{ display: 'grid', gap: '10px' }}>
-                      {channel.videos.map((video, videoIndex) => (
+                      {source.videos.map((video, videoIndex) => (
                         <div
                           key={`${video.url || video.title || 'video'}-${videoIndex}`}
                           style={{ borderRadius: '12px', border: '1px solid #162033', backgroundColor: '#020617', padding: '12px', display: 'grid', gap: '10px' }}
@@ -2931,7 +3049,21 @@ function BrainLongFormIngestPanel({
                               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                 {video.author && <InlineBadge label={video.author} tone="#64748b" />}
                                 {video.published_at && <InlineBadge label={formatTimestampValue(video.published_at)} tone="#64748b" />}
-                                {video.already_ingested && <InlineBadge label="Already in Brain" tone="#22c55e" />}
+                                {video.live_status === 'was_live' && <InlineBadge label="Past livestream" tone="#a78bfa" />}
+                                {video.already_ingested ? (
+                                  <InlineBadge label="Transcript in Brain" tone="#22c55e" />
+                                ) : video.canonical_registered ? (
+                                  <InlineBadge
+                                    label={
+                                      (video.transcript_attempt_count ?? 0) > 0
+                                        ? 'Discovered · transcript retry pending'
+                                        : 'Discovered · awaiting first transcript attempt'
+                                    }
+                                    tone={(video.transcript_attempt_count ?? 0) > 0 ? '#f97316' : '#f59e0b'}
+                                  />
+                                ) : (
+                                  <InlineBadge label="Not registered yet" tone="#64748b" />
+                                )}
                               </div>
                               {video.summary && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55 }}>{video.summary}</p>}
                             </div>
@@ -2956,7 +3088,13 @@ function BrainLongFormIngestPanel({
                                   fontWeight: 600,
                                 }}
                               >
-                                {queueingUrl === video.url ? 'Queueing…' : video.already_ingested ? 'Queue re-ingest on Mac' : 'Queue ingest on Mac'}
+                                {queueingUrl === video.url
+                                  ? 'Queueing…'
+                                  : video.already_ingested
+                                    ? 'Queue re-ingest on Mac'
+                                    : video.canonical_registered
+                                      ? 'Queue transcript on Mac'
+                                      : 'Queue ingest on Mac'}
                               </button>
                             </div>
                           </div>
@@ -2964,12 +3102,15 @@ function BrainLongFormIngestPanel({
                       ))}
                     </div>
                   ) : (
-                    <p style={{ color: '#94a3b8', fontSize: '12px' }}>No recent videos were discovered for this channel yet.</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px' }}>
+                      {isPlaylist ? 'No playlist videos were visible in the last reported scan.' : 'No recent videos were discovered for this channel yet.'}
+                    </p>
                   )}
                 </div>
-              ))
+                );
+              })
             ) : (
-              <p style={{ color: '#94a3b8', fontSize: '12px' }}>No YouTube channels are configured in the workspace watchlist yet.</p>
+              <p style={{ color: '#94a3b8', fontSize: '12px' }}>No YouTube channels or designated playlists are configured in the workspace watchlist yet.</p>
             )}
           </div>
 
@@ -4072,6 +4213,7 @@ function PersonaPanel({
     message: '',
   });
   const [isSavingReflection, setIsSavingReflection] = useState(false);
+  const [isSkippingPersonaReview, setIsSkippingPersonaReview] = useState(false);
   const [promotionState, setPromotionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
     tone: 'idle',
     message: '',
@@ -4129,6 +4271,10 @@ function PersonaPanel({
   );
   const nextPersonaDeltaId = useMemo(
     () => adjacentPersonaReviewDeltaId(personaSourceGroups, selectedDelta?.id, 'next'),
+    [personaSourceGroups, selectedDelta?.id],
+  );
+  const nextPersonaSourceDeltaId = useMemo(
+    () => nextPersonaReviewSourceDeltaId(personaSourceGroups, selectedDelta?.id),
     [personaSourceGroups, selectedDelta?.id],
   );
   const selectActiveDelta = useCallback(
@@ -4204,9 +4350,13 @@ function PersonaPanel({
   const activeContext = stripBrainDocFrontmatter(loadedPersonaContextDoc?.content ?? personaContextDoc?.content ?? null);
   const activeContextPath = personaContextDocPath;
   const referencePack = personaContextDocPath ? personaPackKeyFromPath(personaContextDocPath) : null;
-  const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, suggestedTargetFile) : 'No persona review items queued.';
-  const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, suggestedTargetFile, activeContextPath) : 'There is no pending persona item to review right now.';
-  const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, suggestedTargetFile) : 'You can still save a general thought to memory if you want to capture something new.';
+  const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, suggestedTargetFile) : 'No Persona review cards currently loaded.';
+  const reviewReason = selectedDelta
+    ? buildReviewReason(selectedDelta, suggestedTargetFile, activeContextPath)
+    : 'The current review batch is empty. That does not mean the source or transcript backlog is empty.';
+  const reviewAsk = selectedDelta
+    ? buildReviewAsk(selectedDelta, suggestedTargetFile)
+    : 'Use Refresh Persona Queue on Mac to request the next bounded batch of review-ready sources.';
   const evidenceLabel =
     metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? `capture ${selectedDelta.capture_id}` : 'Not linked yet');
   const statusLabel = selectedDelta?.status ?? 'pending';
@@ -4236,7 +4386,7 @@ function PersonaPanel({
   );
   const canMakeCanonNow = canonActionItems.length > 0 && canonActionGate.decision === 'allow';
   const hasRouteTargets = routeToMemory || routeToStandup || routeToPM;
-  const isFinalizePending = isSavingReflection || isRoutingSignal;
+  const isFinalizePending = isSavingReflection || isRoutingSignal || isSkippingPersonaReview;
   const finalizeActionDisabled = !hasRouteTargets && canonActionItems.length === 0;
   const finalizeActionBusyLabel = hasRouteTargets
     ? canMakeCanonNow
@@ -4489,9 +4639,10 @@ function PersonaPanel({
           tone: '#38bdf8',
         }
       : {
-          eyebrow: 'Done',
-          title: 'You are done for now.',
-          message: 'There are no pending persona review items left in this session. New reflections can come back through future persona deltas.',
+          eyebrow: 'Batch complete',
+          title: 'No review cards are currently loaded.',
+          message:
+            'This is not an empty-source claim. Use Refresh Persona Queue on Mac for the next bounded batch; sources awaiting transcripts remain in the ingestion backlog.',
           tone: '#22c55e',
         };
 
@@ -5265,6 +5416,63 @@ function PersonaPanel({
   const mobileAdvanceLabel: 'claim' | 'source' =
     selectedPersonaPosition && selectedPersonaPosition.claimIndex < selectedPersonaPosition.source.deltas.length - 1 ? 'claim' : 'source';
 
+  async function skipPersonaReview(scope: 'claim' | 'source') {
+    if (!selectedDelta) return;
+
+    const sourceClaimCount = selectedPersonaPosition?.source.deltas.length ?? 1;
+    const confirmationMessage =
+      scope === 'source'
+        ? `Skip this entire source and its ${sourceClaimCount} remaining claim${sourceClaimCount === 1 ? '' : 's'}? No opinion will be recorded. The source will remain attributed external knowledge.`
+        : hasUnconfirmedPersonaDraft
+        ? 'Skip this claim and discard your unsaved response? No opinion will be recorded.'
+        : null;
+    if (confirmationMessage && typeof window !== 'undefined' && !window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    const expectedNextDeltaId = scope === 'source' ? nextPersonaSourceDeltaId : nextPersonaDeltaId;
+    setIsSkippingPersonaReview(true);
+    setReflectionState({ tone: 'idle', message: '' });
+    try {
+      const result = await controlApiPost<BrainPersonaReviewSkipResponse>(
+        `/api/brain/persona-review/${encodeURIComponent(selectedDelta.id)}/skip`,
+        { scope },
+      );
+      if (result.scope !== scope || result.owner_evidence_created !== false || !Array.isArray(result.skipped_delta_ids)) {
+        throw new Error('The server returned an invalid Persona skip receipt.');
+      }
+      if (result.skipped_count !== result.skipped_delta_ids.length) {
+        throw new Error('The server returned an incomplete Persona skip receipt.');
+      }
+
+      for (const skippedId of result.skipped_delta_ids) {
+        removePersonaReviewDraft(skippedId);
+      }
+      setCompletedDeltaIds((current) => Array.from(new Set([...current, ...result.skipped_delta_ids])));
+      setHasUnconfirmedPersonaDraft(false);
+      setPersonaDraftReadyDeltaId('');
+      setPersonaDraftStorageError(null);
+      setReflectionText('');
+      await refreshBrainData();
+      selectActiveDelta(expectedNextDeltaId, 'replace');
+      setReflectionState({
+        tone: 'success',
+        message:
+          result.message ||
+          (expectedNextDeltaId
+            ? `${scope === 'source' ? 'Source' : 'Claim'} skipped without recording an opinion. Moving to the next ${scope === 'source' ? 'source' : 'claim'}.`
+            : `${scope === 'source' ? 'Source' : 'Claim'} skipped without recording an opinion. You are done for now.`),
+      });
+    } catch (skipError) {
+      setReflectionState({
+        tone: 'error',
+        message: ownerSafeErrorMessage(skipError, `Unable to skip this ${scope} right now.`),
+      });
+    } finally {
+      setIsSkippingPersonaReview(false);
+    }
+  }
+
   async function saveMobilePersonaReview() {
     await saveReflection('reviewed', {
       advanceAfterSave: true,
@@ -5441,6 +5649,50 @@ function PersonaPanel({
             >
               <div style={{ width: `${mobileProgressPercent}%`, height: '100%', backgroundColor: '#38bdf8' }} />
             </div>
+
+            {reviewSource === 'long_form_media.segment' && (
+              <div style={{ display: 'grid', gap: '4px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => void skipPersonaReview('claim')}
+                    disabled={isFinalizePending}
+                    style={{
+                      border: '1px solid #334155',
+                      backgroundColor: '#020617',
+                      color: isFinalizePending ? '#64748b' : '#cbd5e1',
+                      borderRadius: '9px',
+                      minHeight: '30px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: isFinalizePending ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Skip claim
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void skipPersonaReview('source')}
+                    disabled={isFinalizePending}
+                    style={{
+                      border: '1px solid #475569',
+                      backgroundColor: '#0f172a',
+                      color: isFinalizePending ? '#64748b' : '#e2e8f0',
+                      borderRadius: '9px',
+                      minHeight: '30px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: isFinalizePending ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Skip source
+                  </button>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '10px', lineHeight: 1.3, margin: 0 }}>
+                  Skip records no opinion. The source stays attributed external knowledge.
+                </p>
+              </div>
+            )}
 
             <article
               onTouchStart={(event) => {
@@ -5893,7 +6145,7 @@ function PersonaPanel({
             <p style={{ color: '#94a3b8', fontSize: compactPersonaChrome ? '13px' : '14px', lineHeight: 1.6, margin: 0 }}>
               {selectedDelta
                 ? `${pendingCount} primary review item${pendingCount === 1 ? '' : 's'} remaining${mutedCount > 0 ? `, plus ${mutedCount} muted long-form item${mutedCount === 1 ? '' : 's'}` : ''}.`
-                : 'No pending reviews right now.'}
+                : 'No review cards currently loaded; this does not mean the source backlog is empty.'}
             </p>
           </div>
           <div
@@ -6880,6 +7132,44 @@ function PersonaPanel({
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       {selectedPromotionItems.length > 0 && <InlineBadge label={`${selectedPromotionItems.length} canon selected`} tone="#818cf8" />}
+                      {reviewSource === 'long_form_media.segment' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void skipPersonaReview('claim')}
+                            disabled={isFinalizePending}
+                            title="Remove this claim from review without recording an opinion"
+                            style={{
+                              border: '1px solid #334155',
+                              backgroundColor: '#020617',
+                              color: isFinalizePending ? '#64748b' : '#cbd5e1',
+                              borderRadius: '10px',
+                              padding: '8px 11px',
+                              cursor: isFinalizePending ? 'not-allowed' : 'pointer',
+                              fontWeight: 600,
+                            }}
+                          >
+                            Skip claim
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void skipPersonaReview('source')}
+                            disabled={isFinalizePending}
+                            title="Remove all remaining claims from this source without recording an opinion"
+                            style={{
+                              border: '1px solid #475569',
+                              backgroundColor: '#0f172a',
+                              color: isFinalizePending ? '#64748b' : '#e2e8f0',
+                              borderRadius: '10px',
+                              padding: '8px 11px',
+                              cursor: isFinalizePending ? 'not-allowed' : 'pointer',
+                              fontWeight: 600,
+                            }}
+                          >
+                            Skip source
+                          </button>
+                        </>
+                      )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', maxWidth: '560px' }}>
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -8987,6 +9277,9 @@ function shouldMuteActivePersonaDelta(delta: PersonaDeltaEntry, promotionCandida
   if (reviewSource !== 'long_form_media.segment') {
     return false;
   }
+  if (metadataText(delta.metadata, 'review_purpose') === 'source_reaction') {
+    return false;
+  }
   if (metadataText(delta.metadata, 'sync_state') === 'stale_segment') {
     return true;
   }
@@ -9034,6 +9327,27 @@ function isWorkspaceApproved(status: string, metadata: Record<string, unknown> |
 
 function isBrainPendingReview(status: string, metadata: Record<string, unknown> | undefined) {
   const normalized = (status || 'draft').toLowerCase();
+  if (normalized === 'reviewed' && metadataBoolean(metadata, 'review_completed')) {
+    return false;
+  }
+  const reviewSource = metadataText(metadata, 'review_source');
+  if (reviewSource === 'long_form_media.segment') {
+    const syncState = metadataText(metadata, 'sync_state') ?? '';
+    const primaryRoute = metadataText(metadata, 'primary_route');
+    const reviewPurpose = metadataText(metadata, 'review_purpose');
+    if (syncState.startsWith('stale_')) {
+      return false;
+    }
+    if (reviewPurpose === 'source_reaction') {
+      return normalized === 'draft' || normalized === 'pending' || normalized === 'in_review';
+    }
+    if (metadataBoolean(metadata, 'weak_source_fragment')) {
+      return false;
+    }
+    if (primaryRoute && primaryRoute !== 'belief_evidence') {
+      return false;
+    }
+  }
   if (normalized === 'draft' || normalized === 'pending' || normalized === 'in_review') {
     return true;
   }

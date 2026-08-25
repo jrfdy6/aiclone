@@ -2405,8 +2405,11 @@ def _is_brain_pending_review(status: str, metadata: dict[str, Any] | None) -> bo
     if review_source == "long_form_media.segment":
         sync_state = _metadata_text(metadata, "sync_state") or ""
         primary_route = _metadata_text(metadata, "primary_route")
+        review_purpose = _metadata_text(metadata, "review_purpose")
         if sync_state.startswith("stale_"):
             return False
+        if review_purpose == "source_reaction":
+            return normalized in {"draft", "pending", "in_review"}
         if _metadata_bool(metadata, "weak_source_fragment"):
             return False
         if primary_route and primary_route != "belief_evidence":
@@ -2577,6 +2580,7 @@ _PERSONA_REVIEW_DB_AGGREGATE_SQL = """
             NULLIF(BTRIM(metadata->>'approval_state'), '') AS approval_state,
             NULLIF(BTRIM(metadata->>'sync_state'), '') AS sync_state,
             NULLIF(BTRIM(metadata->>'primary_route'), '') AS primary_route,
+            NULLIF(BTRIM(metadata->>'review_purpose'), '') AS review_purpose,
             CASE jsonb_typeof(metadata->'pending_promotion')
                 WHEN 'boolean' THEN (metadata->>'pending_promotion')::boolean
                 WHEN 'string' THEN LOWER(BTRIM(metadata->>'pending_promotion')) IN ('1', 'true', 'yes', 'y', 'on')
@@ -2622,8 +2626,13 @@ _PERSONA_REVIEW_DB_AGGREGATE_SQL = """
                     review_source = 'long_form_media.segment'
                     AND (
                         COALESCE(sync_state, '') LIKE 'stale\\_%' ESCAPE '\\'
-                        OR weak_source_fragment
-                        OR (primary_route IS NOT NULL AND primary_route <> 'belief_evidence')
+                        OR (
+                            COALESCE(review_purpose, '') <> 'source_reaction'
+                            AND (
+                                weak_source_fragment
+                                OR (primary_route IS NOT NULL AND primary_route <> 'belief_evidence')
+                            )
+                        )
                     )
                 ) AND (
                     normalized_status IN ('draft', 'pending', 'in_review')

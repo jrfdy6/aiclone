@@ -66,8 +66,11 @@ def is_brain_pending_review(status: str, metadata: dict[str, Any] | None) -> boo
     if review_source == "long_form_media.segment":
         sync_state = _metadata_text(metadata, "sync_state") or ""
         primary_route = _metadata_text(metadata, "primary_route")
+        review_purpose = _metadata_text(metadata, "review_purpose")
         if sync_state.startswith("stale_"):
             return False
+        if review_purpose == "source_reaction":
+            return normalized in {"draft", "pending", "in_review"}
         if _metadata_bool(metadata, "weak_source_fragment"):
             return False
         if primary_route and primary_route != "belief_evidence":
@@ -195,6 +198,8 @@ def should_mute_active_delta(delta: PersonaDelta) -> bool:
     metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
     review_source = _metadata_text(metadata, "review_source")
     if review_source != "long_form_media.segment":
+        return False
+    if _metadata_text(metadata, "review_purpose") == "source_reaction":
         return False
     if _metadata_text(metadata, "sync_state") == "stale_segment":
         return True

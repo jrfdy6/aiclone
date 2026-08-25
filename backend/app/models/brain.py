@@ -114,6 +114,7 @@ class BrainYouTubeWatchlistSnapshotRequest(BaseModel):
     runtime: dict[str, Any] = Field(default_factory=dict)
     auto_ingest: dict[str, Any] = Field(default_factory=dict)
     channels: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    designated_playlists: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     counts: dict[str, Any] = Field(default_factory=dict)
     pending_transcript_backfill: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
 
@@ -124,7 +125,7 @@ class BrainYouTubeWatchlistSnapshotRequest(BaseModel):
         _validate_generated_at(self.generated_at)
         video_count = sum(
             len(channel.get("videos") or [])
-            for channel in self.channels
+            for channel in [*self.channels, *self.designated_playlists]
             if isinstance(channel, dict) and isinstance(channel.get("videos"), list)
         )
         if video_count > 1_000:
@@ -730,6 +731,126 @@ class BrainPersonaReviewRequest(BaseModel):
         if self.mode == "approved" and not self.selected_promotion_items:
             raise ValueError("Select at least one promotion item before approving.")
         return self
+
+
+class BrainPersonaReviewCandidateSyncItem(BaseModel):
+    """One bounded attributed excerpt projected from canonical local SQL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    review_key: str = Field(pattern=r"^long-form:[a-f0-9]{16}$", max_length=40)
+    canonical_source_id: str = Field(pattern=r"^[0-9a-f-]{36}$", max_length=36)
+    canonical_artifact_id: str = Field(pattern=r"^[0-9a-f-]{36}$", max_length=36)
+    source_asset_id: str = Field(pattern=r"^canonical-source:[0-9a-f-]{36}$", max_length=64)
+    source_title: str = Field(min_length=1, max_length=300)
+    source_author: str | None = Field(default=None, max_length=300)
+    source_channel: str = Field(min_length=1, max_length=80)
+    source_type: str = Field(min_length=1, max_length=120)
+    source_capture_kind: Literal["transcript", "raw"]
+    source_url: str = Field(default="", max_length=2_048)
+    source_attribution_kind: Literal["attributed_external", "owner_attested"]
+    segment_index: int = Field(ge=1, le=8)
+    segment_total: int = Field(ge=1, le=8)
+    segment_excerpt: str = Field(min_length=1, max_length=2_000)
+    source_context_excerpt: str = Field(default="", max_length=4_000)
+    source_context_before: list[Annotated[str, Field(max_length=1_000)]] = Field(default_factory=list, max_length=2)
+    source_context_after: list[Annotated[str, Field(max_length=1_000)]] = Field(default_factory=list, max_length=2)
+    lane_hint: str = Field(min_length=1, max_length=120)
+    target_file: str = Field(min_length=1, max_length=500)
+    response_modes: list[Literal["comment", "repost", "post_seed", "belief_evidence"]] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+    primary_route: Literal["comment", "repost", "post_seed", "belief_evidence"]
+    route_reason: str = Field(default="", max_length=1_000)
+    route_score: int = Field(default=0, ge=-100, le=100)
+    worldview_score: int = Field(default=0, ge=-100, le=100)
+    handoff_lane: Literal["source_only", "brief_only", "post_candidate", "persona_candidate", "route_to_pm"]
+    handoff_reason: str = Field(default="", max_length=1_000)
+    secondary_consumers: list[Annotated[str, Field(max_length=40)]] = Field(default_factory=list, max_length=4)
+    stance: str = Field(default="", max_length=80)
+    agreement_level: str = Field(default="", max_length=80)
+    belief_relation: str = Field(default="", max_length=80)
+    belief_used: str = Field(default="", max_length=1_000)
+    belief_summary: str = Field(default="", max_length=1_000)
+    experience_anchor: str = Field(default="", max_length=1_000)
+    experience_summary: str = Field(default="", max_length=1_000)
+    role_safety: str = Field(default="", max_length=120)
+    weak_source_fragment: bool = False
+    source_review_fallback: bool = False
+
+    @field_validator("canonical_source_id", "canonical_artifact_id")
+    @classmethod
+    def validate_canonical_uuid(cls, value: str) -> str:
+        try:
+            parsed = UUID(value)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("Canonical source lineage requires a valid UUID.") from exc
+        normalized = str(parsed)
+        if value != normalized:
+            raise ValueError("Canonical source lineage UUIDs must use canonical lowercase form.")
+        return normalized
+
+    @field_validator("target_file")
+    @classmethod
+    def validate_candidate_target_file(cls, value: str) -> str:
+        target_file = validate_persona_promotion_target(value)
+        if target_file is None:  # pragma: no cover - required targets never return None
+            raise ValueError("Provide target_file.")
+        return target_file
+
+    @model_validator(mode="after")
+    def validate_candidate_identity(self) -> "BrainPersonaReviewCandidateSyncItem":
+        if self.source_asset_id != f"canonical-source:{self.canonical_source_id}":
+            raise ValueError("source_asset_id must match canonical_source_id.")
+        if self.segment_index > self.segment_total:
+            raise ValueError("segment_index cannot exceed segment_total.")
+        if self.primary_route not in self.response_modes:
+            raise ValueError("primary_route must be present in response_modes.")
+        return self
+
+
+class BrainPersonaReviewCandidateSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["canonical_persona_review_projection/v1"] = (
+        "canonical_persona_review_projection/v1"
+    )
+    generated_at: str = Field(min_length=1, max_length=64)
+    source: Literal["codex_local_runner"] = "codex_local_runner"
+    items: list[BrainPersonaReviewCandidateSyncItem] = Field(default_factory=list, max_length=48)
+
+    @model_validator(mode="after")
+    def validate_complete_source_groups(self) -> "BrainPersonaReviewCandidateSyncRequest":
+        _validate_generated_at(self.generated_at)
+        review_keys: set[str] = set()
+        grouped: dict[str, list[BrainPersonaReviewCandidateSyncItem]] = {}
+        for item in self.items:
+            if item.review_key in review_keys:
+                raise ValueError("Persona review projection contains a duplicate review_key.")
+            review_keys.add(item.review_key)
+            grouped.setdefault(item.canonical_source_id, []).append(item)
+        if len(grouped) > 12:
+            raise ValueError("Persona review projection exceeds the 12-source limit.")
+        for source_id, source_items in grouped.items():
+            artifact_ids = {item.canonical_artifact_id for item in source_items}
+            totals = {item.segment_total for item in source_items}
+            indexes = sorted(item.segment_index for item in source_items)
+            expected_total = next(iter(totals)) if len(totals) == 1 else 0
+            if (
+                len(artifact_ids) != 1
+                or len(totals) != 1
+                or expected_total != len(source_items)
+                or indexes != list(range(1, expected_total + 1))
+            ):
+                raise ValueError(f"Persona review projection for source {source_id} is incomplete.")
+        return self
+
+
+class BrainPersonaReviewSkipRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["claim", "source"] = "source"
 
 
 class BrainPersonaRerouteRequest(BaseModel):

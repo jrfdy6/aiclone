@@ -110,6 +110,15 @@ export function adjacentPersonaReviewDeltaId<T extends PersonaReviewDeltaLike>(
   return groups[position.sourceIndex + 1]?.deltas[0]?.id ?? null;
 }
 
+export function nextPersonaReviewSourceDeltaId<T extends PersonaReviewDeltaLike>(
+  groups: PersonaReviewSourceGroup<T>[],
+  deltaId: string | null | undefined,
+): string | null {
+  const position = findPersonaReviewPosition(groups, deltaId);
+  if (!position) return groups[0]?.deltas[0]?.id ?? null;
+  return groups[position.sourceIndex + 1]?.deltas[0]?.id ?? null;
+}
+
 export function youtubeVideoId(sourceUrl: string | null | undefined): string | null {
   if (!sourceUrl) return null;
   try {

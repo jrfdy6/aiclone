@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,8 +9,12 @@ from typing import Any
 
 import yaml
 
+from app.services.content_lifecycle_service import PrivateContentArtifactStore
+from app.services.integrated_system_store import IntegratedSystemStore
 from app.services.social_belief_engine import social_belief_engine
 from app.services.social_source_asset_service import build_source_asset_inventory
+from app.services.source_authorship_policy_service import owner_authorship_attested
+from app.services.source_sharing_policy_service import source_remote_sharing
 
 DEFAULT_MAX_SEGMENTS_PER_ASSET = 8
 
@@ -452,6 +457,13 @@ def _bullet_lines(text: str, limit: int = 20) -> list[str]:
 
 
 def _read_asset_content(asset: dict[str, Any], repo_root: Path) -> tuple[dict[str, Any], str]:
+    canonical_body = asset.get("_canonical_body")
+    if isinstance(canonical_body, str) and canonical_body.strip():
+        canonical_meta = asset.get("_canonical_meta")
+        return (
+            dict(canonical_meta) if isinstance(canonical_meta, dict) else {},
+            _normalize_source_document(_trim_noise_sections(canonical_body)),
+        )
     rel_path = _clean_text(asset.get("source_path"))
     if not rel_path:
         return {}, ""
@@ -461,6 +473,161 @@ def _read_asset_content(asset: dict[str, Any], repo_root: Path) -> tuple[dict[st
     raw = path.read_text(encoding="utf-8")
     meta, body = _parse_frontmatter(raw)
     return meta, _normalize_source_document(_trim_noise_sections(body))
+
+
+def build_canonical_long_form_source_assets(
+    *,
+    store: IntegratedSystemStore,
+    artifact_store: PrivateContentArtifactStore,
+    excluded_source_ids: set[str] | None = None,
+    limit: int = 12,
+    exclude_delivered: bool = True,
+) -> list[dict[str, Any]]:
+    """Load a bounded, share-authorized view of canonical SQL captures.
+
+    Bodies remain transient local values used by the existing deterministic
+    long-form extractor. They are removed before candidate results leave this
+    module; only bounded attributed excerpts may reach Persona review.
+    """
+
+    excluded = {str(item).strip() for item in (excluded_source_ids or set()) if str(item).strip()}
+    bounded_limit = max(1, min(int(limit), 50))
+    store.migrate()
+    with store.connection() as connection:
+        rows = connection.execute(
+            """SELECT s.*,
+                      COALESCE(s.transcript_artifact_id,s.raw_artifact_id) AS selected_artifact_id,
+                      COALESCE(t.logical_ref,r.logical_ref) AS selected_logical_ref,
+                      COALESCE(t.content_sha256,r.content_sha256) AS selected_content_sha256,
+                      COALESCE(t.byte_size,r.byte_size) AS selected_byte_size,
+                      CASE WHEN s.transcript_artifact_id IS NOT NULL THEN 'transcript' ELSE 'raw' END AS capture_kind,
+                      (SELECT d.origin FROM discovery_events d
+                       WHERE d.source_id=s.source_id
+                       ORDER BY CASE d.origin
+                           WHEN 'youtube_playlist' THEN 0
+                           WHEN 'youtube_watchlist' THEN 1
+                           WHEN 'podcast' THEN 2
+                           WHEN 'rss' THEN 3
+                           WHEN 'long_form' THEN 4
+                           WHEN 'manual' THEN 5
+                           ELSE 6 END,
+                           d.discovered_at DESC
+                       LIMIT 1) AS discovery_origin
+               FROM sources s
+               LEFT JOIN artifacts t ON t.artifact_id=s.transcript_artifact_id
+               LEFT JOIN artifacts r ON r.artifact_id=s.raw_artifact_id
+               WHERE s.merged_into_source_id IS NULL
+                 AND s.admissibility_state='admissible'
+                 AND s.rights_state IN ('permitted','owner_controlled')
+                 AND COALESCE(s.transcript_artifact_id,s.raw_artifact_id) IS NOT NULL
+                 AND EXISTS(
+                     SELECT 1 FROM discovery_events d
+                     WHERE d.source_id=s.source_id AND d.relevance_state='qualified'
+                 )
+                 AND (
+                     ? = 0
+                     OR NOT EXISTS(
+                         SELECT 1
+                         FROM system_events e
+                         WHERE e.aggregate_type='source'
+                           AND e.aggregate_id=s.source_id
+                           AND e.event_type='persona.review_projection_delivered'
+                           AND json_extract(e.payload_json,'$.canonical_artifact_id') =
+                               COALESCE(s.transcript_artifact_id,s.raw_artifact_id)
+                     )
+                 )
+               ORDER BY COALESCE(s.captured_at,s.updated_at) DESC,s.source_id"""
+            ,
+            (1 if exclude_delivered else 0,),
+        ).fetchall()
+
+    assets: list[dict[str, Any]] = []
+    for row in rows:
+        source_id = _clean_text(row["source_id"])
+        if source_id in excluded or source_remote_sharing(row) is None:
+            continue
+        logical_ref = _clean_text(row["selected_logical_ref"])
+        if not logical_ref:
+            continue
+        try:
+            body = artifact_store.read_text(logical_ref)
+        except Exception:
+            continue
+        encoded = body.encode("utf-8")
+        if (
+            hashlib.sha256(encoded).hexdigest() != _clean_text(row["selected_content_sha256"])
+            or len(encoded) != int(row["selected_byte_size"] or 0)
+        ):
+            continue
+        if len(_clean_text(body).split()) < 6:
+            continue
+        try:
+            source_metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            source_metadata = {}
+        origin = _clean_text(row["discovery_origin"]) or "canonical_source"
+        capture_kind = _clean_text(row["capture_kind"])
+        if origin.startswith("youtube"):
+            channel = "youtube"
+            source_type = "youtube_transcript" if capture_kind == "transcript" else "youtube_source"
+        elif origin == "podcast":
+            channel = "podcast"
+            source_type = "podcast_transcript" if capture_kind == "transcript" else "podcast_episode"
+        elif origin == "rss":
+            channel = "rss"
+            source_type = "article"
+        else:
+            channel = origin
+            source_type = "long_form_transcript" if capture_kind == "transcript" else "long_form_source"
+        assets.append(
+            {
+                "asset_id": f"canonical-source:{source_id}",
+                "canonical_source_id": source_id,
+                "canonical_artifact_id": _clean_text(row["selected_artifact_id"]),
+                "title": _clean_text(row["title"]) or "Canonical source",
+                "source_class": "long_form_media",
+                "source_channel": channel,
+                "source_type": source_type,
+                "source_url": _clean_text(row["canonical_url"]),
+                "source_path": "",
+                "author": _clean_text(row["author_or_publisher"]),
+                "captured_at": _clean_text(row["captured_at"] or row["updated_at"]),
+                "summary": _clean_text(body)[:320],
+                "topics": [],
+                "tags": ["canonical_sql", "attributed_source"],
+                "response_modes": ["belief_evidence", "post_seed"],
+                "routing_status": "canonical_captured",
+                "feed_ready": True,
+                "segmentation_ready": True,
+                "origin": "canonical_sql",
+                "word_count": len(_clean_text(body).split()),
+                "attribution_kind": (
+                    "owner_attested"
+                    if (
+                        _clean_text(row["rights_state"]) == "owner_controlled"
+                        and isinstance(source_metadata, dict)
+                        and owner_authorship_attested(source_metadata)
+                    )
+                    else "attributed_external"
+                ),
+                "capture_kind": capture_kind,
+                "_canonical_body": body,
+                "_canonical_meta": {
+                    "source_type": source_type,
+                    "source_channel": channel,
+                    "canonical_source_id": source_id,
+                    "capture_kind": capture_kind,
+                    "shared_external_source_id": _clean_text(
+                        source_metadata.get("shared_external_source_id")
+                        if isinstance(source_metadata, dict)
+                        else ""
+                    ),
+                },
+            }
+        )
+        if len(assets) >= bounded_limit:
+            break
+    return assets
 
 
 def _asset_has_segmentable_transcript(asset: dict[str, Any], meta: dict[str, Any], body: str) -> bool:
@@ -1005,14 +1172,18 @@ def _handoff_lane_for_candidate(
 
 
 def _review_key(asset: dict[str, Any], segment: str, target_file: str) -> str:
-    source = "|".join(
-        [
-            _clean_text(asset.get("asset_id")),
-            _clean_text(asset.get("source_path")),
-            target_file,
-            _clean_text(segment).lower(),
-        ]
-    )
+    identity_parts = [
+        _clean_text(asset.get("asset_id")),
+        _clean_text(asset.get("source_path")),
+    ]
+    canonical_artifact_id = _clean_text(asset.get("canonical_artifact_id"))
+    if canonical_artifact_id:
+        # A recapture is a new, immutable lineage version even when one of its
+        # claim-sized excerpts happens to be textually identical.  Preserve
+        # legacy review keys when no canonical artifact identity exists.
+        identity_parts.append(canonical_artifact_id)
+    identity_parts.extend([target_file, _clean_text(segment).lower()])
+    source = "|".join(identity_parts)
     return f"long-form:{hashlib.sha1(source.encode('utf-8')).hexdigest()[:16]}"
 
 
@@ -1020,6 +1191,7 @@ def extract_long_form_candidates(
     *,
     repo_root: Path,
     source_assets: dict[str, Any] | None = None,
+    canonical_source_assets: list[dict[str, Any]] | None = None,
     transcripts_root: Path | None = None,
     ingestions_root: Path | None = None,
     max_assets: int = 12,
@@ -1033,11 +1205,35 @@ def extract_long_form_candidates(
             repo_root=repo_root,
         )
 
-    items = [
+    legacy_items = [
         item
         for item in (inventory.get("items") or [])
         if item.get("source_class") == "long_form_media"
         and any(mode in {"belief_evidence", "post_seed"} for mode in (item.get("response_modes") or []))
+    ]
+    canonical_items = [
+        item
+        for item in (canonical_source_assets or [])
+        if isinstance(item, dict)
+        and item.get("source_class") == "long_form_media"
+        and any(
+            mode in {"belief_evidence", "post_seed"}
+            for mode in (item.get("response_modes") or [])
+        )
+    ]
+    canonical_urls = {
+        _clean_text(item.get("source_url"))
+        for item in canonical_items
+        if _clean_text(item.get("source_url"))
+    }
+    items = [
+        *canonical_items,
+        *[
+            item
+            for item in legacy_items
+            if not _clean_text(item.get("source_url"))
+            or _clean_text(item.get("source_url")) not in canonical_urls
+        ],
     ]
     items.sort(
         key=lambda item: (
@@ -1088,6 +1284,27 @@ def extract_long_form_candidates(
             skipped_no_segments += 1
             continue
         segments = _extract_segments(asset, body, max_segments=max_segments_per_asset)
+        if not segments and _clean_text(asset.get("canonical_source_id")):
+            # A captured canonical source must not vanish merely because the
+            # worldview scorer found no high-scoring sentence.  Keep one
+            # bounded attributed excerpt for source-level review, without
+            # treating it as a canon recommendation or owner evidence.
+            fallback_candidates = [
+                sentence
+                for sentence in _candidate_sentences(body, limit=24)
+                if not _is_boilerplate(sentence, _clean_text(asset.get("title")))
+            ]
+            if fallback_candidates:
+                fallback = _clean_text(fallback_candidates[0])[:1_200].strip()
+                if fallback:
+                    segments = [
+                        {
+                            "segment": fallback,
+                            "metrics": _score_sentence(fallback, asset),
+                            **_build_segment_context(fallback, fallback_candidates),
+                            "source_review_fallback": True,
+                        }
+                    ]
         if not segments:
             skipped_no_segments += 1
             continue
@@ -1121,6 +1338,11 @@ def extract_long_form_candidates(
                     "segment is strategic source intelligence and should stay a post seed unless lived-proof context or exceptional value is clear"
                 )
             weak_source_fragment = target_file == TARGET_STORIES and _is_low_context_story_fragment(segment, source_context_excerpt)
+            safe_asset = {
+                key: value
+                for key, value in asset.items()
+                if not str(key).startswith("_")
+            }
             candidate = {
                 "candidate_id": _review_key(asset, segment, target_file),
                 "asset_id": _clean_text(asset.get("asset_id")),
@@ -1142,6 +1364,7 @@ def extract_long_form_candidates(
                 "source_context_before": [str(item) for item in (segment_payload.get("source_context_before") or []) if _clean_text(item)],
                 "source_context_after": [str(item) for item in (segment_payload.get("source_context_after") or []) if _clean_text(item)],
                 "weak_source_fragment": weak_source_fragment,
+                "source_review_fallback": bool(segment_payload.get("source_review_fallback")),
                 "manual_reference_source": manual_reference_source,
                 "lived_proof_context": lived_proof_context,
                 "high_value_non_lived": high_value_non_lived,
@@ -1151,7 +1374,7 @@ def extract_long_form_candidates(
                 "worldview_score": worldview_score,
                 "route_score": route_score,
                 "assessment": assessment,
-                "asset": asset,
+                "asset": safe_asset,
             }
             handoff_lane, handoff_reason, secondary_consumers = _handoff_lane_for_candidate(
                 segment=segment,

@@ -25,6 +25,7 @@ PLAN_SCHEMA = "source_sharing_classification_plan/v1"
 RECEIPT_SCHEMA = "source_sharing_classification_receipt/v1"
 ROLLBACK_BINDING_SCHEMA = "source_sharing_classification_rollback_binding/v1"
 ROLLBACK_RECEIPT_SCHEMA = "source_sharing_classification_rollback_receipt/v1"
+BATCH_MANIFEST_SCHEMA = "source_sharing_classification_batch_manifest/v1"
 POLICY_ID = "defensible_public_source_sharing/v1"
 MAX_CLASSIFICATION_CANDIDATES = 100
 PUBLIC_ORIGINS = frozenset(
@@ -213,6 +214,60 @@ class SourceSharingClassificationService:
             )
         }
 
+    def _scan(
+        self, connection: Any, *, requested: list[str]
+    ) -> tuple[list[dict[str, Any]], Counter[str]]:
+        if requested:
+            placeholders = ",".join("?" for _ in requested)
+            rows = connection.execute(
+                f"SELECT * FROM sources WHERE source_id IN ({placeholders}) ORDER BY source_id",
+                requested,
+            ).fetchall()
+            found = {str(row["source_id"]) for row in rows}
+            missing = sorted(set(requested) - found)
+            if missing:
+                raise ValueError(
+                    f"unknown requested source ids: {','.join(missing[:5])}"
+                )
+        else:
+            rows = connection.execute(
+                "SELECT * FROM sources ORDER BY source_id"
+            ).fetchall()
+        candidates: list[dict[str, Any]] = []
+        exclusions: Counter[str] = Counter()
+        for raw_row in rows:
+            source = dict(raw_row)
+            origins = self._origins(connection, source["source_id"])
+            reason = _eligibility_reason(source, origins=origins)
+            if reason:
+                exclusions[reason] += 1
+                continue
+            candidates.append(_candidate(source, origins=origins))
+        return candidates, exclusions
+
+    @staticmethod
+    def _build_plan(
+        *,
+        candidates: list[dict[str, Any]],
+        exclusions: Mapping[str, int],
+        scope: str,
+        max_candidates: int,
+        generated_at: str,
+    ) -> dict[str, Any]:
+        plan: dict[str, Any] = {
+            "schema_version": PLAN_SCHEMA,
+            "generated_at": generated_at,
+            "policy_id": POLICY_ID,
+            "scope": scope,
+            "max_candidates": int(max_candidates),
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "excluded_counts": dict(sorted(exclusions.items())),
+            "mutation_performed": False,
+        }
+        plan["plan_sha256"] = _sha256_json(plan)
+        return plan
+
     def plan(
         self,
         *,
@@ -227,49 +282,72 @@ class SourceSharingClassificationService:
         if len(requested) > max_candidates:
             raise ValueError("requested source set exceeds the classification bound")
         with self._read_only_connection() as connection:
-            if requested:
-                placeholders = ",".join("?" for _ in requested)
-                rows = connection.execute(
-                    f"SELECT * FROM sources WHERE source_id IN ({placeholders}) ORDER BY source_id",
-                    requested,
-                ).fetchall()
-                found = {str(row["source_id"]) for row in rows}
-                missing = sorted(set(requested) - found)
-                if missing:
-                    raise ValueError(
-                        f"unknown requested source ids: {','.join(missing[:5])}"
-                    )
-            else:
-                rows = connection.execute(
-                    "SELECT * FROM sources ORDER BY source_id"
-                ).fetchall()
-            candidates: list[dict[str, Any]] = []
-            exclusions: Counter[str] = Counter()
-            for raw_row in rows:
-                source = dict(raw_row)
-                origins = self._origins(connection, source["source_id"])
-                reason = _eligibility_reason(source, origins=origins)
-                if reason:
-                    exclusions[reason] += 1
-                    continue
-                candidates.append(_candidate(source, origins=origins))
+            candidates, exclusions = self._scan(connection, requested=requested)
         if len(candidates) > max_candidates:
             raise ValueError(
                 "eligible source set exceeds max_candidates; provide explicit source ids"
             )
-        plan: dict[str, Any] = {
-            "schema_version": PLAN_SCHEMA,
-            "generated_at": _utcnow(),
+        return self._build_plan(
+            candidates=candidates,
+            exclusions=exclusions,
+            scope="explicit_source_ids" if requested else "all_policy_eligible_sources",
+            max_candidates=int(max_candidates),
+            generated_at=_utcnow(),
+        )
+
+    def plan_batch_manifest(
+        self,
+        *,
+        source_ids: Iterable[str] | None = None,
+        max_candidates: int = MAX_CLASSIFICATION_CANDIDATES,
+    ) -> dict[str, Any]:
+        """Plan every eligible row as independent, bounded v1 plans."""
+
+        if not 1 <= int(max_candidates) <= MAX_CLASSIFICATION_CANDIDATES:
+            raise ValueError(
+                f"max_candidates must be between 1 and {MAX_CLASSIFICATION_CANDIDATES}"
+            )
+        requested = sorted(
+            {str(item).strip() for item in source_ids or [] if str(item).strip()}
+        )
+        with self._read_only_connection() as connection:
+            candidates, exclusions = self._scan(connection, requested=requested)
+        generated_at = _utcnow()
+        chunks = [
+            candidates[index : index + int(max_candidates)]
+            for index in range(0, len(candidates), int(max_candidates))
+        ] or [[]]
+        plans = [
+            self._build_plan(
+                candidates=chunk,
+                exclusions={},
+                scope="explicit_source_ids",
+                max_candidates=int(max_candidates),
+                generated_at=generated_at,
+            )
+            for chunk in chunks
+        ]
+        eligible_set_sha256 = _sha256_json(
+            [
+                [candidate["source_id"], candidate["row_identity_sha256"]]
+                for candidate in candidates
+            ]
+        )
+        manifest: dict[str, Any] = {
+            "schema_version": BATCH_MANIFEST_SCHEMA,
+            "generated_at": generated_at,
             "policy_id": POLICY_ID,
             "scope": "explicit_source_ids" if requested else "all_policy_eligible_sources",
             "max_candidates": int(max_candidates),
             "candidate_count": len(candidates),
-            "candidates": candidates,
+            "batch_count": len(plans),
+            "eligible_set_sha256": eligible_set_sha256,
             "excluded_counts": dict(sorted(exclusions.items())),
+            "plans": plans,
             "mutation_performed": False,
         }
-        plan["plan_sha256"] = _sha256_json(plan)
-        return plan
+        manifest["manifest_sha256"] = _sha256_json(manifest)
+        return manifest
 
     @staticmethod
     def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:

@@ -17,7 +17,9 @@ from app.models import (
     BrainContentSafeOperatorLessonsSyncRequest,
     BrainLongFormIngestRequest,
     BrainOperatorStorySignalsSyncRequest,
+    BrainPersonaReviewCandidateSyncRequest,
     BrainPersonaReviewRequest,
+    BrainPersonaReviewSkipRequest,
     BrainPersonaRerouteRequest,
     BrainSignal,
     BrainSignalCreateRequest,
@@ -61,6 +63,7 @@ from app.services.truth_lane_cleanup_service import build_truth_lane_cleanup_rep
 from app.services.persona_promotion_service import build_committed_persona_overlay, promote_delta_to_canon, reroute_delta_promotion
 from app.services.persona_review_queue_service import annotate_for_brain_queue
 from app.services.social_belief_engine import load_persona_truth
+from app.services.source_sharing_policy_service import credential_free_public_url
 from app.services.work_lifecycle_service import build_work_lifecycle_report
 from app.services.workspace_snapshot_store import (
     delete_snapshot_types,
@@ -91,6 +94,14 @@ def _bounded_timeout_setting(name: str, default: float, maximum: float) -> float
     except (TypeError, ValueError):
         value = default
     return max(0.1, min(maximum, value))
+
+
+def _bounded_int_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
 
 
 BRAIN_READ_TIMEOUT_SECONDS = _bounded_timeout_setting("BRAIN_READ_TIMEOUT_SECONDS", 5.0, 10.0)
@@ -596,6 +607,7 @@ def publish_youtube_watchlist_snapshot(payload: BrainYouTubeWatchlistSnapshotReq
             metadata={
                 "source": "codex_launchd_youtube_watchlist",
                 "channel_count": len(payload.channels),
+                "playlist_count": len(payload.designated_playlists),
             },
         )
     except Exception as exc:
@@ -609,9 +621,10 @@ def publish_youtube_watchlist_snapshot(payload: BrainYouTubeWatchlistSnapshotReq
         "snapshot_id": snapshot.get("id"),
         "updated_at": snapshot.get("updated_at"),
         "channel_count": len(payload.channels),
+        "playlist_count": len(payload.designated_playlists),
         "video_count": sum(
             len(channel.get("videos") or [])
-            for channel in payload.channels
+            for channel in [*payload.channels, *payload.designated_playlists]
             if isinstance(channel.get("videos"), list)
         ),
     }
@@ -844,6 +857,80 @@ def publish_ops_standup_projection(payload: OpsStandupProjectionSyncRequest):
         "snapshot_type": OPS_STANDUP_SNAPSHOT_TYPE,
         "payload_sha256": current_hash,
         "updated_at": stored_snapshot.get("updated_at"),
+    }
+
+
+@router.post("/persona-review/candidates/sync")
+def sync_canonical_persona_review_candidates(
+    payload: BrainPersonaReviewCandidateSyncRequest,
+):
+    encoded_size = len(payload.model_dump_json().encode("utf-8"))
+    if encoded_size > 256 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail="Persona review candidate projection exceeds the 256 KB limit.",
+        )
+    try:
+        for item in payload.items:
+            source_url = (item.source_url or "").strip()
+            if item.source_attribution_kind == "attributed_external" and not source_url:
+                raise ValueError("Attributed external Persona candidates require a public source URL.")
+            if source_url:
+                credential_free_public_url(source_url)
+        result = persona_delta_service.sync_projected_review_candidates(
+            [item.model_dump(mode="json") for item in payload.items],
+            active_source_limit=_bounded_int_setting(
+                "PERSONA_REVIEW_ACTIVE_SOURCE_LIMIT",
+                8,
+                1,
+                20,
+            ),
+        )
+        summary_receipt = workspace_snapshot_service.recompute_and_persist_persona_review_summary(
+            request_generated_at=payload.generated_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Canonical Persona review candidate sync failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Canonical Persona review candidates could not be stored.",
+        ) from exc
+    return {
+        "schema_version": "canonical_persona_review_projection_receipt/v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "request_generated_at": payload.generated_at,
+        "projection_bytes": encoded_size,
+        **result,
+        "persona_review_summary": summary_receipt,
+    }
+
+
+@router.post("/persona-review/{delta_id}/skip")
+def skip_persona_review(delta_id: str, payload: BrainPersonaReviewSkipRequest):
+    try:
+        result = persona_delta_service.skip_brain_review(delta_id, scope=payload.scope)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Persona delta not found")
+        summary_receipt = workspace_snapshot_service.recompute_and_persist_persona_review_summary(
+            request_generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Persona review skip failed for delta %s", delta_id)
+        raise HTTPException(status_code=503, detail="Persona review could not be skipped.") from exc
+    return {
+        "message": (
+            "Source removed from the review queue without creating owner evidence."
+            if payload.scope == "source"
+            else "Claim removed from the review queue without creating owner evidence."
+        ),
+        **result,
+        "persona_review_summary": summary_receipt,
     }
 
 
