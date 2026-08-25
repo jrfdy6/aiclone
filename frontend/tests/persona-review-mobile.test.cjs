@@ -21,9 +21,24 @@ const {
   adjacentPersonaReviewDeltaId,
   findPersonaReviewPosition,
   groupPersonaReviewDeltas,
+  personaResponsePlaceholder,
   youtubeThumbnailUrl,
   youtubeVideoId,
 } = loadedModule.exports;
+
+test('response categories provide unsaved guidance without supplying owner evidence', () => {
+  assert.match(personaResponsePlaceholder('agree'), /agree with, and why/i);
+  assert.match(personaResponsePlaceholder('disagree'), /disagree with, and why/i);
+  assert.match(personaResponsePlaceholder('nuance'), /nuance or qualification/i);
+  assert.match(personaResponsePlaceholder('story'), /real personal story/i);
+  assert.match(personaResponsePlaceholder('language'), /wording sounds more like you/i);
+  const queueTemplateStart = clientSource.indexOf('function queueTemplate');
+  const queueTemplateEnd = clientSource.indexOf('function seedSourceDecision', queueTemplateStart);
+  const queueTemplateSource = clientSource.slice(queueTemplateStart, queueTemplateEnd);
+  assert.match(queueTemplateSource, /setSelectedResponseKind\(kind\)/);
+  assert.doesNotMatch(queueTemplateSource, /setReflectionText/);
+  assert.equal((clientSource.match(/placeholder=\{personaResponsePlaceholder\(selectedResponseKind\)\}/g) || []).length, 2);
+});
 
 function delta(id, metadata = {}, createdAt = '2026-08-24T12:00:00Z') {
   return { id, created_at: createdAt, metadata };
@@ -82,6 +97,8 @@ test('Persona keeps the approved iPhone review inside the existing surface', () 
   assert.match(clientSource, /Save & next \$\{mobileAdvanceLabel\}/);
   assert.match(clientSource, /complete_review: advanceAfterSave/);
   assert.match(clientSource, /nextDraft\?\.reflectionText\.trim\(\) === effectiveReflection\.trim\(\)/);
+  assert.match(clientSource, /expected next \$\{advanceNoun\} changed during refresh/);
+  assert.match(clientSource, /no different source was selected automatically/);
   assert.match(clientSource, /aiclone\.brain\.persona-review-drafts\.v1/);
   assert.match(clientSource, /excluded from canon, Dream, and learning/);
   const mobileQueueStart = clientSource.indexOf("mobilePersonaSheet === 'queue' ?");

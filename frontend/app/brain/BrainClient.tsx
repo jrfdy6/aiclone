@@ -20,6 +20,7 @@ import {
   adjacentPersonaReviewDeltaId,
   findPersonaReviewPosition,
   groupPersonaReviewDeltas,
+  personaResponsePlaceholder,
   youtubeThumbnailUrl,
 } from './personaReviewMobile';
 
@@ -4775,17 +4776,6 @@ function PersonaPanel({
     }
     markPersonaReviewDraftUnconfirmed();
     setSelectedResponseKind(kind);
-    const prefix =
-      kind === 'agree'
-        ? `What I agree with about "${selectedDelta.trait}":\n- `
-        : kind === 'disagree'
-        ? `What I disagree with about "${selectedDelta.trait}":\n- `
-        : kind === 'nuance'
-        ? `Nuance I want preserved for "${selectedDelta.trait}":\n- `
-        : kind === 'story'
-        ? `Personal story or example that should shape "${selectedDelta.trait}":\n- `
-        : `Language and wording I prefer for "${selectedDelta.trait}":\n- `;
-    setReflectionText((current) => (current.trim().length > 0 ? current : prefix));
     setReflectionState({ tone: 'idle', message: '' });
   }
 
@@ -4966,11 +4956,16 @@ function PersonaPanel({
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
       const configuredNextDeltaId = options.nextDeltaId;
+      const expectedNextMissing = Boolean(
+        configuredNextDeltaId && !nextQueue.some((delta) => delta.id === configuredNextDeltaId),
+      );
       const resolvedNextDeltaId =
         configuredNextDeltaId === null
           ? null
-          : configuredNextDeltaId && nextQueue.some((delta) => delta.id === configuredNextDeltaId)
-          ? configuredNextDeltaId
+          : configuredNextDeltaId
+          ? expectedNextMissing
+            ? null
+            : configuredNextDeltaId
           : nextQueue[0]?.id ?? null;
       if (selectedDelta) {
         removePersonaReviewDraft(selectedDelta.id);
@@ -4990,7 +4985,9 @@ function PersonaPanel({
       selectActiveDelta(keepSelectableSourceOpen ? selectedDelta?.id ?? null : resolvedNextDeltaId, 'replace');
       setReflectionText('');
       const advanceNoun = options.advanceLabel ?? 'review item';
-      const baseMessage = keepSelectableSourceOpen
+      const baseMessage = expectedNextMissing
+        ? `Saved to Open Brain as capture ${result.capture_id}, but the expected next ${advanceNoun} changed during refresh. Reopen the review queue to continue; no different source was selected automatically.`
+        : keepSelectableSourceOpen
         ? `Saved to Open Brain as capture ${result.capture_id}. This source stays open so you can select canonical items when ready.`
         : resolvedNextDeltaId
         ? mode === 'approved'
@@ -5535,7 +5532,7 @@ function PersonaPanel({
                   markPersonaReviewDraftUnconfirmed();
                   setReflectionText(event.target.value);
                 }}
-                placeholder="Type or dictate your response…"
+                placeholder={personaResponsePlaceholder(selectedResponseKind)}
                 style={{
                   boxSizing: 'border-box',
                   width: '100%',
@@ -6816,7 +6813,7 @@ function PersonaPanel({
                       setReflectionState({ tone: 'idle', message: '' });
                     }
                   }}
-                  placeholder={`Example: Yes, this is true. I am building an AI project that supports these initiatives, but I want it framed as a system that strengthens AI Clone, BrandEasy, Outfit A Congo, Collective Fusion, market development, and public leadership rather than a flat list.`}
+                  placeholder={personaResponsePlaceholder(selectedResponseKind)}
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',

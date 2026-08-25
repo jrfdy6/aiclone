@@ -15,6 +15,16 @@ export type PersonaReviewPosition<T extends PersonaReviewDeltaLike> = {
   source: PersonaReviewSourceGroup<T>;
 };
 
+export type PersonaReviewResponseKind = 'agree' | 'disagree' | 'nuance' | 'story' | 'language';
+
+export function personaResponsePlaceholder(kind: PersonaReviewResponseKind): string {
+  if (kind === 'agree') return 'What do you agree with, and why? Type or dictate your own words…';
+  if (kind === 'disagree') return 'What do you disagree with, and why? Type or dictate your own words…';
+  if (kind === 'story') return 'Share a real personal story or example in your own words…';
+  if (kind === 'language') return 'What wording sounds more like you? Type or dictate it here…';
+  return 'What nuance or qualification should be preserved? Type or dictate your own words…';
+}
+
 function metadataText(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key];
   if (value === null || value === undefined) return null;
