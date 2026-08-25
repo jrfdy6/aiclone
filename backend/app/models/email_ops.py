@@ -163,12 +163,6 @@ class EmailProviderStatusResponse(BaseModel):
     dependencies_ready: bool = False
     drafts_enabled: bool = False
     send_enabled: bool = False
-    account_email: Optional[str] = None
-    client_file: Optional[str] = None
-    token_file: Optional[str] = None
     token_present: bool = False
     refreshable: bool = False
-    sync_query: Optional[str] = None
     max_results: int = 0
-    scopes: list[str] = Field(default_factory=list)
-    error: Optional[str] = None

@@ -316,7 +316,7 @@ test('validates local intake and labels persisted watchlist freshness', () => {
   assert.match(clientSource, /isRecentTimestamp\(youtubeWatchlist\?\.generated_at, 3 \* 60 \* 60 \* 1000\)/);
   assert.match(clientSource, /Transcript runtime was ready at last snapshot/);
   assert.match(clientSource, /Configuration only — local runner has not reported yet/);
-  assert.match(clientSource, /private deployed snapshots, not live reads from this Mac/);
+  assert.match(clientSource, /only governed public-safe deployed docs/);
 });
 
 test('isolates expensive Dashboard truth reads so one dependency cannot erase the whole surface', () => {

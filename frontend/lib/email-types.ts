@@ -122,13 +122,7 @@ export type EmailProviderStatusResponse = {
   dependencies_ready: boolean;
   drafts_enabled: boolean;
   send_enabled: boolean;
-  account_email?: string | null;
-  client_file?: string | null;
-  token_file?: string | null;
   token_present: boolean;
   refreshable: boolean;
-  sync_query?: string | null;
   max_results: number;
-  scopes: string[];
-  error?: string | null;
 };

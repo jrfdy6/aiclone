@@ -38,6 +38,8 @@ DOC_ROOTS: tuple[tuple[str, str], ...] = (
     ("workspaces/work-life-tools/briefings", "Workspace Reference"),
 )
 
+DEPLOYED_DOCS_ROOT = "deployed_docs"
+
 EXPLICIT_DOCS: tuple[tuple[str, str], ...] = (
     ("SOURCE_OF_TRUTH.md", "Start Here"),
     ("CODEX_STARTUP.md", "Start Here"),
@@ -251,6 +253,21 @@ def _latest_daily_log_record() -> dict[str, Any] | None:
 
 def _collect_records() -> list[dict[str, Any]]:
     records_by_path: dict[str, dict[str, Any]] = {}
+    deployed_root = _contained_path(WORKSPACE_ROOT, DEPLOYED_DOCS_ROOT)
+    if deployed_root is not None and deployed_root.is_dir():
+        for path in sorted(deployed_root.rglob("*")):
+            if len(records_by_path) >= MAX_DOCS:
+                break
+            if not path.is_file():
+                continue
+            relative = path.relative_to(deployed_root)
+            if any(part.startswith(".") for part in relative.parts) or _is_default_excluded(relative):
+                continue
+            display_path = relative.as_posix()
+            group = "Deployed Public Docs"
+            record = _record(path, display_path=display_path, group=group)
+            if record is not None:
+                records_by_path.setdefault(display_path, record)
     for relative_root, group in DOC_ROOTS:
         for record in _iter_root_records(relative_root, group):
             records_by_path.setdefault(str(record["path"]), record)

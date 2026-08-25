@@ -36,10 +36,20 @@ from app.services.email_ops_service import (
 router = APIRouter(tags=["Email Ops"], prefix="/api/email")
 
 
-@router.get("/google/status", response_model=EmailProviderStatusResponse)
+@router.get("/google/status", response_model=EmailProviderStatusResponse, response_model_exclude_none=True)
 async def get_gmail_provider_status():
     try:
-        return EmailProviderStatusResponse(**gmail_connection_status())
+        status = gmail_connection_status()
+        return EmailProviderStatusResponse(
+            configured=bool(status.get("configured")),
+            connected=bool(status.get("connected")),
+            dependencies_ready=bool(status.get("dependencies_ready")),
+            drafts_enabled=bool(status.get("drafts_enabled")),
+            send_enabled=bool(status.get("send_enabled")),
+            token_present=bool(status.get("token_present")),
+            refreshable=bool(status.get("refreshable")),
+            max_results=int(status.get("max_results") or 0),
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Email provider status is unavailable.") from exc
 

@@ -92,6 +92,9 @@ test('Persona keeps the approved iPhone review inside the existing surface', () 
   assert.match(clientSource, /flexDirection: 'column'/);
   assert.doesNotMatch(clientSource, /minHeight: '100px',[\s\S]{0,220}alignContent: 'center'/);
   assert.doesNotMatch(clientSource, /Perspective Inbox/);
+  assert.match(clientSource, /effectivePromotionItems\.map\(promotionItemRequestPayload\)/);
+  assert.match(clientSource, /function promotionItemRequestPayload\(item: PromotionItem\)/);
+  assert.doesNotMatch(clientSource, /selected_promotion_items: effectivePromotionItems,/);
 });
 
 test('YouTube previews use the configured optimized image host', () => {

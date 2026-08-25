@@ -722,6 +722,29 @@ type PromotionItem = {
   canonProof: string | null;
 };
 
+function promotionItemRequestPayload(item: PromotionItem) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    label: item.label,
+    content: item.content,
+    evidence: item.evidence,
+    targetFile: item.targetFile,
+    artifactSummary: item.artifactSummary,
+    artifactKind: item.artifactKind,
+    artifactRef: item.artifactRef,
+    deltaSummary: item.deltaSummary,
+    reviewInterpretation: item.reviewInterpretation,
+    capabilitySignal: item.capabilitySignal,
+    positioningSignal: item.positioningSignal,
+    leverageSignal: item.leverageSignal,
+    proofSignal: item.proofSignal,
+    proofStrength: item.proofStrength,
+    gateDecision: item.gateDecision,
+    gateReason: item.gateReason,
+  };
+}
+
 type PromotionGateSummary = {
   decision: PromotionItemGateDecision;
   reason: string | null;
@@ -4864,7 +4887,7 @@ function PersonaPanel({
           trait: selectedDelta?.trait ?? null,
           reference_pack: referencePack,
           input_mode: 'text',
-          selected_promotion_items: effectivePromotionItems,
+          selected_promotion_items: effectivePromotionItems.map(promotionItemRequestPayload),
         },
       };
 
@@ -4875,7 +4898,7 @@ function PersonaPanel({
           response_kind: selectedResponseKind,
           resolution_capture_id: result.capture_id,
           reflection_excerpt: effectiveReflection.slice(0, 4000),
-          selected_promotion_items: effectivePromotionItems,
+          selected_promotion_items: effectivePromotionItems.map(promotionItemRequestPayload),
         };
         const updatedDelta = await controlApiPost<PersonaDeltaEntry>(
           `/api/brain/persona-review/${encodeURIComponent(selectedDelta.id)}`,
@@ -7923,7 +7946,7 @@ function DocsPanel({
             Start with SOURCE_OF_TRUTH.md. Brain then preserves the same startup, memory, roadmap, procedure, and supporting-reference order Codex uses.
           </p>
           <p style={{ color: '#fbbf24', fontSize: '12px', lineHeight: 1.5 }}>
-            These are private deployed snapshots, not live reads from this Mac. Local document changes appear after the next backend release.
+            Railway shows only governed public-safe deployed docs. Private canonical memory and owner documents remain on the Mac.
           </p>
         </div>
         {error && <p role="alert" style={{ color: '#f87171', fontSize: '13px' }}>{error}</p>}
@@ -7991,7 +8014,11 @@ function DocsPanel({
             </div>
           </div>
         )}
-        {loadState === 'ready' && groupedDocs.length === 0 && <p style={{ color: '#475569' }}>No documentation found.</p>}
+        {loadState === 'ready' && groupedDocs.length === 0 && (
+          <p style={{ color: '#fbbf24', lineHeight: 1.5 }}>
+            No governed deployed documentation is available in this release. Private Mac documents were intentionally withheld.
+          </p>
+        )}
         {groupedDocs.map((group) => (
           <div key={group.group} style={{ marginBottom: '16px' }}>
             <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{group.group}</p>

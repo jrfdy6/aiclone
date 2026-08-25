@@ -152,7 +152,7 @@ function InboxPageContent() {
         result.status === 'gmail_synced'
           ? 'Live Gmail inbox synced.'
           : result.status === 'gmail_auth_required'
-            ? 'Gmail OAuth client is configured, but the account is not connected yet. Run the Gmail connection script.'
+            ? 'Gmail is configured, but local owner authorization is still required on the Mac.'
             : result.seeded_samples
               ? 'Sample inbox seeded. Gmail provider sync is still not connected.'
               : 'Inbox state refreshed.',
@@ -224,23 +224,19 @@ function InboxPageContent() {
             providerStatus.connected ? (
               <div style={{ borderRadius: '14px', border: '1px solid rgba(34,197,94,0.25)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '12px 14px' }}>
                 <p style={{ color: '#bbf7d0', fontSize: '13px', margin: 0, lineHeight: 1.55 }}>
-                  Gmail is connected for <strong>{providerStatus.account_email}</strong>. Sync will pull live inbox threads using query <code>{providerStatus.sync_query}</code>.
-                  {' '}
-                  {providerStatus.drafts_enabled
-                    ? 'Draft persistence is enabled for save-to-Gmail-drafts actions.'
-                    : 'Draft persistence is not enabled yet; set GOOGLE_GMAIL_ENABLE_DRAFTS and reconnect the account to save drafts back into Gmail.'}
+                  Gmail is connected. Sync can pull the owner-authorized inbox into this private review surface.
                 </p>
               </div>
             ) : providerStatus.configured ? (
               <div style={{ borderRadius: '14px', border: '1px solid rgba(251,191,36,0.25)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '12px 14px' }}>
                 <p style={{ color: '#fde68a', fontSize: '13px', margin: 0, lineHeight: 1.55 }}>
-                  Gmail OAuth client is configured for <strong>{providerStatus.account_email}</strong>, but the inbox is not authorized yet. Run the repository&apos;s <code>scripts/connect_gmail_inbox.py</code> connection helper on the Mac to finish authorization.
+                  Gmail is configured, but the inbox still needs owner authorization on the Mac. No account identifier or local setup path is shown remotely.
                 </p>
               </div>
             ) : (
               <div style={{ borderRadius: '14px', border: '1px solid rgba(248,113,113,0.25)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '12px 14px' }}>
                 <p style={{ color: '#fecaca', fontSize: '13px', margin: 0, lineHeight: 1.55 }}>
-                  Gmail OAuth client is not configured yet. Put the desktop OAuth client JSON at <code>{providerStatus.client_file}</code> for local use, or set <code>GOOGLE_GMAIL_OAUTH_CLIENT_JSON</code> in production.
+                  Gmail is not configured yet. Complete the private local setup on the Mac before using inbox sync.
                 </p>
               </div>
             )

@@ -28,6 +28,25 @@ def _latest_runs_by_automation(runs: list[AutomationRun]) -> dict[str, Automatio
     return latest
 
 
+def _latest_launchd_states(runs: list[AutomationRun]) -> dict[str, dict]:
+    """Return the newest aggregate installed-state observation, when present.
+
+    High-frequency run retention may compact an automation's individual mirror
+    rows before the registry entry disappears.  The launchd health audit is the
+    canonical bounded observation for installed/loaded state, so its per-job
+    map prevents a compacted row from being mislabeled as "never observed".
+    """
+
+    audits = [run for run in runs if run.automation_id == "launchd_health_audit"]
+    if not audits:
+        return {}
+    latest = max(audits, key=_run_timestamp)
+    states = (latest.metadata or {}).get("launchd_automation_states")
+    if not isinstance(states, dict):
+        return {}
+    return {str(key): value for key, value in states.items() if isinstance(value, dict)}
+
+
 def build_mismatch_report(
     *,
     automations: Optional[list[Automation]] = None,
@@ -36,11 +55,17 @@ def build_mismatch_report(
     all_runs = list_runs(limit=500) if runs is None else runs
     registry = list_automations(runs=all_runs) if automations is None else automations
     latest_by_id = _latest_runs_by_automation(all_runs)
+    latest_launchd_states = _latest_launchd_states(all_runs)
     registry_by_id = {item.id: item for item in registry}
     mismatches: list[AutomationMismatch] = []
 
     for item in registry:
-        if item.status == "active" and item.runtime == "launchd" and item.id not in latest_by_id:
+        if (
+            item.status == "active"
+            and item.runtime == "launchd"
+            and item.id not in latest_by_id
+            and item.id not in latest_launchd_states
+        ):
             mismatches.append(
                 AutomationMismatch(
                     kind="missing_run_record",

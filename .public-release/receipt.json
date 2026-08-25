@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 523,
+    "file_count": 525,
     "files": [
       {
         "mode": 493,
@@ -144,8 +144,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/email_ops.py",
-        "sha256": "f9e811312c9c28f9d86cb2057c2e92e76e8c0eb3919ea9d2a22b3c7a6d6fb5df",
-        "size": 5831
+        "sha256": "c1e08c7501cf72e47339545c758901fa88980a0c96ee78d8624dba43203639ae",
+        "size": 5595
       },
       {
         "mode": 420,
@@ -444,8 +444,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/email_ops.py",
-        "sha256": "b3479e31e739be4ffd3c5653fb36559698ef5e093fec588da66f4eeeb0bc9bfb",
-        "size": 5711
+        "sha256": "7c99f5b588622cf792e42162137b58578b0149c0dd9c47bb26cf3df8f6ee8dd6",
+        "size": 6250
       },
       {
         "mode": 420,
@@ -738,8 +738,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/automation_mismatch_service.py",
-        "sha256": "a066cf97aab2a6b262a82370afd5bd79fdd150f69a51fd448050c0e14ebda3f7",
-        "size": 6026
+        "sha256": "1b6030b720964e2aca955640555306db51ec57f562990511f1f8a4b756da47bb",
+        "size": 7042
       },
       {
         "mode": 420,
@@ -768,8 +768,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/brain_docs_service.py",
-        "sha256": "230a5cff19f5e53cab0ab113c35f4dec101b394651079662b78b4b59b65cbf72",
-        "size": 13490
+        "sha256": "b69a6aff07a292230dd78bdfc9256cb2d5aa286e9b92e4f0cb30fc16c20ef662",
+        "size": 14294
       },
       {
         "mode": 420,
@@ -1967,6 +1967,12 @@
       },
       {
         "mode": 420,
+        "path": "backend/deployed_docs/README.md",
+        "sha256": "6665f160ce7b19d633faf03f0d42dfd59643c0e6c837db05994fd3908aa3dcc9",
+        "size": 580
+      },
+      {
+        "mode": 420,
         "path": "backend/railpack.json",
         "sha256": "ba0762bb1d8f228d86cb86dfa28269971876e7e4284de4c397dce9a82465ceef",
         "size": 262
@@ -2190,8 +2196,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/BrainClient.tsx",
-        "sha256": "4dcba4311eec6f156ab867645ac09ac6f17a4d2dcf70a9045caaf7e6ac0b4bbf",
-        "size": 447801
+        "sha256": "1b64fd0600efee0af1ae17338ccfd3ca4af9bbb85f72c5facbb4d4f32e0a0424",
+        "size": 448722
       },
       {
         "mode": 420,
@@ -2280,8 +2286,8 @@
       {
         "mode": 420,
         "path": "frontend/app/inbox/page.tsx",
-        "sha256": "9b6f2d1f7ebdf087f9f036367ad99a4e1ad3df8c10fc8cba942a735be60d774d",
-        "size": 24363
+        "sha256": "01562f39b13684fa3df0ba677ba209f49be69769b720b14ce1a452768684cc12",
+        "size": 23751
       },
       {
         "mode": 420,
@@ -2724,8 +2730,8 @@
       {
         "mode": 420,
         "path": "frontend/lib/email-types.ts",
-        "sha256": "628ce1277df0a4e3e99930fa32da09e8f98ceca9980f070c081b921dec193ae0",
-        "size": 3912
+        "sha256": "720901ce65ba465ed72b385b0f522abbe8652b8721996e980de9ad5c3e8c7cfa",
+        "size": 3743
       },
       {
         "mode": 420,
@@ -2892,8 +2898,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/brain-navigation.test.cjs",
-        "sha256": "060af8d02aa47d5b250c19b33e8ac3a242c634df8b92955ae151bffbaa48643f",
-        "size": 17894
+        "sha256": "0c1b6faac57d427624952e5a0d8589520c04baa58362330ac219c4a9ae9b46e3",
+        "size": 17877
       },
       {
         "mode": 420,
@@ -2975,6 +2981,12 @@
       },
       {
         "mode": 420,
+        "path": "frontend/tests/inbox-provider-privacy.test.cjs",
+        "sha256": "3b168134721da175ca11ef689e6d80cf13788293f0c3986de2204d7cbef5dff1",
+        "size": 902
+      },
+      {
+        "mode": 420,
         "path": "frontend/tests/integrated-acceptance-harness.test.cjs",
         "sha256": "92b521e86070c15c8fdb36406fbd50df4dba32bcd0b3b4b9735a9b85ceafb551",
         "size": 2300
@@ -3036,8 +3048,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/persona-review-mobile.test.cjs",
-        "sha256": "27ad8dad608c4942a93fb52352cb4e7b749cf275db749efa1c2919009c0eb8ca",
-        "size": 5378
+        "sha256": "38f0a79bf6bd6a0cbbdd94d006adfb8e6a0b0376e1818cfefb57e2d6f206ca40",
+        "size": 5655
       },
       {
         "mode": 420,
@@ -3096,8 +3108,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "96ed570371331897dbb206b4d4529fd7edd8f1cb6fd316d404a576208a29e0d2",
-        "size": 5811
+        "sha256": "3087f88655b1b9a5a7460701b606116af273bd2354e3a40dbffef6ca5338afe3",
+        "size": 5879
       },
       {
         "mode": 493,
@@ -3142,15 +3154,15 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "07cab7c33d42fe8c5e0be5a5f7ba1a2e4a12d2d27eb78e70bed67039c7070b8b"
+    "tree_sha256": "a4352ecab3f59041e5ac8035cd92286e457bbf0018537d65787a1ff5bf9088e8"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "96ed570371331897dbb206b4d4529fd7edd8f1cb6fd316d404a576208a29e0d2"
+    "sha256": "3087f88655b1b9a5a7460701b606116af273bd2354e3a40dbffef6ca5338afe3"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "98f31993ff2b159ce03450435693cddd6dd40aca16b45b02147e91c2ed0cb5c3",
+    "inventory_sha256": "1dc77466d088c43c731cb6b4fb5bdc6bd0c30cffb6da8525e1245536a3371839",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },
