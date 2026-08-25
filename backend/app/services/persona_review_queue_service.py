@@ -60,6 +60,8 @@ def is_workspace_approved(status: str, metadata: dict[str, Any] | None) -> bool:
 
 def is_brain_pending_review(status: str, metadata: dict[str, Any] | None) -> bool:
     normalized = (status or "draft").strip().lower()
+    if normalized == "reviewed" and _metadata_bool(metadata, "review_completed"):
+        return False
     review_source = _metadata_text(metadata, "review_source")
     if review_source == "long_form_media.segment":
         sync_state = _metadata_text(metadata, "sync_state") or ""

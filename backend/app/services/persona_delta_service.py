@@ -501,6 +501,7 @@ def apply_brain_review(
         "selected_promotion_items": promotion_items,
         "selected_promotion_item_ids": [str(item.get("id") or "") for item in promotion_items if str(item.get("id") or "")],
         "selected_promotion_count": len(promotion_items),
+        "review_completed": complete_review,
         "last_reviewed_at": reviewed_at,
         **perspective_lineage,
         **response_history,
