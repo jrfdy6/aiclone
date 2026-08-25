@@ -721,6 +721,7 @@ class BrainPersonaReviewRequest(BaseModel):
     reflection_excerpt: str = Field(min_length=1, max_length=20_000)
     resolution_capture_id: str | None = Field(default=None, max_length=128)
     selected_promotion_items: list[PromotionItemPayload] = Field(default_factory=list, max_length=25)
+    complete_review: bool = False
 
     @model_validator(mode="after")
     def ensure_reflection_and_selection(self) -> "BrainPersonaReviewRequest":

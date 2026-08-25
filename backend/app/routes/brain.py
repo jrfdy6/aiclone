@@ -857,6 +857,7 @@ def submit_brain_persona_review(delta_id: str, payload: BrainPersonaReviewReques
             reflection_excerpt=payload.reflection_excerpt,
             resolution_capture_id=payload.resolution_capture_id,
             selected_promotion_items=[item.model_dump(exclude_none=True) for item in payload.selected_promotion_items],
+            complete_review=payload.complete_review,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

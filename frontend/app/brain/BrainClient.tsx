@@ -4899,6 +4899,7 @@ function PersonaPanel({
           resolution_capture_id: result.capture_id,
           reflection_excerpt: effectiveReflection.slice(0, 4000),
           selected_promotion_items: effectivePromotionItems.map(promotionItemRequestPayload),
+          complete_review: advanceAfterSave,
         };
         const updatedDelta = await controlApiPost<PersonaDeltaEntry>(
           `/api/brain/persona-review/${encodeURIComponent(selectedDelta.id)}`,
@@ -4975,6 +4976,12 @@ function PersonaPanel({
         removePersonaReviewDraft(selectedDelta.id);
         setHasUnconfirmedPersonaDraft(false);
         setPersonaDraftReadyDeltaId('');
+      }
+      if (resolvedNextDeltaId) {
+        const nextDraft = readPersonaReviewDraft(resolvedNextDeltaId);
+        if (nextDraft?.reflectionText.trim() === effectiveReflection.trim()) {
+          removePersonaReviewDraft(resolvedNextDeltaId);
+        }
       }
       await refreshBrainData();
       if (selectedDelta && !keepSelectableSourceOpen) {

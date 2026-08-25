@@ -432,6 +432,7 @@ def apply_brain_review(
     reflection_excerpt: str,
     resolution_capture_id: str | None = None,
     selected_promotion_items: list[dict] | None = None,
+    complete_review: bool = False,
 ) -> Optional[PersonaDelta]:
     existing = get_delta(delta_id)
     if existing is None:
@@ -450,7 +451,11 @@ def apply_brain_review(
         raise ValueError("At least one promotion item is required for approval.")
 
     existing_metadata = existing.metadata if isinstance(existing.metadata, dict) else {}
-    keep_selectable_source_open = normalized_mode == "reviewed" and has_selectable_promotion_metadata(existing_metadata)
+    keep_selectable_source_open = (
+        normalized_mode == "reviewed"
+        and not complete_review
+        and has_selectable_promotion_metadata(existing_metadata)
+    )
     review_status = "approved" if normalized_mode == "approved" else ("in_review" if keep_selectable_source_open else "reviewed")
     reviewed_at = datetime.now(timezone.utc).isoformat()
     perspective_texts = (

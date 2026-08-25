@@ -80,6 +80,8 @@ test('Persona keeps the approved iPhone review inside the existing surface', () 
   assert.match(clientSource, /onTouchEnd=/);
   assert.match(clientSource, /Review details · \{selectedPromotionItems\.length\} selected/);
   assert.match(clientSource, /Save & next \$\{mobileAdvanceLabel\}/);
+  assert.match(clientSource, /complete_review: advanceAfterSave/);
+  assert.match(clientSource, /nextDraft\?\.reflectionText\.trim\(\) === effectiveReflection\.trim\(\)/);
   assert.match(clientSource, /aiclone\.brain\.persona-review-drafts\.v1/);
   assert.match(clientSource, /excluded from canon, Dream, and learning/);
   const mobileQueueStart = clientSource.indexOf("mobilePersonaSheet === 'queue' ?");
