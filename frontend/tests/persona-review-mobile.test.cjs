@@ -22,6 +22,7 @@ const {
   findPersonaReviewPosition,
   groupPersonaReviewDeltas,
   nextPersonaReviewSourceDeltaId,
+  personaReviewAdvanceIsSettled,
   personaResponsePlaceholder,
   resolvePersonaReviewSelection,
   youtubeThumbnailUrl,
@@ -103,8 +104,14 @@ test('pins the intended next claim while a saved claim leaves the active queue',
   });
 
   assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'saved-claim', 'claim-2')?.id, 'claim-2');
+  assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'article-1', 'claim-2')?.id, 'claim-2');
+  assert.equal(resolvePersonaReviewSelection([nextSource], 'article-1', 'claim-2'), null);
   assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'saved-claim', null), null);
   assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'missing-claim')?.id, 'article-1');
+  assert.equal(personaReviewAdvanceIsSettled([nextSource, nextClaim], 'article-1', 'claim-2'), false);
+  assert.equal(personaReviewAdvanceIsSettled([nextSource, nextClaim], 'claim-2', 'claim-2'), true);
+  assert.equal(personaReviewAdvanceIsSettled([nextSource], 'claim-2', 'claim-2'), false);
+  assert.equal(personaReviewAdvanceIsSettled([], '', null), true);
 });
 
 test('derives safe YouTube thumbnail URLs from supported public video URLs', () => {

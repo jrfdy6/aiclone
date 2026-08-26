@@ -2202,8 +2202,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/BrainClient.tsx",
-        "sha256": "97f944c9d993bc2660638c1be81949caa8d75f5f61e26b12b5b0a9b05d4272e4",
-        "size": 464394
+        "sha256": "879e9d180f23e0b66d83715e4f7bc99d5a90349f247438d14debc5edc234a1b6",
+        "size": 464882
       },
       {
         "mode": 420,
@@ -2226,8 +2226,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/personaReviewMobile.ts",
-        "sha256": "c40197f900a1f5787e541691cf7f5da71ad7d6e8f6630190716e6c59474fac28",
-        "size": 6377
+        "sha256": "3add79b270618de2296d62291f349f80c4ab2c2cec0f4e10d448ebd6e851c185",
+        "size": 6802
       },
       {
         "mode": 420,
@@ -3054,8 +3054,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/persona-review-mobile.test.cjs",
-        "sha256": "9b505213951c965ab68e2ed78d61dfc6d755e0ad6321ab06cb33cb773508a37b",
-        "size": 9644
+        "sha256": "1482be6c19536d5bcbaba7e71a3c4a97459d132efed91d5778b3503a626b05e3",
+        "size": 10239
       },
       {
         "mode": 420,
@@ -3160,7 +3160,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "6b7d733758ef8c71a9d77d612ec2853ed5135320b7928866deb6fb1ca3ba6b39"
+    "tree_sha256": "bd75fcb53ab74ffafa9703a372f1b574e5e4ffe603be200a1814da587295b6d3"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

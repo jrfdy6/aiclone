@@ -95,18 +95,28 @@ export function resolvePersonaReviewSelection<T extends PersonaReviewDeltaLike>(
   selectedDeltaId: string | null | undefined,
   pendingAdvanceDeltaId?: string | null,
 ): T | null {
-  const selected = deltas.find((delta) => delta.id === selectedDeltaId);
-  if (selected) return selected;
-
   // A successful save removes the current claim from the active queue before
-  // the no-store refresh finishes. Keep the precomputed next claim pinned
-  // during that boundary instead of briefly falling through to a new source.
+  // the no-store refresh finishes. The explicit transition target outranks
+  // any transient fallback selection until that target is confirmed.
   if (pendingAdvanceDeltaId !== undefined) {
     return pendingAdvanceDeltaId
       ? deltas.find((delta) => delta.id === pendingAdvanceDeltaId) ?? null
       : null;
   }
+
+  const selected = deltas.find((delta) => delta.id === selectedDeltaId);
+  if (selected) return selected;
   return deltas[0] ?? null;
+}
+
+export function personaReviewAdvanceIsSettled<T extends PersonaReviewDeltaLike>(
+  deltas: T[],
+  selectedDeltaId: string | null | undefined,
+  pendingAdvanceDeltaId?: string | null,
+): boolean {
+  if (pendingAdvanceDeltaId === undefined) return true;
+  if (pendingAdvanceDeltaId === null) return !selectedDeltaId;
+  return selectedDeltaId === pendingAdvanceDeltaId && deltas.some((delta) => delta.id === pendingAdvanceDeltaId);
 }
 
 export function adjacentPersonaReviewDeltaId<T extends PersonaReviewDeltaLike>(

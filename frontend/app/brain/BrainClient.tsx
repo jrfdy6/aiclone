@@ -21,6 +21,7 @@ import {
   findPersonaReviewPosition,
   groupPersonaReviewDeltas,
   nextPersonaReviewSourceDeltaId,
+  personaReviewAdvanceIsSettled,
   personaResponsePlaceholder,
   resolvePersonaReviewSelection,
   youtubeThumbnailUrl,
@@ -4717,6 +4718,9 @@ function PersonaPanel({
   }, [requestedDelta, requestedDeltaId, requestedDeltaLookupState, requestedDeltaStage, requestedLifecycleView]);
 
   useEffect(() => {
+    if (pendingPersonaAdvanceDeltaId !== undefined) {
+      return;
+    }
     if (!selectedDelta && reviewQueue[0]) {
       setSelectedDeltaId(reviewQueue[0].id);
       return;
@@ -4724,7 +4728,19 @@ function PersonaPanel({
     if (reviewQueue.length === 0 && selectedDeltaId) {
       setSelectedDeltaId('');
     }
-  }, [reviewQueue, selectedDelta, selectedDeltaId]);
+  }, [pendingPersonaAdvanceDeltaId, reviewQueue, selectedDelta, selectedDeltaId]);
+
+  useEffect(() => {
+    if (
+      pendingPersonaAdvanceDeltaId === undefined ||
+      loadState === 'loading' ||
+      loadState === 'refreshing' ||
+      !personaReviewAdvanceIsSettled(reviewQueue, selectedDeltaId, pendingPersonaAdvanceDeltaId)
+    ) {
+      return;
+    }
+    setPendingPersonaAdvanceDeltaId(undefined);
+  }, [loadState, pendingPersonaAdvanceDeltaId, reviewQueue, selectedDeltaId]);
 
   useEffect(() => {
     const draft = selectedDelta ? readPersonaReviewDraft(selectedDelta.id) : null;
@@ -5139,7 +5155,6 @@ function PersonaPanel({
         setCompletedDeltaIds((current) => (current.includes(selectedDelta.id) ? current : [...current, selectedDelta.id]));
       }
       selectActiveDelta(keepSelectableSourceOpen ? selectedDelta?.id ?? null : resolvedNextDeltaId, 'replace');
-      setPendingPersonaAdvanceDeltaId(undefined);
       setReflectionText('');
       const advanceNoun = options.advanceLabel ?? 'review item';
       const baseMessage = expectedNextMissing
@@ -5419,6 +5434,7 @@ function PersonaPanel({
     }
     if (!persistCurrentPersonaDraftNow()) return;
     setMobilePersonaSheet(null);
+    setPendingPersonaAdvanceDeltaId(undefined);
     selectActiveDelta(deltaId, 'replace');
   }
 
@@ -5465,7 +5481,6 @@ function PersonaPanel({
       setReflectionText('');
       await refreshBrainData();
       selectActiveDelta(expectedNextDeltaId, 'replace');
-      setPendingPersonaAdvanceDeltaId(undefined);
       setReflectionState({
         tone: 'success',
         message:
