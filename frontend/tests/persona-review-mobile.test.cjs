@@ -23,6 +23,7 @@ const {
   groupPersonaReviewDeltas,
   nextPersonaReviewSourceDeltaId,
   personaResponsePlaceholder,
+  resolvePersonaReviewSelection,
   youtubeThumbnailUrl,
   youtubeVideoId,
 } = loadedModule.exports;
@@ -89,6 +90,23 @@ test('advances claim to claim and then source to source', () => {
   assert.equal(nextPersonaReviewSourceDeltaId(groups, 'article-1'), null);
 });
 
+test('pins the intended next claim while a saved claim leaves the active queue', () => {
+  const nextSource = delta('article-1', {
+    review_source: 'long_form_media.segment',
+    source_asset_id: 'article-a',
+    segment_index: 1,
+  });
+  const nextClaim = delta('claim-2', {
+    review_source: 'long_form_media.segment',
+    source_asset_id: 'video-a',
+    segment_index: 2,
+  });
+
+  assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'saved-claim', 'claim-2')?.id, 'claim-2');
+  assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'saved-claim', null), null);
+  assert.equal(resolvePersonaReviewSelection([nextSource, nextClaim], 'missing-claim')?.id, 'article-1');
+});
+
 test('derives safe YouTube thumbnail URLs from supported public video URLs', () => {
   assert.equal(youtubeVideoId('https://www.youtube.com/watch?v=abc123'), 'abc123');
   assert.equal(youtubeVideoId('https://youtu.be/short456?t=10'), 'short456');
@@ -107,6 +125,8 @@ test('Persona keeps the approved iPhone review inside the existing surface', () 
   assert.match(clientSource, /Review details · \{selectedPromotionItems\.length\} selected/);
   assert.match(clientSource, /Save & next \$\{mobileAdvanceLabel\}/);
   assert.match(clientSource, /complete_review: advanceAfterSave/);
+  assert.match(clientSource, /resolvePersonaReviewSelection\(reviewQueue, selectedDeltaId, pendingPersonaAdvanceDeltaId\)/);
+  assert.match(clientSource, /setPendingPersonaAdvanceDeltaId\(options\.nextDeltaId \?\? null\)/);
   assert.match(clientSource, /nextDraft\?\.reflectionText\.trim\(\) === effectiveReflection\.trim\(\)/);
   assert.match(clientSource, /expected next \$\{advanceNoun\} changed during refresh/);
   assert.match(clientSource, /no different source was selected automatically/);

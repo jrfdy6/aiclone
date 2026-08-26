@@ -22,6 +22,7 @@ import {
   groupPersonaReviewDeltas,
   nextPersonaReviewSourceDeltaId,
   personaResponsePlaceholder,
+  resolvePersonaReviewSelection,
   youtubeThumbnailUrl,
 } from './personaReviewMobile';
 
@@ -4202,6 +4203,7 @@ function PersonaPanel({
   const reviewQueue = useMemo(() => visibleActiveReviewDeltas.map((item) => item.delta), [visibleActiveReviewDeltas]);
   const personaSourceGroups = useMemo(() => groupPersonaReviewDeltas(reviewQueue), [reviewQueue]);
   const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
+  const [pendingPersonaAdvanceDeltaId, setPendingPersonaAdvanceDeltaId] = useState<string | null | undefined>(undefined);
   const [reflectionText, setReflectionText] = useState('');
   const [mobilePersonaSheet, setMobilePersonaSheet] = useState<PersonaMobileSheet>(null);
   const [hasUnconfirmedPersonaDraft, setHasUnconfirmedPersonaDraft] = useState(false);
@@ -4258,8 +4260,8 @@ function PersonaPanel({
   const [triageState, setTriageState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({ tone: 'idle', message: '' });
   const [isRoutingSignal, setIsRoutingSignal] = useState(false);
   const selectedDelta = useMemo(
-    () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
-    [reviewQueue, selectedDeltaId],
+    () => resolvePersonaReviewSelection(reviewQueue, selectedDeltaId, pendingPersonaAdvanceDeltaId),
+    [pendingPersonaAdvanceDeltaId, reviewQueue, selectedDeltaId],
   );
   const selectedPersonaPosition = useMemo(
     () => findPersonaReviewPosition(personaSourceGroups, selectedDelta?.id),
@@ -4998,6 +5000,9 @@ function PersonaPanel({
     }
 
     setIsSavingReflection(true);
+    if (advanceAfterSave) {
+      setPendingPersonaAdvanceDeltaId(options.nextDeltaId ?? null);
+    }
     if (routeAfterSave) {
       setIsRoutingSignal(true);
     }
@@ -5134,6 +5139,7 @@ function PersonaPanel({
         setCompletedDeltaIds((current) => (current.includes(selectedDelta.id) ? current : [...current, selectedDelta.id]));
       }
       selectActiveDelta(keepSelectableSourceOpen ? selectedDelta?.id ?? null : resolvedNextDeltaId, 'replace');
+      setPendingPersonaAdvanceDeltaId(undefined);
       setReflectionText('');
       const advanceNoun = options.advanceLabel ?? 'review item';
       const baseMessage = expectedNextMissing
@@ -5158,6 +5164,7 @@ function PersonaPanel({
           : baseMessage,
       });
     } catch (saveError) {
+      setPendingPersonaAdvanceDeltaId(undefined);
       setReflectionState({
         tone: 'error',
         message: ownerSafeErrorMessage(saveError, 'Unable to save reflection right now.'),
@@ -5308,7 +5315,9 @@ function PersonaPanel({
         route_to_standup: routeToStandup,
         standup_kind: triageStandupKind,
         route_to_pm: routeToPM,
-        pm_title: routeToPM ? triagePMTitle || defaultBrainPMTitle(selectedDelta) : null,
+        pm_title: routeToPM
+          ? triagePMTitle || (selectedDelta ? defaultBrainPMTitle(selectedDelta) : 'Operationalize reviewed signal')
+          : null,
       },
     );
     return {
@@ -5431,6 +5440,7 @@ function PersonaPanel({
     }
 
     const expectedNextDeltaId = scope === 'source' ? nextPersonaSourceDeltaId : nextPersonaDeltaId;
+    setPendingPersonaAdvanceDeltaId(expectedNextDeltaId);
     setIsSkippingPersonaReview(true);
     setReflectionState({ tone: 'idle', message: '' });
     try {
@@ -5455,6 +5465,7 @@ function PersonaPanel({
       setReflectionText('');
       await refreshBrainData();
       selectActiveDelta(expectedNextDeltaId, 'replace');
+      setPendingPersonaAdvanceDeltaId(undefined);
       setReflectionState({
         tone: 'success',
         message:
@@ -5464,6 +5475,7 @@ function PersonaPanel({
             : `${scope === 'source' ? 'Source' : 'Claim'} skipped without recording an opinion. You are done for now.`),
       });
     } catch (skipError) {
+      setPendingPersonaAdvanceDeltaId(undefined);
       setReflectionState({
         tone: 'error',
         message: ownerSafeErrorMessage(skipError, `Unable to skip this ${scope} right now.`),

@@ -90,6 +90,25 @@ export function findPersonaReviewPosition<T extends PersonaReviewDeltaLike>(
   return null;
 }
 
+export function resolvePersonaReviewSelection<T extends PersonaReviewDeltaLike>(
+  deltas: T[],
+  selectedDeltaId: string | null | undefined,
+  pendingAdvanceDeltaId?: string | null,
+): T | null {
+  const selected = deltas.find((delta) => delta.id === selectedDeltaId);
+  if (selected) return selected;
+
+  // A successful save removes the current claim from the active queue before
+  // the no-store refresh finishes. Keep the precomputed next claim pinned
+  // during that boundary instead of briefly falling through to a new source.
+  if (pendingAdvanceDeltaId !== undefined) {
+    return pendingAdvanceDeltaId
+      ? deltas.find((delta) => delta.id === pendingAdvanceDeltaId) ?? null
+      : null;
+  }
+  return deltas[0] ?? null;
+}
+
 export function adjacentPersonaReviewDeltaId<T extends PersonaReviewDeltaLike>(
   groups: PersonaReviewSourceGroup<T>[],
   deltaId: string | null | undefined,
