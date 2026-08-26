@@ -2412,8 +2412,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "ab4b86c47221aef1d7ca79e448b0398fe85652b0841317c6d8dc6c6071b3e61b",
-        "size": 816964
+        "sha256": "ef51c49760fcfe2c5389fffbbbe5e836c016fea7629d0a09ce77654ebc45729a",
+        "size": 822241
       },
       {
         "mode": 420,
@@ -3054,8 +3054,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "753ca4ff357f67998061897ee42c25b36ee515d75bfd7e9674fd387e91917806",
-        "size": 7611
+        "sha256": "0ca963e69f5d9e7e57f89ab53b4049ddaa42f3c4cd2a817c7380fe6374f4ae81",
+        "size": 7846
       },
       {
         "mode": 420,
@@ -3166,7 +3166,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "95eb512ce0607fdf77a8ee088df5aee466b280d1fab3a95ae7e8c1595e709070"
+    "tree_sha256": "a16245fd946a106f59aceac05251089d06067764c33fa250907d1bcc43cb8fb1"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

@@ -252,6 +252,15 @@ type AutomationRun = {
   metadata?: Record<string, unknown>;
 };
 
+type WorkspaceCycleEvaluation = {
+  workspaceKey: string;
+  standupKind: string;
+  status: string;
+  reason: string;
+  evaluatedAt: string | null;
+  ownerRole: string | null;
+};
+
 type PMCard = {
   id: string;
   title: string;
@@ -3257,6 +3266,7 @@ export default function OpsClient({
         <TodayOpsPanel
           portfolioPulse={portfolioPulse}
           portfolioPulseError={portfolioPulseError}
+          automationRuns={automationRuns}
           onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
           onOpenExecution={() => selectPanel('execution')}
           onOpenWorkspace={openWorkspaceFromPulse}
@@ -3310,6 +3320,7 @@ export default function OpsClient({
       {activePanel === 'workspace' && (
         <WorkspaceHubPanel
           portfolioPulse={portfolioPulse}
+          automationRuns={automationRuns}
           workspaceRegistry={workspaceRegistry}
           selectedWorkspaceId={selectedWorkspaceId}
           onWorkspaceChange={selectWorkspace}
@@ -3900,6 +3911,7 @@ const STANDUP_ROOMS: StandupRoom[] = [
 function TodayOpsPanel({
   portfolioPulse,
   portfolioPulseError,
+  automationRuns,
   onExecutiveDecisionMutation,
   onOpenExecution,
   onOpenWorkspace,
@@ -3907,6 +3919,7 @@ function TodayOpsPanel({
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
   portfolioPulseError: string | null;
+  automationRuns: AutomationRun[];
   onExecutiveDecisionMutation: () => Promise<void>;
   onOpenExecution: () => void;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
@@ -3915,7 +3928,7 @@ function TodayOpsPanel({
   const counts = portfolioPulse?.counts;
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} onOpenWorkspace={onOpenWorkspace} />
+      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} automationRuns={automationRuns} onOpenWorkspace={onOpenWorkspace} />
       <OpsStandupSummary />
       <ExecutiveDecisionQueue
         onActionComplete={onExecutiveDecisionMutation}
@@ -3956,13 +3969,16 @@ function TodayOpsPanel({
 function PortfolioPulseSection({
   snapshot,
   error,
+  automationRuns,
   onOpenWorkspace,
 }: {
   snapshot: PortfolioPulseSnapshot | null;
   error: string | null;
+  automationRuns: AutomationRun[];
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
 }) {
   const workspaces = snapshot?.workspaces ?? [];
+  const cycleEvaluations = useMemo(() => latestWorkspaceCycleEvaluations(automationRuns), [automationRuns]);
   const shared = workspaces.find((workspace) => workspace.kind === 'executive');
   const projects = workspaces.filter((workspace) => workspace.kind === 'workspace');
   const degradedCount = workspaces.filter((workspace) => workspace.readiness?.state === 'degraded').length;
@@ -3989,6 +4005,7 @@ function PortfolioPulseSection({
     const operatorCount =
       Number(workspace.counts?.needs_owner_pm_cards ?? 0) + Number(workspace.counts?.needs_host_pm_cards ?? 0);
     const latestStandup = workspace.latest_standups?.[0];
+    const cycleEvaluation = cycleEvaluations.get(workspace.workspace_key);
     return (
       <button
         type="button"
@@ -4039,6 +4056,11 @@ function PortfolioPulseSection({
           {latestStandup?.created_at
             ? `Last canonical workspace update ${formatUiTimestamp(latestStandup.created_at)} · ${humanizeStatusLabel(latestStandup.truth?.freshness || 'unverified')} against a ${latestStandup.truth?.freshness_limit_hours ?? 'workspace'}${latestStandup.truth?.freshness_limit_hours ? 'h' : ''} contract.`
             : 'No canonical workspace update has been recorded yet.'}
+        </p>
+        <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '7px 0 0' }}>
+          {cycleEvaluation
+            ? `Cycle checked ${cycleEvaluation.evaluatedAt ? formatUiTimestamp(cycleEvaluation.evaluatedAt) : 'at an unverified time'} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+            : 'No cycle-level workspace evaluation receipt is available yet.'}
         </p>
         <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: '10px 0 0' }}>
           {workspace.kind === 'executive' ? 'Open system health →' : 'Open project →'}
@@ -10284,6 +10306,7 @@ function MeetingMonthlyView({ entries }: { entries: StandupEntry[] }) {
 
 function WorkspaceHubPanel({
   portfolioPulse,
+  automationRuns,
   workspaceRegistry,
   selectedWorkspaceId,
   onWorkspaceChange,
@@ -10310,6 +10333,7 @@ function WorkspaceHubPanel({
   onReloadLiveSnapshot,
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
+  automationRuns: AutomationRun[];
   workspaceRegistry: WorkspaceRegistryEntry[];
   selectedWorkspaceId: WorkspaceHubKey;
   onWorkspaceChange: (workspaceKey: WorkspaceHubKey) => void;
@@ -10343,11 +10367,13 @@ function WorkspaceHubPanel({
     return registered.length > 0 ? registered : WORKSPACE_HUBS;
   }, [workspaceRegistry]);
   const [selectorOpen, setSelectorOpen] = useState(true);
+  const cycleEvaluations = useMemo(() => latestWorkspaceCycleEvaluations(automationRuns), [automationRuns]);
   const activeWorkspace = workspaceHubs.find((item) => item.id === selectedWorkspaceId) ?? workspaceHubs[0];
   const activePortfolioWorkspace = portfolioPulse?.workspaces?.find(
     (workspace) => normalizeWorkspaceBoardKey(workspace.workspace_key) === selectedWorkspaceId,
   );
   const activeCanonicalUpdate = activePortfolioWorkspace?.latest_standups?.[0];
+  const activeCycleEvaluation = cycleEvaluations.get(selectedWorkspaceId);
   const workspaceFiles = useMemo(
     () => files.filter((file) => workspaceFileBelongsToHub(file, selectedWorkspaceId)),
     [files, selectedWorkspaceId],
@@ -10682,6 +10708,9 @@ function WorkspaceHubPanel({
         <p style={{ color: '#94a3b8', maxWidth: '820px' }}>
           Each workspace keeps its own operating system, agent, and execution lane. The frontend now reflects the backend state directly: live workspaces stay rich, standing-up workspaces show their actual artifacts, and planned slots stay clearly empty.
         </p>
+        <p style={{ color: '#64748b', fontSize: '12px', marginTop: '7px' }}>
+          System checked {portfolioPulse?.checked_at ? formatUiTimestamp(portfolioPulse.checked_at) : 'not yet'} on the AI Clone UTC clock. Browser receipt time never replaces a workspace artifact date.
+        </p>
       </div>
 
       <section
@@ -10747,6 +10776,11 @@ function WorkspaceHubPanel({
                 : 'no standup-backed canonical workspace update yet'
             }
           />
+          <MiniMeta
+            label="Cycle Check"
+            value={activeCycleEvaluation?.evaluatedAt ? formatTimestamp(new Date(activeCycleEvaluation.evaluatedAt)) : 'Not recorded'}
+            detail={activeCycleEvaluation ? workspaceCycleEvaluationCopy(activeCycleEvaluation) : 'no bounded cycle evaluation receipt yet'}
+          />
           <MiniMeta label="Operating Rules" value={`${activeWorkspace.operatingPrinciples.length}`} detail="separate principles per workspace" />
           {selectedWorkspaceId === 'feezie-os' && (
             <>
@@ -10772,6 +10806,7 @@ function WorkspaceHubPanel({
                 (item) => normalizeWorkspaceBoardKey(item.workspace_key) === workspace.id,
               );
               const latestCanonicalUpdate = portfolioWorkspace?.latest_standups?.[0];
+              const cycleEvaluation = cycleEvaluations.get(workspace.id);
               return (
                 <button
                   key={workspace.id}
@@ -10827,6 +10862,11 @@ function WorkspaceHubPanel({
                     {latestCanonicalUpdate?.created_at
                       ? `Last canonical update ${formatTimestamp(new Date(latestCanonicalUpdate.created_at))} · ${humanizeStatusLabel(latestCanonicalUpdate.truth?.freshness || 'unverified')} against the ${latestCanonicalUpdate.truth?.freshness_limit_hours ?? 'workspace'}${latestCanonicalUpdate.truth?.freshness_limit_hours ? 'h' : ''} contract.`
                       : 'No canonical workspace update has been recorded yet.'}
+                  </p>
+                  <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>
+                    {cycleEvaluation
+                      ? `Cycle checked ${cycleEvaluation.evaluatedAt ? formatUiTimestamp(cycleEvaluation.evaluatedAt) : 'at an unverified time'} · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+                      : 'No cycle-level workspace evaluation receipt is available yet.'}
                   </p>
                 </button>
               );
@@ -17058,6 +17098,57 @@ function normalizeAutomationRuns(payload: AutomationsResponse): AutomationRun[] 
   if (!payload || Array.isArray(payload) || typeof payload !== 'object') return [];
   const maybeRuns = (payload as { runs?: AutomationRun[] }).runs;
   return Array.isArray(maybeRuns) ? maybeRuns : [];
+}
+
+function latestWorkspaceCycleEvaluations(automationRuns: AutomationRun[]): Map<string, WorkspaceCycleEvaluation> {
+  const latestCycle = [...automationRuns]
+    .filter((run) => run.automation_id === 'daily_integrated_cycle')
+    .sort((left, right) => timestampMs(right.run_at ?? right.finished_at) - timestampMs(left.run_at ?? left.finished_at))[0];
+  const metadata = latestCycle?.metadata ?? {};
+  const rawEvaluations = Array.isArray(metadata.workspace_evaluations) ? metadata.workspace_evaluations : [];
+  const evaluatedAt = typeof metadata.observed_at === 'string' ? metadata.observed_at : latestCycle?.run_at ?? latestCycle?.finished_at ?? null;
+  const evaluations = new Map<string, WorkspaceCycleEvaluation>();
+
+  rawEvaluations.forEach((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+    const item = raw as Record<string, unknown>;
+    const workspaceKey = normalizeWorkspaceBoardKey(String(item.workspace_key ?? ''));
+    const standupKind = String(item.standup_kind ?? '').trim();
+    if (!workspaceKey || !standupKind || evaluations.has(workspaceKey)) return;
+    evaluations.set(workspaceKey, {
+      workspaceKey,
+      standupKind,
+      status: String(item.status ?? 'unknown').trim().toLowerCase(),
+      reason: String(item.reason ?? '').trim().toLowerCase(),
+      evaluatedAt,
+      ownerRole: typeof item.decision_record_owner_role === 'string' ? item.decision_record_owner_role : null,
+    });
+  });
+
+  return evaluations;
+}
+
+function workspaceCycleEvaluationCopy(evaluation: WorkspaceCycleEvaluation): string {
+  if (evaluation.status === 'decision_record') {
+    const owner = evaluation.ownerRole ? humanizeStatusLabel(evaluation.ownerRole) : 'the one relevant owner lane';
+    return `one relevant owner lane was found, so an async decision was recorded for ${owner}; no duplicate canonical standup was opened.`;
+  }
+  if (evaluation.status === 'collapse_freshness') {
+    return 'the inputs matched an already-handled decision, so the cycle reused it instead of creating duplicate work.';
+  }
+  if (evaluation.status === 'skipped' && evaluation.reason === 'fresh') {
+    return 'the canonical update remained inside its contract, so the cycle correctly kept the stable artifact.';
+  }
+  if (evaluation.status === 'promoted') {
+    return 'a new workspace standup completed and became the canonical update.';
+  }
+  if (evaluation.status === 'prepared' || evaluation.status === 'created') {
+    return 'a new workspace artifact was prepared but has not yet completed its canonical handoff.';
+  }
+  if (evaluation.status === 'failed') {
+    return 'the workspace handoff failed and requires system attention before this lane can be treated as current.';
+  }
+  return `${humanizeStatusLabel(evaluation.status)} · ${evaluation.reason ? humanizeStatusLabel(evaluation.reason) : 'no additional cycle reason recorded'}.`;
 }
 
 function buildMissionActivityRows({

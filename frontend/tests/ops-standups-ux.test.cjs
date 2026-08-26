@@ -46,6 +46,9 @@ test('every workspace selector exposes its canonical update contract', () => {
   assert.match(workspaceHub[0], /Last canonical update/);
   assert.match(workspaceHub[0], /against the .*contract/);
   assert.match(workspaceHub[0], /No canonical workspace update has been recorded yet/);
+  assert.match(workspaceHub[0], /label="Cycle Check"/);
+  assert.match(workspaceHub[0], /Cycle checked .*workspaceCycleEvaluationCopy/);
+  assert.match(workspaceHub[0], /Browser receipt time never replaces a workspace artifact date/);
 });
 
 test('Ops routes browser requests through the authenticated same-origin control plane', () => {
