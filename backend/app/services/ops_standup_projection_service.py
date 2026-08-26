@@ -109,16 +109,23 @@ def build_ops_standup_projection(*, store: IntegratedSystemStore | None = None) 
             canonical_decisions=canonical_decisions,
         )
     payload = json.loads(row["payload_json"])
+    generated_at = _now_iso()
+    decision_source_updated_at = max(
+        [str(row["created_at"])]
+        + [str(decision["updated_at"]) for decision in decision_rows if decision["updated_at"]],
+    )
     projected = {
         "schema_version": PROJECTION_SCHEMA,
-        "generated_at": _now_iso(),
+        "generated_at": generated_at,
         "state": "degraded" if payload.get("status") == "degraded" else "ready",
         "reason_codes": ["ops_cycle_degraded"] if payload.get("status") == "degraded" else [],
         "ops_conclusion_id": row["ops_conclusion_id"],
         "portfolio_cycle_id": payload.get("portfolio_cycle_id"),
         "cycle_date": payload.get("cycle_date"),
+        "observed_at": payload.get("observed_at"),
         "status": payload.get("status"),
         "workspace_updates": _bounded_items(payload.get("workspace_updates")),
+        "workspace_cycle_evaluations": _bounded_items(payload.get("workspace_cycle_evaluations")),
         "ai_clone_process_updates": _bounded_mapping(payload.get("ai_clone_process_updates")),
         "endpoint_and_subsystem_health": _bounded_mapping(payload.get("endpoint_and_subsystem_health")),
         "work_underway": _bounded_items(payload.get("work_underway")),
@@ -129,6 +136,18 @@ def build_ops_standup_projection(*, store: IntegratedSystemStore | None = None) 
         "ops_decisions": _bounded_items(payload.get("ops_decisions")),
         "owner_calls": _bounded_items(payload.get("owner_calls")),
         "canonical_decisions": canonical_decisions,
+        "decision_readiness": {
+            "schema_version": "canonical_decision_projection_readiness/v1",
+            "state": "ready",
+            "clock_authority": "ai_clone_utc",
+            "checked_at": generated_at,
+            "source_updated_at": decision_source_updated_at,
+            "blocking_reason_codes": [],
+            "context_warnings": [
+                " ".join(str(item).split())[:500]
+                for item in payload.get("degraded_system_warnings", [])[:20]
+            ],
+        },
         "degraded_system_warnings": [" ".join(str(item).split())[:1000] for item in payload.get("degraded_system_warnings", [])[:MAX_ITEMS]],
         "supporting_evidence_links": _bounded_items(payload.get("supporting_evidence_links"), evidence=True),
         "recommended_next_actions": [" ".join(str(item).split())[:1000] for item in payload.get("recommended_next_actions", [])[:MAX_ITEMS]],
@@ -146,9 +165,9 @@ def validate_ops_standup_projection(payload: Any) -> dict[str, Any]:
         raise OpsStandupProjectionError("invalid Ops projection schema")
     allowed = {
         "schema_version", "generated_at", "state", "reason_codes", "ops_conclusion_id", "portfolio_cycle_id",
-        "cycle_date", "status", "workspace_updates", "ai_clone_process_updates", "endpoint_and_subsystem_health",
+        "cycle_date", "observed_at", "status", "workspace_updates", "workspace_cycle_evaluations", "ai_clone_process_updates", "endpoint_and_subsystem_health",
         "work_underway", "completed_work", "blockers", "urgent_escalations", "workspace_decisions", "ops_decisions",
-        "owner_calls", "canonical_decisions", "degraded_system_warnings", "supporting_evidence_links", "recommended_next_actions", "data_policy",
+        "owner_calls", "canonical_decisions", "decision_readiness", "degraded_system_warnings", "supporting_evidence_links", "recommended_next_actions", "data_policy",
     }
     if set(payload) - allowed or payload.get("state") not in {"ready", "empty", "degraded", "error"}:
         raise OpsStandupProjectionError("invalid Ops projection envelope")
@@ -158,7 +177,7 @@ def validate_ops_standup_projection(payload: Any) -> dict[str, Any]:
         raise OpsStandupProjectionError("invalid generated_at") from exc
     if generated_at.tzinfo is None:
         raise OpsStandupProjectionError("generated_at must be timezone aware")
-    for key in ("workspace_updates", "work_underway", "completed_work", "blockers", "urgent_escalations", "workspace_decisions", "ops_decisions", "owner_calls", "supporting_evidence_links"):
+    for key in ("workspace_updates", "workspace_cycle_evaluations", "work_underway", "completed_work", "blockers", "urgent_escalations", "workspace_decisions", "ops_decisions", "owner_calls", "supporting_evidence_links"):
         if not isinstance(payload.get(key), list) or len(payload[key]) > MAX_ITEMS:
             raise OpsStandupProjectionError(f"invalid {key}")
     canonical_decisions = payload.get("canonical_decisions")
@@ -173,12 +192,25 @@ def validate_ops_standup_projection(payload: Any) -> dict[str, Any]:
         or set(item) != decision_fields
         or item.get("status") not in {"open", "in_session", "resolved", "superseded", "canceled", "blocked"}
         or item.get("interaction_mode") not in {"simple", "complex"}
-        or item.get("route") not in {"ops", "workspace", "content", "feezie-os"}
+        or item.get("route") not in {
+            "ops", "workspace", "content", "feezie-os", "fusion-os",
+            "easyoutfitapp", "ai-swag-store", "agc", "work-life-tools",
+        }
         or not isinstance(item.get("state_version"), int)
         or not isinstance(item.get("links"), list)
         for item in canonical_decisions
     ):
         raise OpsStandupProjectionError("invalid canonical decision projection")
+    decision_readiness = payload.get("decision_readiness")
+    if (
+        not isinstance(decision_readiness, dict)
+        or decision_readiness.get("schema_version") != "canonical_decision_projection_readiness/v1"
+        or decision_readiness.get("state") not in {"ready", "degraded"}
+        or decision_readiness.get("clock_authority") != "ai_clone_utc"
+        or not isinstance(decision_readiness.get("blocking_reason_codes"), list)
+        or not isinstance(decision_readiness.get("context_warnings"), list)
+    ):
+        raise OpsStandupProjectionError("invalid canonical decision readiness")
     expected_policy = {"canonical_authority": "mac_local_sql", "railway_role": "authenticated_bounded_ops_projection", "private_bodies_included": False}
     if payload.get("data_policy") != expected_policy:
         raise OpsStandupProjectionError("invalid Ops data policy")
@@ -197,10 +229,19 @@ def unavailable_ops_standup_projection(
     return {
         "schema_version": PROJECTION_SCHEMA, "generated_at": _now_iso(), "state": state, "reason_codes": [reason],
         "ops_conclusion_id": None, "portfolio_cycle_id": None, "cycle_date": None, "status": state,
-        "workspace_updates": [], "ai_clone_process_updates": {}, "endpoint_and_subsystem_health": {},
+        "observed_at": None, "workspace_updates": [], "workspace_cycle_evaluations": [], "ai_clone_process_updates": {}, "endpoint_and_subsystem_health": {},
         "work_underway": [], "completed_work": [], "blockers": [], "urgent_escalations": [],
         "workspace_decisions": [], "ops_decisions": [], "owner_calls": [],
         "canonical_decisions": list(canonical_decisions or [])[:MAX_ITEMS], "degraded_system_warnings": [],
+        "decision_readiness": {
+            "schema_version": "canonical_decision_projection_readiness/v1",
+            "state": "degraded",
+            "clock_authority": "ai_clone_utc",
+            "checked_at": _now_iso(),
+            "source_updated_at": None,
+            "blocking_reason_codes": [reason],
+            "context_warnings": [],
+        },
         "supporting_evidence_links": [], "recommended_next_actions": [],
         "data_policy": {"canonical_authority": "mac_local_sql", "railway_role": "authenticated_bounded_ops_projection", "private_bodies_included": False},
     }

@@ -30,6 +30,15 @@ type OpsDecisionProjection = {
   state?: 'ready' | 'empty' | 'degraded' | 'error';
   reason_codes?: string[];
   canonical_decisions?: CanonicalDecision[];
+  decision_readiness?: {
+    schema_version?: string;
+    state?: 'ready' | 'degraded';
+    clock_authority?: string;
+    checked_at?: string;
+    source_updated_at?: string | null;
+    blocking_reason_codes?: string[];
+    context_warnings?: string[];
+  };
 };
 
 type DecisionMutationGate = {
@@ -63,6 +72,18 @@ function projectionReadIsCurrent(
     && Number.isFinite(Date.parse(projection.generated_at ?? ''));
 }
 
+function opsDecisionReadIsCurrent(projection: OpsDecisionProjection) {
+  const readiness = projection.decision_readiness;
+  return projection.schema_version === 'ops_standup_summary_conclusion/v1'
+    && (projection.state === 'ready' || projection.state === 'empty' || projection.state === 'degraded')
+    && readiness?.schema_version === 'canonical_decision_projection_readiness/v1'
+    && readiness.state === 'ready'
+    && readiness.clock_authority === 'ai_clone_utc'
+    && Number.isFinite(Date.parse(readiness.checked_at ?? ''))
+    && Array.isArray(readiness.blocking_reason_codes)
+    && readiness.blocking_reason_codes.length === 0;
+}
+
 function controllerUnavailableMessage(projection: ContentDecisionProjection) {
   const safeBehavior = projection.controller_gaps?.find(
     (gap) => gap.capability === 'decision_resolution',
@@ -93,6 +114,7 @@ export default function OwnerDecisionSurface() {
   const [mutationGate, setMutationGate] = useState<DecisionMutationGate>(checkingGate);
   const [title, setTitle] = useState('');
   const [interactionMode, setInteractionMode] = useState<'simple' | 'complex'>('simple');
+  const [decisionRoute, setDecisionRoute] = useState<CanonicalDecision['route']>('ops');
   const [createRequestId, setCreateRequestId] = useState(newRequestId);
   const [resolutionById, setResolutionById] = useState<Record<string, string>>({});
   const [statusById, setStatusById] = useState<Record<string, string>>({});
@@ -130,12 +152,12 @@ export default function OwnerDecisionSurface() {
       setDecisions(reconciled);
 
       const viewsCurrent = projectionReadIsCurrent(content, 'integrated_content_portfolio/v1')
-        && projectionReadIsCurrent(ops, 'ops_standup_summary_conclusion/v1');
+        && opsDecisionReadIsCurrent(ops);
       if (!viewsCurrent) {
         updateMutationGate({
           readReady: false,
           controllerReady: false,
-          message: 'Content and Ops are not both current. Decision controls remain paused.',
+          message: 'The canonical decision views are not both current on the AI Clone clock. Decision controls remain paused.',
         });
         return unavailableReadResult;
       }
@@ -195,7 +217,7 @@ export default function OwnerDecisionSurface() {
         decision_type: 'owner_call',
         title: cleanTitle,
         interaction_mode: interactionMode,
-        route: 'uncertain',
+        route: decisionRoute,
         surface: 'workspace',
         idempotency_key: createRequestId,
       });
@@ -217,7 +239,7 @@ export default function OwnerDecisionSurface() {
       createPendingRef.current = false;
       setCreatePendingJob(null);
     }
-  }, [createRequestId, interactionMode, load, title, waitForJob]);
+  }, [createRequestId, decisionRoute, interactionMode, load, title, waitForJob]);
 
   const applyAction = useCallback(async (
     decision: ReconciledCanonicalDecision,
@@ -319,6 +341,19 @@ export default function OwnerDecisionSurface() {
         <select value={interactionMode} disabled={createPendingJob !== null} onChange={(event) => setInteractionMode(event.target.value as 'simple' | 'complex')} style={inputStyle}>
           <option value="simple">Simple · resolve inline</option>
           <option value="complex">Complex · shared session</option>
+        </select>
+      </label>
+      <label style={fieldStyle}>Applies to
+        <select value={decisionRoute} disabled={createPendingJob !== null} onChange={(event) => setDecisionRoute(event.target.value as CanonicalDecision['route'])} style={inputStyle}>
+          <option value="ops">Shared Ops</option>
+          <option value="feezie-os">FEEZIE OS</option>
+          <option value="fusion-os">Fusion</option>
+          <option value="easyoutfitapp">Easy Outfit App</option>
+          <option value="ai-swag-store">AI Swag Store</option>
+          <option value="agc">AGC</option>
+          <option value="work-life-tools">Work Life Tools</option>
+          <option value="content">Shared Content</option>
+          <option value="workspace">All Workspaces</option>
         </select>
       </label>
       <button type="button" aria-busy={createPendingJob !== null} disabled={!controlsReady || createPendingJob !== null} onClick={() => void createDecision()} style={buttonStyle}>{createPendingJob ? 'Creating one decision…' : 'Create canonical decision'}</button>

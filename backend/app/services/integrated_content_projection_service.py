@@ -417,7 +417,10 @@ def _decision_summary(row: Any, links: list[dict[str, str]]) -> dict[str, Any]:
         and not any(token in str(link.get("external_ref") or "") for token in _PRIVATE_TEXT_TOKENS)
     ][:12]
     route = str(payload.get("route") or "ops").strip().lower()
-    if route not in {"ops", "workspace", "content", "feezie-os"}:
+    if route not in {
+        "ops", "workspace", "content", "feezie-os", "fusion-os",
+        "easyoutfitapp", "ai-swag-store", "agc", "work-life-tools",
+    }:
         route = "ops"
     interaction_mode = "complex" if payload.get("interaction_mode") == "complex" else "simple"
     session_ref = next(
@@ -573,7 +576,10 @@ def _validate_decision_projection(items: Any, *, limit: int) -> None:
         if (
             item.get("status") not in {"open", "in_session", "resolved", "superseded", "canceled", "blocked"}
             or item.get("interaction_mode") not in {"simple", "complex"}
-            or item.get("route") not in {"ops", "workspace", "content", "feezie-os"}
+            or item.get("route") not in {
+                "ops", "workspace", "content", "feezie-os", "fusion-os",
+                "easyoutfitapp", "ai-swag-store", "agc", "work-life-tools",
+            }
             or not isinstance(item.get("state_version"), int)
             or isinstance(item.get("state_version"), bool)
             or item["state_version"] < 1

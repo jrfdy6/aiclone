@@ -32,6 +32,7 @@ _EVENT_LANES = {
     "backup.failed": "operational_continuity",
     "workspace.concluded": "operational_continuity",
     "ops.concluded": "operational_continuity",
+    "ops.reconcluded": "operational_continuity",
     "owner.feedback_recorded": "reversible_pattern",
     "learning.owner_feedback": "reversible_pattern",
 }
@@ -653,6 +654,46 @@ class IntegratedMemoryReadinessService:
         parameters.append(max(1, min(int(limit), 1000)))
         with self.store.connection() as connection:
             rows = connection.execute(query, parameters).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["fact"] = _parse_json_object(item.pop("fact_json"), field="fact_json")
+            item["provenance"] = _parse_json_object(
+                item.pop("provenance_json"), field="provenance_json"
+            )
+            result.append(item)
+        return result
+
+    def list_consolidation_memory_entries(
+        self,
+        *,
+        consolidation_id: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return the exact completed Dream consolidation before readiness promotion.
+
+        This read exists for the ordered Dream -> bounded FEEZIE context ->
+        retrieval/readiness chain. It cannot select arbitrary pending entries:
+        every returned row must belong to the named complete consolidation.
+        """
+
+        consolidation_id = str(consolidation_id or "").strip()
+        if not consolidation_id:
+            raise ValueError("consolidation_id is required")
+        self.store.migrate()
+        with self.store.connection() as connection:
+            consolidation = connection.execute(
+                "SELECT status FROM memory_consolidations WHERE consolidation_id=?",
+                (consolidation_id,),
+            ).fetchone()
+            if not consolidation or consolidation["status"] != "complete":
+                return []
+            rows = connection.execute(
+                """SELECT * FROM structured_memory_entries
+                WHERE consolidation_id=?
+                ORDER BY created_at DESC,memory_entry_id DESC LIMIT ?""",
+                (consolidation_id, max(1, min(int(limit), 1000))),
+            ).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)

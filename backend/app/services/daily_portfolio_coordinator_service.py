@@ -94,6 +94,7 @@ def run_portfolio_coordination(
     morning_brief_ref: str | None = None,
     owner_calls: list[Mapping[str, Any]] | None = None,
     recommended_next_actions: list[str] | None = None,
+    workspace_cycle_evaluations: list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     service.start_cycle(portfolio_cycle_id=portfolio_cycle_id, cycle_date=cycle_date, expected_workspaces=expected_workspaces, readiness_id=readiness_id, morning_brief_ref=morning_brief_ref)
     adapted = adapt_daily_workspace_standups(
@@ -118,4 +119,6 @@ def run_portfolio_coordination(
         system_health=system_health,
         owner_calls=list(owner_calls or []),
         recommended_next_actions=recommended_next_actions,
+        observed_at=observed_at,
+        workspace_cycle_evaluations=workspace_cycle_evaluations,
     )

@@ -15,7 +15,19 @@ ALLOWED_TRANSITIONS = {
 }
 TERMINAL_STATUSES = frozenset({"resolved", "canceled", "superseded"})
 SESSION_SURFACE = "decision_session"
-KNOWN_ROUTES = frozenset({"ops", "workspace", "content", "feezie-os"})
+KNOWN_ROUTES = frozenset(
+    {
+        "ops",
+        "workspace",
+        "content",
+        "feezie-os",
+        "fusion-os",
+        "easyoutfitapp",
+        "ai-swag-store",
+        "agc",
+        "work-life-tools",
+    }
+)
 
 
 class DecisionConflict(ValueError):
@@ -251,6 +263,14 @@ class CanonicalDecisionService:
                         "to": new_status,
                         "state_version": expected_version + 1,
                         "resolution_recorded": bool(resolution),
+                        "decision_type": row["decision_type"],
+                        "title": row["title"],
+                        "route": str(payload.get("route") or "ops"),
+                        **(
+                            {"resolution": self._bounded_resolution(resolution)}
+                            if resolution
+                            else {}
+                        ),
                     },
                     f"decision-transition:{decision_id}:{expected_version + 1}",
                 )
@@ -294,6 +314,13 @@ class CanonicalDecisionService:
         result["payload"] = json.loads(result.pop("payload_json"))
         result.pop("idempotency_key", None)
         return result
+
+    @staticmethod
+    def _bounded_resolution(resolution: Mapping[str, Any]) -> dict[str, str]:
+        """Keep the exact owner choice available to Dream without copying arbitrary payloads."""
+
+        choice = " ".join(str(resolution.get("choice") or "").split()).strip()
+        return {"choice": choice[:1000]} if choice else {}
 
     @staticmethod
     def _event(connection: Any, decision_id: str, event_type: str, payload: Mapping[str, Any], idempotency_key: str) -> None:

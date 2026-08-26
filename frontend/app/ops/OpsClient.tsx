@@ -261,6 +261,12 @@ type WorkspaceCycleEvaluation = {
   ownerRole: string | null;
 };
 
+type OpsWorkspaceCycleProjection = {
+  schema_version?: string;
+  observed_at?: string | null;
+  workspace_cycle_evaluations?: Array<Record<string, unknown>>;
+};
+
 type PMCard = {
   id: string;
   title: string;
@@ -2315,6 +2321,7 @@ export default function OpsClient({
   const [railwayRetention, setRailwayRetention] = useState<RailwayRetentionStatus | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
+  const [opsWorkspaceCycle, setOpsWorkspaceCycle] = useState<OpsWorkspaceCycleProjection | null>(null);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
   const [workspaceRegistry, setWorkspaceRegistry] = useState<WorkspaceRegistryEntry[]>([]);
   const [workspaceRegistryState, setWorkspaceRegistryState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -2691,6 +2698,11 @@ export default function OpsClient({
         (error) => updateSectionError('automations', toErrorMessage(error)),
       ),
       trackRequest(
+        controlApiGet<OpsWorkspaceCycleProjection>('/api/workspace/ops-standup', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        (value) => setOpsWorkspaceCycle(value ?? null),
+        () => setOpsWorkspaceCycle(null),
+      ),
+      trackRequest(
         controlApiGet<OpenBrainTelemetry>('/api/analytics/open-brain', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setBrainMetrics(value ?? null);
@@ -3024,6 +3036,10 @@ export default function OpsClient({
     [executionQueue, legacyOwnerReviewCardIds, legacyOwnerReviewCompatibilityEnabled],
   );
   const aiCloneObservedAtMs = parseUpdatedAtMillis(portfolioPulse?.checked_at);
+  const workspaceCycleEvaluations = useMemo(
+    () => projectedWorkspaceCycleEvaluations(opsWorkspaceCycle, automationRuns),
+    [automationRuns, opsWorkspaceCycle],
+  );
 
   const activityRows = useMemo(
     () =>
@@ -3266,7 +3282,7 @@ export default function OpsClient({
         <TodayOpsPanel
           portfolioPulse={portfolioPulse}
           portfolioPulseError={portfolioPulseError}
-          automationRuns={automationRuns}
+          cycleEvaluations={workspaceCycleEvaluations}
           onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
           onOpenExecution={() => selectPanel('execution')}
           onOpenWorkspace={openWorkspaceFromPulse}
@@ -3320,7 +3336,7 @@ export default function OpsClient({
       {activePanel === 'workspace' && (
         <WorkspaceHubPanel
           portfolioPulse={portfolioPulse}
-          automationRuns={automationRuns}
+          cycleEvaluations={workspaceCycleEvaluations}
           workspaceRegistry={workspaceRegistry}
           selectedWorkspaceId={selectedWorkspaceId}
           onWorkspaceChange={selectWorkspace}
@@ -3911,7 +3927,7 @@ const STANDUP_ROOMS: StandupRoom[] = [
 function TodayOpsPanel({
   portfolioPulse,
   portfolioPulseError,
-  automationRuns,
+  cycleEvaluations,
   onExecutiveDecisionMutation,
   onOpenExecution,
   onOpenWorkspace,
@@ -3919,7 +3935,7 @@ function TodayOpsPanel({
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
   portfolioPulseError: string | null;
-  automationRuns: AutomationRun[];
+  cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
   onExecutiveDecisionMutation: () => Promise<void>;
   onOpenExecution: () => void;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
@@ -3928,7 +3944,7 @@ function TodayOpsPanel({
   const counts = portfolioPulse?.counts;
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} automationRuns={automationRuns} onOpenWorkspace={onOpenWorkspace} />
+      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} cycleEvaluations={cycleEvaluations} onOpenWorkspace={onOpenWorkspace} />
       <OpsStandupSummary />
       <ExecutiveDecisionQueue
         onActionComplete={onExecutiveDecisionMutation}
@@ -3969,16 +3985,15 @@ function TodayOpsPanel({
 function PortfolioPulseSection({
   snapshot,
   error,
-  automationRuns,
+  cycleEvaluations,
   onOpenWorkspace,
 }: {
   snapshot: PortfolioPulseSnapshot | null;
   error: string | null;
-  automationRuns: AutomationRun[];
+  cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
 }) {
   const workspaces = snapshot?.workspaces ?? [];
-  const cycleEvaluations = useMemo(() => latestWorkspaceCycleEvaluations(automationRuns), [automationRuns]);
   const shared = workspaces.find((workspace) => workspace.kind === 'executive');
   const projects = workspaces.filter((workspace) => workspace.kind === 'workspace');
   const degradedCount = workspaces.filter((workspace) => workspace.readiness?.state === 'degraded').length;
@@ -10306,7 +10321,7 @@ function MeetingMonthlyView({ entries }: { entries: StandupEntry[] }) {
 
 function WorkspaceHubPanel({
   portfolioPulse,
-  automationRuns,
+  cycleEvaluations,
   workspaceRegistry,
   selectedWorkspaceId,
   onWorkspaceChange,
@@ -10333,7 +10348,7 @@ function WorkspaceHubPanel({
   onReloadLiveSnapshot,
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
-  automationRuns: AutomationRun[];
+  cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
   workspaceRegistry: WorkspaceRegistryEntry[];
   selectedWorkspaceId: WorkspaceHubKey;
   onWorkspaceChange: (workspaceKey: WorkspaceHubKey) => void;
@@ -10367,7 +10382,6 @@ function WorkspaceHubPanel({
     return registered.length > 0 ? registered : WORKSPACE_HUBS;
   }, [workspaceRegistry]);
   const [selectorOpen, setSelectorOpen] = useState(true);
-  const cycleEvaluations = useMemo(() => latestWorkspaceCycleEvaluations(automationRuns), [automationRuns]);
   const activeWorkspace = workspaceHubs.find((item) => item.id === selectedWorkspaceId) ?? workspaceHubs[0];
   const activePortfolioWorkspace = portfolioPulse?.workspaces?.find(
     (workspace) => normalizeWorkspaceBoardKey(workspace.workspace_key) === selectedWorkspaceId,
@@ -17100,13 +17114,10 @@ function normalizeAutomationRuns(payload: AutomationsResponse): AutomationRun[] 
   return Array.isArray(maybeRuns) ? maybeRuns : [];
 }
 
-function latestWorkspaceCycleEvaluations(automationRuns: AutomationRun[]): Map<string, WorkspaceCycleEvaluation> {
-  const latestCycle = [...automationRuns]
-    .filter((run) => run.automation_id === 'daily_integrated_cycle')
-    .sort((left, right) => timestampMs(right.run_at ?? right.finished_at) - timestampMs(left.run_at ?? left.finished_at))[0];
-  const metadata = latestCycle?.metadata ?? {};
-  const rawEvaluations = Array.isArray(metadata.workspace_evaluations) ? metadata.workspace_evaluations : [];
-  const evaluatedAt = typeof metadata.observed_at === 'string' ? metadata.observed_at : latestCycle?.run_at ?? latestCycle?.finished_at ?? null;
+function workspaceCycleEvaluationMap(
+  rawEvaluations: unknown[],
+  evaluatedAt: string | null,
+): Map<string, WorkspaceCycleEvaluation> {
   const evaluations = new Map<string, WorkspaceCycleEvaluation>();
 
   rawEvaluations.forEach((raw) => {
@@ -17126,6 +17137,29 @@ function latestWorkspaceCycleEvaluations(automationRuns: AutomationRun[]): Map<s
   });
 
   return evaluations;
+}
+
+function latestWorkspaceCycleEvaluations(automationRuns: AutomationRun[]): Map<string, WorkspaceCycleEvaluation> {
+  const latestCycle = [...automationRuns]
+    .filter((run) => run.automation_id === 'daily_integrated_cycle')
+    .sort((left, right) => timestampMs(right.run_at ?? right.finished_at) - timestampMs(left.run_at ?? left.finished_at))[0];
+  const metadata = latestCycle?.metadata ?? {};
+  const rawEvaluations = Array.isArray(metadata.workspace_evaluations) ? metadata.workspace_evaluations : [];
+  const evaluatedAt = typeof metadata.observed_at === 'string' ? metadata.observed_at : latestCycle?.run_at ?? latestCycle?.finished_at ?? null;
+  return workspaceCycleEvaluationMap(rawEvaluations, evaluatedAt);
+}
+
+function projectedWorkspaceCycleEvaluations(
+  projection: OpsWorkspaceCycleProjection | null,
+  automationRuns: AutomationRun[],
+): Map<string, WorkspaceCycleEvaluation> {
+  const projected = Array.isArray(projection?.workspace_cycle_evaluations)
+    ? workspaceCycleEvaluationMap(
+        projection.workspace_cycle_evaluations,
+        typeof projection.observed_at === 'string' ? projection.observed_at : null,
+      )
+    : new Map<string, WorkspaceCycleEvaluation>();
+  return projected.size > 0 ? projected : latestWorkspaceCycleEvaluations(automationRuns);
 }
 
 function workspaceCycleEvaluationCopy(evaluation: WorkspaceCycleEvaluation): string {

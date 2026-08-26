@@ -35,8 +35,10 @@ OPS_KEYS = {
     "ops_conclusion_id",
     "portfolio_cycle_id",
     "cycle_date",
+    "observed_at",
     "status",
     "workspace_updates",
+    "workspace_cycle_evaluations",
     "ai_clone_process_updates",
     "endpoint_and_subsystem_health",
     "work_underway",
@@ -47,6 +49,7 @@ OPS_KEYS = {
     "ops_decisions",
     "owner_calls",
     "canonical_decisions",
+    "decision_readiness",
     "degraded_system_warnings",
     "supporting_evidence_links",
     "recommended_next_actions",
@@ -417,6 +420,16 @@ def _verify_ops(ops: dict[str, Any], content_decisions: dict[str, dict[str, Any]
     _require(str(ops.get("portfolio_cycle_id") or "").strip(), "Ops portfolio cycle is missing")
     _require(str(ops.get("ops_conclusion_id") or "").strip(), "Ops conclusion identity is missing")
     _require(isinstance(ops.get("workspace_updates"), list) and ops["workspace_updates"], "Ops has no workspace update")
+    _require(isinstance(ops.get("workspace_cycle_evaluations"), list), "Ops workspace cycle evaluations are missing")
+    decision_readiness = ops.get("decision_readiness")
+    _require(
+        isinstance(decision_readiness, dict)
+        and decision_readiness.get("schema_version") == "canonical_decision_projection_readiness/v1"
+        and decision_readiness.get("state") == "ready"
+        and decision_readiness.get("clock_authority") == "ai_clone_utc"
+        and decision_readiness.get("blocking_reason_codes") == [],
+        "Ops canonical decision projection is not ready on the AI Clone clock",
+    )
     _require(isinstance(ops.get("endpoint_and_subsystem_health"), dict), "Ops subsystem health is missing")
     _require(
         ops.get("data_policy")

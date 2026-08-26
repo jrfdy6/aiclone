@@ -828,8 +828,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/canonical_decision_service.py",
-        "sha256": "6c7ed65cd42211e4122f2d68614735ae6f992ce3cd2873c44cc57e7174dc786d",
-        "size": 16319
+        "sha256": "2be47cff4f19da2c9f73dd15f0ff05ea92c7b5b908ebf3bc8b36923f56538259",
+        "size": 17203
       },
       {
         "mode": 420,
@@ -930,8 +930,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/daily_portfolio_coordinator_service.py",
-        "sha256": "b6d756135136fdc751612f2ac4c53b63f5e4a928f0a2dff935c0a89786806642",
-        "size": 5835
+        "sha256": "2316c813067c90f28a41275433567653384e38e9a84141f00a38bf23cdaf1bbe",
+        "size": 6005
       },
       {
         "mode": 420,
@@ -1080,8 +1080,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/integrated_content_projection_service.py",
-        "sha256": "1862468dc430bfcf403e1c82268c2b804555f3e7016faa2b49f9c0648cf9952c",
-        "size": 66870
+        "sha256": "aee862f60afe04495ad890f2852c0e704f7d65f9f4ac223584e6eebea449c2df",
+        "size": 67086
       },
       {
         "mode": 420,
@@ -1092,8 +1092,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/integrated_memory_readiness_service.py",
-        "sha256": "87417d18fa99a25aeb5d85a8d46f3523aed0ce0e35d466c0dbf0cbeb12d0008b",
-        "size": 35675
+        "sha256": "71b6e6d710d3e2cc494484eae4564599593f2a9a07ff7636ff82f041c941f6a8",
+        "size": 37425
       },
       {
         "mode": 420,
@@ -1254,8 +1254,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/ops_standup_projection_service.py",
-        "sha256": "1295d9ca4e3fb3cbbb89519d679b9b236367a8b9e2fc655ae9e706238ef7f639",
-        "size": 10291
+        "sha256": "a7c9134562b8b1bb67d9957f5b1a7ad739d3abbc091d809ccd8549c57f1a6812",
+        "size": 12387
       },
       {
         "mode": 420,
@@ -1416,8 +1416,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/portfolio_cycle_service.py",
-        "sha256": "0f4e7c7e17ee428fa540865a70984dbfaa59eadcd0bb8f6f0e7c47b1f3523738",
-        "size": 18142
+        "sha256": "05c3d183d7ac6555ca951526495ea1f845a7d350de9665edb32fac3327f4077c",
+        "size": 20644
       },
       {
         "mode": 420,
@@ -2412,8 +2412,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "ef51c49760fcfe2c5389fffbbbe5e836c016fea7629d0a09ce77654ebc45729a",
-        "size": 822241
+        "sha256": "a678d264c2c655523ba93cc9c8473b0315ed61915a05689b2570ed80ea9adf4b",
+        "size": 823615
       },
       {
         "mode": 420,
@@ -2550,14 +2550,14 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/OpsStandupSummary.tsx",
-        "sha256": "e8bd81cc2fe36478705ac4b1f674302c2fce1a338ad9d812882b435064dc688d",
-        "size": 7589
+        "sha256": "5c9e8c25202bff8c797be7581c2b9b3257f6cb1bcdede722ba94702a805e30fb",
+        "size": 8598
       },
       {
         "mode": 420,
         "path": "frontend/app/workspace/OwnerDecisionSurface.tsx",
-        "sha256": "c1ea66725b444e6759d1d0ea2210d21d7f79ec78d1586bf32a1f27604491faf5",
-        "size": 20348
+        "sha256": "40d5d930ac689f7e829ef62f7c0879434d0bb502ca31e00369dab17a787917a9",
+        "size": 22128
       },
       {
         "mode": 420,
@@ -2688,8 +2688,8 @@
       {
         "mode": 420,
         "path": "frontend/lib/canonical-decisions.ts",
-        "sha256": "6fd3f4dfbb795a0969511fec948b47a8064af8a9b532e98977530bbe91134178",
-        "size": 5597
+        "sha256": "71d8e8b38adc49fce466cb3734abae015f58c3501aba33aa85929c475d78ecf8",
+        "size": 5675
       },
       {
         "mode": 420,
@@ -2916,8 +2916,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/canonical-decisions.test.cjs",
-        "sha256": "d57c1c48146051a858450686dbded54a12e3f839668654126e073fd68c36e557",
-        "size": 7317
+        "sha256": "bd10892b93639c3a74c26804deec8b773f070b6f31cd0b0be2bdfd4dc5ff0ed0",
+        "size": 7893
       },
       {
         "mode": 420,
@@ -3054,8 +3054,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "0ca963e69f5d9e7e57f89ab53b4049ddaa42f3c4cd2a817c7380fe6374f4ae81",
-        "size": 7846
+        "sha256": "07d61f4f8b140af0c80421c99048145793d94c268c0afdfa1d6b71dab9e55851",
+        "size": 8226
       },
       {
         "mode": 420,
@@ -3156,8 +3156,8 @@
       {
         "mode": 420,
         "path": "scripts/verify_integrated_production_projection.py",
-        "sha256": "a05c83c67f59eced718e11bf68518132c70f6dc5771ea39ffedd73aa18f36fd4",
-        "size": 21360
+        "sha256": "9a3181f5db5d44e052142e9b8641458045e5e1d122a8705ca23e532f1b7dfd7a",
+        "size": 22053
       },
       {
         "mode": 493,
@@ -3166,7 +3166,7 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "a16245fd946a106f59aceac05251089d06067764c33fa250907d1bcc43cb8fb1"
+    "tree_sha256": "e45152bd314819bf88e65c27474ba7741848b9b59ab4158f8941a8e50bdae9c7"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

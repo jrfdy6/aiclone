@@ -7,7 +7,7 @@ export type CanonicalDecision = {
   status: CanonicalDecisionStatus;
   state_version: number;
   interaction_mode: 'simple' | 'complex';
-  route: 'ops' | 'workspace' | 'content' | 'feezie-os';
+  route: 'ops' | 'workspace' | 'content' | 'feezie-os' | 'fusion-os' | 'easyoutfitapp' | 'ai-swag-store' | 'agc' | 'work-life-tools';
   resolution: Record<string, unknown>;
   session_ref?: string | null;
   updated_at: string;

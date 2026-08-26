@@ -113,7 +113,11 @@ test('workspace exposes authenticated canonical create, session, resolve, and re
   assert.match(component, /projection_conflict/);
   assert.match(component, /controller_capabilities\?\.decision_resolution === true/);
   assert.match(component, /projectionReadIsCurrent\(content/);
-  assert.match(component, /projectionReadIsCurrent\(ops/);
+  assert.match(component, /opsDecisionReadIsCurrent\(ops/);
+  assert.match(component, /canonical_decision_projection_readiness\/v1/);
+  assert.match(component, /clock_authority === 'ai_clone_utc'/);
+  assert.match(component, /value="feezie-os"/);
+  assert.match(component, /route: decisionRoute/);
   assert.match(component, /mutationGateRef\.current/);
   assert.match(component, /currentDecision\.state_version !== decision\.state_version/);
   assert.match(component, /This decision view is stale/);
@@ -123,6 +127,8 @@ test('workspace exposes authenticated canonical create, session, resolve, and re
   assert.doesNotMatch(component, /\bfetch\s*\(/);
   assert.match(component, /no publishing, messaging, or external communication occurs here/);
   assert.match(ops, /Canonical decisions/);
+  assert.match(ops, /Canonical owner decisions were checked/);
+  assert.match(ops, /AI Clone UTC/);
 });
 
 test('phone actions are synchronously claimed and buttons stay disabled for the exact pending job', () => {
@@ -140,9 +146,12 @@ test('phone actions are synchronously claimed and buttons stay disabled for the 
   assert.match(component, /touchAction: 'manipulation'/);
 });
 
-test('failed or degraded dual-view reads leave every mutation fail-closed', () => {
+test('failed decision-specific reads leave every mutation fail-closed without conflating unrelated Ops warnings', () => {
   const component = fs.readFileSync(path.join(root, 'app', 'workspace', 'OwnerDecisionSurface.tsx'), 'utf8');
   assert.match(component, /projection\.state === 'ready' \|\| projection\.state === 'empty'/);
+  assert.match(component, /readiness\.state === 'ready'/);
+  assert.match(component, /readiness\.blocking_reason_codes\.length === 0/);
+  assert.match(component, /projection\.state === 'degraded'/);
   assert.match(component, /readReady: false,[\s\S]*controllerReady: false/);
   assert.match(component, /Content and Ops could not both be verified/);
   assert.match(component, /const controlsReady = mutationGate\.readReady && mutationGate\.controllerReady && !loading/);

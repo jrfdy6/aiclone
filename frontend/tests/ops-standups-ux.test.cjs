@@ -51,6 +51,12 @@ test('every workspace selector exposes its canonical update contract', () => {
   assert.match(workspaceHub[0], /Browser receipt time never replaces a workspace artifact date/);
 });
 
+test('workspace cycle outcomes come from the durable Ops conclusion before transient automation history', () => {
+  assert.match(opsSource, /controlApiGet<OpsWorkspaceCycleProjection>\('\/api\/workspace\/ops-standup'/);
+  assert.match(opsSource, /workspace_cycle_evaluations/);
+  assert.match(opsSource, /projected\.size > 0 \? projected : latestWorkspaceCycleEvaluations/);
+});
+
 test('Ops routes browser requests through the authenticated same-origin control plane', () => {
   assert.doesNotMatch(opsSource, /from ['"]@\/lib\/api-client['"]/);
   assert.doesNotMatch(opsSource, /\bapi(?:Get|Post)\b/);

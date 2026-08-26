@@ -135,7 +135,16 @@ class PortfolioCycleService:
                     event_type="workspace.concluded",
                     aggregate_type="workspace_conclusion",
                     aggregate_id=row["conclusion_id"],
-                    payload={"portfolio_cycle_id": portfolio_cycle_id, "workspace_key": workspace_key, "conclusion_kind": conclusion_kind},
+                    payload={
+                        "portfolio_cycle_id": portfolio_cycle_id,
+                        "workspace_key": workspace_key,
+                        "conclusion_kind": conclusion_kind,
+                        "summary": normalized_payload["summary"],
+                        "decisions": self._bounded_event_items(normalized_payload.get("decisions")),
+                        "recommended_next_actions": self._bounded_event_items(
+                            normalized_payload.get("recommended_next_actions")
+                        ),
+                    },
                     provenance={"provenance_kind": provenance_kind},
                     idempotency_key=f"workspace-concluded:{idempotency_key}",
                 )
@@ -156,6 +165,8 @@ class PortfolioCycleService:
         ops_decisions: list[Mapping[str, Any]] | None = None,
         owner_calls: list[Mapping[str, Any]] | None = None,
         recommended_next_actions: list[str] | None = None,
+        observed_at: datetime | None = None,
+        workspace_cycle_evaluations: list[Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self.store.connection() as connection:
             cycle = connection.execute("SELECT * FROM portfolio_cycles WHERE portfolio_cycle_id=?", (portfolio_cycle_id,)).fetchone()
@@ -211,6 +222,13 @@ class PortfolioCycleService:
                 "schema_version": "ops_standup_summary_conclusion/v1",
                 "portfolio_cycle_id": portfolio_cycle_id,
                 "cycle_date": cycle["cycle_date"],
+                "observed_at": (
+                    observed_at.astimezone(timezone.utc).isoformat()
+                    if observed_at is not None and observed_at.tzinfo is not None
+                    else observed_at.replace(tzinfo=timezone.utc).isoformat()
+                    if observed_at is not None
+                    else cycle["created_at"]
+                ),
                 "status": status,
                 "workspace_updates": workspace_updates,
                 "ai_clone_process_updates": {
@@ -228,6 +246,9 @@ class PortfolioCycleService:
                 "degraded_system_warnings": degraded_warnings,
                 "supporting_evidence_links": evidence_links,
                 "recommended_next_actions": [item.strip() for item in recommended_next_actions or [] if item.strip()],
+                "workspace_cycle_evaluations": self._bounded_event_items(
+                    workspace_cycle_evaluations
+                ),
             }
             ops_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ai-clone:ops-conclusion:{portfolio_cycle_id}"))
             now = _utcnow()
@@ -273,7 +294,19 @@ class PortfolioCycleService:
                     event_type="ops.concluded" if attempt_number == 1 else "ops.reconcluded",
                     aggregate_type="ops_conclusion",
                     aggregate_id=ops_id,
-                    payload={"portfolio_cycle_id": portfolio_cycle_id, "status": status, "missing_workspaces": missing, "attempt_number": attempt_number},
+                    payload={
+                        "portfolio_cycle_id": portfolio_cycle_id,
+                        "status": status,
+                        "missing_workspaces": missing,
+                        "attempt_number": attempt_number,
+                        "recommended_next_actions": self._bounded_event_items(
+                            final_payload.get("recommended_next_actions")
+                        ),
+                        "owner_calls": self._bounded_event_items(final_payload.get("owner_calls")),
+                        "workspace_decisions": self._bounded_event_items(
+                            final_payload.get("workspace_decisions")
+                        ),
+                    },
                     provenance={"workspace_conclusion_ids": [row["conclusion_id"] for row in rows]},
                     idempotency_key=f"ops-concluded:{portfolio_cycle_id}:attempt:{attempt_number}",
                 )
@@ -307,6 +340,26 @@ class PortfolioCycleService:
                 items.append(item)
             normalized[key] = items
         return normalized
+
+    @staticmethod
+    def _bounded_event_items(value: Any) -> list[dict[str, Any]]:
+        """Project only bounded decision/recommendation facts into durable events."""
+
+        items: list[dict[str, Any]] = []
+        for raw in value if isinstance(value, list) else []:
+            source = raw if isinstance(raw, dict) else {"summary": raw}
+            item: dict[str, Any] = {}
+            for raw_key, cell in list(source.items())[:12]:
+                key = str(raw_key)[:80]
+                if isinstance(cell, bool) or isinstance(cell, (int, float)) or cell is None:
+                    item[key] = cell
+                elif isinstance(cell, str):
+                    item[key] = " ".join(cell.split())[:500]
+            if item:
+                items.append(item)
+            if len(items) >= 12:
+                break
+        return items
 
     @staticmethod
     def _append_event(
