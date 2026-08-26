@@ -38,6 +38,16 @@ test('project cards and direct links keep the selected workspace in one shared s
   assert.doesNotMatch(opsSource, /useState<WorkspaceHubKey>\('feezie-os'\)/);
 });
 
+test('every workspace selector exposes its canonical update contract', () => {
+  const workspaceHub = opsSource.match(/function WorkspaceHubPanel\([\s\S]*?\n}\n\nfunction WorkspaceActivitySurface/);
+  assert.ok(workspaceHub, 'expected the canonical workspace hub');
+  assert.match(workspaceHub[0], /portfolioPulse\?\.workspaces\?\.find/);
+  assert.match(workspaceHub[0], /label="Canonical Update"/);
+  assert.match(workspaceHub[0], /Last canonical update/);
+  assert.match(workspaceHub[0], /against the .*contract/);
+  assert.match(workspaceHub[0], /No canonical workspace update has been recorded yet/);
+});
+
 test('Ops routes browser requests through the authenticated same-origin control plane', () => {
   assert.doesNotMatch(opsSource, /from ['"]@\/lib\/api-client['"]/);
   assert.doesNotMatch(opsSource, /\bapi(?:Get|Post)\b/);
@@ -63,6 +73,15 @@ test('meeting freshness is separate from current carry-forward action', () => {
   assert.match(opsSource, /label="Fresh rooms"/);
   assert.match(opsSource, /label="Fresh Transcripts"/);
   assert.match(opsSource, /label="Outcome Clear"/);
+});
+
+test('Ops uses the AI Clone server observation for freshness instead of browser time', () => {
+  assert.match(opsSource, /const aiCloneObservedAtMs = parseUpdatedAtMillis\(portfolioPulse\?\.checked_at\)/);
+  assert.match(opsSource, /Browser received:/);
+  assert.match(opsSource, /System checked .* on the AI Clone UTC clock/);
+  assert.match(opsSource, /Card dates below remain their own source, processing, or action times/);
+  assert.match(opsSource, /Waiting for the AI Clone server observation time before evaluating meeting freshness/);
+  assert.doesNotMatch(opsSource, /Date\.now\(\)/);
 });
 
 test('standups lead with today and lazy-mount diagnostic and archive detail', () => {

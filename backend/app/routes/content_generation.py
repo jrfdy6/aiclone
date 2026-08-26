@@ -71,6 +71,7 @@ from app.services.persona_bundle_context_service import retrieve_bundle_persona_
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 from app.services.trigger_identity_service import build_content_job_idempotency_key
 from app.services.workspace_snapshot_store import get_snapshot_payload
+from app.utils.ai_clone_clock import utc_now
 
 router = APIRouter()
 
@@ -3179,7 +3180,7 @@ def _source_card_freshness_receipt(source_card: LocalCodexSourceCard | None) -> 
     declared_state = str(source_card.freshness_state or "").strip().lower() or None
     age_days: int | None = None
     if dated_at is not None:
-        age_days = max(0, int((datetime.now(timezone.utc) - dated_at).total_seconds() // 86400))
+        age_days = max(0, int((utc_now() - dated_at).total_seconds() // 86400))
 
     if temporality == "evergreen":
         state = "evergreen"

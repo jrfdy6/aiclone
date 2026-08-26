@@ -1075,6 +1075,8 @@ type SocialFeedItem = {
 
 type SocialFeed = {
   generated_at: string;
+  checked_at?: string;
+  clock?: { authority?: string; timezone?: string; observed_at?: string };
   workspace: string;
   strategy_mode: string;
   items: SocialFeedItem[];
@@ -2111,6 +2113,7 @@ type WorkspaceHub = {
 type PortfolioPulseWorkspace = {
   workspace_key: string;
   display_name: string;
+  description?: string;
   kind: 'executive' | 'workspace';
   active_pm_cards?: Array<{
     id: string;
@@ -2128,6 +2131,7 @@ type PortfolioPulseWorkspace = {
     created_at?: string | null;
     truth?: {
       freshness?: string;
+      freshness_limit_hours?: number;
       quality?: string;
       decision_yield?: number;
     };
@@ -2159,6 +2163,13 @@ type PortfolioPulseWorkspace = {
 
 type PortfolioPulseSnapshot = {
   generated_at?: string;
+  checked_at?: string;
+  clock?: {
+    schema_version?: string;
+    authority?: string;
+    timezone?: string;
+    observed_at?: string;
+  };
   workspaces?: PortfolioPulseWorkspace[];
   counts?: {
     workspaces?: number;
@@ -3003,6 +3014,7 @@ export default function OpsClient({
         : executionQueue.filter((entry) => !legacyOwnerReviewCardIds.has(entry.card_id)),
     [executionQueue, legacyOwnerReviewCardIds, legacyOwnerReviewCompatibilityEnabled],
   );
+  const aiCloneObservedAtMs = parseUpdatedAtMillis(portfolioPulse?.checked_at);
 
   const activityRows = useMemo(
     () =>
@@ -3011,8 +3023,9 @@ export default function OpsClient({
         automations,
         automationRuns,
         sessions: sessionRows,
+        observedAtMs: aiCloneObservedAtMs,
       }),
-    [visibleExecutionQueue, automations, automationRuns, sessionRows],
+    [visibleExecutionQueue, automations, automationRuns, sessionRows, aiCloneObservedAtMs],
   );
 
   const selectedWorkspace = useMemo(
@@ -3184,7 +3197,7 @@ export default function OpsClient({
             <p style={{ color: '#8ea0bd', maxWidth: '760px', lineHeight: 1.55 }}>{activeHeader.description}</p>
           </div>
           <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: '13px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-            <p>Last check: {checkedAt ? formatUiTime(checkedAt) : loading ? 'Checking...' : '-'}</p>
+            <p>Browser received: {checkedAt ? formatUiTime(checkedAt) : loading ? 'Checking...' : '-'}</p>
             <p>Refresh cadence: 60s poll + manual trigger</p>
             <button
               onClick={() => {
@@ -3236,6 +3249,7 @@ export default function OpsClient({
           brainError={sectionErrors.brain}
           brainHealth={brainHealth}
           brainHealthError={sectionErrors.brainHealth}
+          observedAtMs={aiCloneObservedAtMs}
         />
       )}
       {activePanel === 'team' && <OrgChartSection layers={orgLayers} />}
@@ -3273,6 +3287,7 @@ export default function OpsClient({
           workspaceFiles={effectiveWorkspaceFiles}
           requestedCardId={requestedPmCardId}
           onRequestedCardIdHandled={() => setRequestedPmCardId(null)}
+          observedAtMs={aiCloneObservedAtMs}
         />
       )}
       {activePanel === 'standups' && (
@@ -3289,10 +3304,12 @@ export default function OpsClient({
           onActOnPmCard={actOnPmCard}
           onOpenPmCard={openPmCard}
           requestedStandupId={requestedStandupId}
+          observedAtMs={aiCloneObservedAtMs}
         />
       )}
       {activePanel === 'workspace' && (
         <WorkspaceHubPanel
+          portfolioPulse={portfolioPulse}
           workspaceRegistry={workspaceRegistry}
           selectedWorkspaceId={selectedWorkspaceId}
           onWorkspaceChange={selectWorkspace}
@@ -3357,6 +3374,7 @@ function MissionControlView({
   brainError,
   brainHealth,
   brainHealthError,
+  observedAtMs,
 }: {
   loading: boolean;
   metrics: ComplianceMetrics | null;
@@ -3379,6 +3397,7 @@ function MissionControlView({
   brainError: string | null;
   brainHealth: OpenBrainHealth | null;
   brainHealthError: string | null;
+  observedAtMs: number;
 }) {
   if (loading) {
     return <p style={{ color: '#94a3b8' }}>Refreshing telemetry...</p>;
@@ -3387,7 +3406,7 @@ function MissionControlView({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <HeroCard metrics={metrics} sessions={activityRows.length} automationCount={automationJobs.length} />
-      <LocalWorkerHealthPanel executionQueue={executionQueue} automations={automations} automationRuns={automationRuns} />
+      <LocalWorkerHealthPanel executionQueue={executionQueue} automations={automations} automationRuns={automationRuns} observedAtMs={observedAtMs} />
       {metricsError && <SectionAlert message={`${TELEMETRY_LABELS.metrics}: ${metricsError}`} />}
       <StatusTable
         title="Models"
@@ -3538,10 +3557,12 @@ function LocalWorkerHealthPanel({
   executionQueue,
   automations,
   automationRuns,
+  observedAtMs,
 }: {
   executionQueue: ExecutionQueueEntry[];
   automations: Automation[];
   automationRuns: AutomationRun[];
+  observedAtMs: number;
 }) {
   const localWorkerIds = [
     'feezie_codex_bridge',
@@ -3575,7 +3596,7 @@ function LocalWorkerHealthPanel({
   const staleRunningEntries = executionQueue.filter((entry) => {
     const state = normalizeExecutionState(entry.execution_state);
     const timestamp = activityTimestampForQueue(entry);
-    return Boolean(timestamp) && ['queued', 'running'].includes(state) && Date.now() - (timestamp?.getTime() ?? 0) > 24 * 60 * 60 * 1000;
+    return Boolean(timestamp) && observedAtMs > 0 && ['queued', 'running'].includes(state) && observedAtMs - (timestamp?.getTime() ?? 0) > 24 * 60 * 60 * 1000;
   });
   const latestCodexCompletion = [...automationRuns]
     .filter((run) => run.automation_id === 'codex_workspace_execution' && normalizeAutomationRunStatus(run.status) === 'ok')
@@ -3992,6 +4013,9 @@ function PortfolioPulseSection({
           </div>
           <span style={{ width: '9px', height: '9px', borderRadius: '999px', backgroundColor: tone, flexShrink: 0, marginTop: '4px' }} />
         </div>
+        <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '9px 0 0' }}>
+          {workspace.description || 'This workspace has not published a purpose description yet.'}
+        </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginTop: '12px' }}>
           <div>
             <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', margin: 0 }}>Needs you</p>
@@ -4011,6 +4035,11 @@ function PortfolioPulseSection({
         {(workspace.readiness?.reasons ?? []).slice(0, 1).map((reason) => (
           <p key={reason} style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '10px 0 0' }}>{reason}</p>
         ))}
+        <p style={{ color: latestStandup?.truth?.freshness === 'stale' ? '#fbbf24' : '#64748b', fontSize: '11px', lineHeight: 1.45, margin: '9px 0 0' }}>
+          {latestStandup?.created_at
+            ? `Last canonical workspace update ${formatUiTimestamp(latestStandup.created_at)} · ${humanizeStatusLabel(latestStandup.truth?.freshness || 'unverified')} against a ${latestStandup.truth?.freshness_limit_hours ?? 'workspace'}${latestStandup.truth?.freshness_limit_hours ? 'h' : ''} contract.`
+            : 'No canonical workspace update has been recorded yet.'}
+        </p>
         <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: '10px 0 0' }}>
           {workspace.kind === 'executive' ? 'Open system health →' : 'Open project →'}
         </p>
@@ -4025,6 +4054,9 @@ function PortfolioPulseSection({
           <p style={{ color: overallTone, letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase', margin: 0 }}>Portfolio pulse</p>
           <h2 style={{ color: '#f8fafc', fontSize: '22px', margin: '5px 0' }}>Is the system healthy?</h2>
           <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Health first, then the decisions and host actions that genuinely need you.</p>
+          <p style={{ color: '#64748b', fontSize: '11px', margin: '6px 0 0' }}>
+            System checked {snapshot?.checked_at ? formatUiTimestamp(snapshot.checked_at) : 'not yet'} on the AI Clone UTC clock. Card dates below remain their own source, processing, or action times.
+          </p>
         </div>
         <span style={{ borderRadius: '999px', border: `1px solid ${overallTone}55`, color: overallTone, padding: '7px 11px', fontSize: '12px', fontWeight: 700 }}>
           {overallLabel}
@@ -4072,6 +4104,7 @@ function PMBoardPanel({
   workspaceFiles,
   requestedCardId,
   onRequestedCardIdHandled,
+  observedAtMs,
 }: {
   cards: PMCard[];
   workspaceRegistry: WorkspaceRegistryEntry[];
@@ -4095,6 +4128,7 @@ function PMBoardPanel({
   workspaceFiles: WorkspaceFile[];
   requestedCardId?: string | null;
   onRequestedCardIdHandled?: () => void;
+  observedAtMs: number;
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
@@ -4118,7 +4152,10 @@ function PMBoardPanel({
   );
   const laneSummary = useMemo(() => buildPmLaneSummary(activeCards), [activeCards]);
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
-  const meetingOps = useMemo(() => buildMeetingOps(STANDUP_ROOMS, standups, cards, executionQueue), [standups, cards, executionQueue]);
+  const meetingOps = useMemo(
+    () => buildMeetingOps(STANDUP_ROOMS, standups, cards, executionQueue, observedAtMs),
+    [standups, cards, executionQueue, observedAtMs],
+  );
   const healthyRoomCount = useMemo(() => meetingOps.rooms.filter((room) => room.status === 'ok').length, [meetingOps]);
   const freshRoomCount = useMemo(() => meetingOps.rooms.filter((room) => room.freshness === 'current').length, [meetingOps]);
   const quietRoomCount = useMemo(
@@ -7502,6 +7539,7 @@ function StandupsPanel({
   onActOnPmCard,
   onOpenPmCard,
   requestedStandupId,
+  observedAtMs,
 }: {
   entries: StandupEntry[];
   pmCards: PMCard[];
@@ -7519,10 +7557,14 @@ function StandupsPanel({
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
   onOpenPmCard: (cardId: string) => void;
   requestedStandupId?: string | null;
+  observedAtMs: number;
 }) {
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
   const latestChronicle = executiveFeed.chronicleEntries[executiveFeed.chronicleEntries.length - 1] ?? executiveFeed.chronicleEntries[0] ?? null;
-  const meetingOps = useMemo(() => buildMeetingOps(STANDUP_ROOMS, entries, pmCards, executionQueue), [entries, pmCards, executionQueue]);
+  const meetingOps = useMemo(
+    () => buildMeetingOps(STANDUP_ROOMS, entries, pmCards, executionQueue, observedAtMs),
+    [entries, pmCards, executionQueue, observedAtMs],
+  );
   const effectiveness = useMemo(() => buildStandupEffectivenessSummary(entries, pmCards, executionQueue), [entries, pmCards, executionQueue]);
   const [meetingView, setMeetingView] = useState<'list' | 'weekly' | 'monthly'>('list');
   const [promotingKey, setPromotingKey] = useState<string | null>(null);
@@ -7537,7 +7579,7 @@ function StandupsPanel({
 
   const standupDecisionItems = useMemo(() => {
     const queueByCardId = new Map(executionQueue.map((entry) => [entry.card_id, entry]));
-    const currentDecisionCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const currentDecisionCutoff = observedAtMs > 0 ? observedAtMs - 7 * 24 * 60 * 60 * 1000 : 0;
     const linkedBoardItems = pmCards
       .filter((card) => {
         if (!isStandupLinkedCard(card) || normalizeStatus(card.status) === 'done') return false;
@@ -7547,7 +7589,7 @@ function StandupsPanel({
       })
       .map((card) => buildMeetingBoardItem(card, queueByCardId.get(card.id) ?? null));
     return buildOwnerAttentionItems(linkedBoardItems).filter((item) => item.kind === 'decision');
-  }, [executionQueue, pmCards]);
+  }, [executionQueue, pmCards, observedAtMs]);
   const decisionCardIds = useMemo(() => new Set(standupDecisionItems.map((item) => item.cardId)), [standupDecisionItems]);
   const preparedRoomActions = useMemo(
     () =>
@@ -7585,13 +7627,13 @@ function StandupsPanel({
     [meetingOps.recentStandups, selectedMeetingId],
   );
   const observedAutomationCount = useMemo(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const cutoff = observedAtMs > 0 ? observedAtMs - 24 * 60 * 60 * 1000 : 0;
     return automations.filter((automation) => {
       if (!automation.last_run_at) return false;
       const timestamp = new Date(automation.last_run_at).getTime();
       return Number.isFinite(timestamp) && timestamp >= cutoff;
     }).length;
-  }, [automations]);
+  }, [automations, observedAtMs]);
 
   useEffect(() => {
     if (meetingOps.recentStandups.length === 0) {
@@ -10241,6 +10283,7 @@ function MeetingMonthlyView({ entries }: { entries: StandupEntry[] }) {
 }
 
 function WorkspaceHubPanel({
+  portfolioPulse,
   workspaceRegistry,
   selectedWorkspaceId,
   onWorkspaceChange,
@@ -10266,6 +10309,7 @@ function WorkspaceHubPanel({
   feedbackSummary,
   onReloadLiveSnapshot,
 }: {
+  portfolioPulse: PortfolioPulseSnapshot | null;
   workspaceRegistry: WorkspaceRegistryEntry[];
   selectedWorkspaceId: WorkspaceHubKey;
   onWorkspaceChange: (workspaceKey: WorkspaceHubKey) => void;
@@ -10300,6 +10344,10 @@ function WorkspaceHubPanel({
   }, [workspaceRegistry]);
   const [selectorOpen, setSelectorOpen] = useState(true);
   const activeWorkspace = workspaceHubs.find((item) => item.id === selectedWorkspaceId) ?? workspaceHubs[0];
+  const activePortfolioWorkspace = portfolioPulse?.workspaces?.find(
+    (workspace) => normalizeWorkspaceBoardKey(workspace.workspace_key) === selectedWorkspaceId,
+  );
+  const activeCanonicalUpdate = activePortfolioWorkspace?.latest_standups?.[0];
   const workspaceFiles = useMemo(
     () => files.filter((file) => workspaceFileBelongsToHub(file, selectedWorkspaceId)),
     [files, selectedWorkspaceId],
@@ -10600,7 +10648,11 @@ function WorkspaceHubPanel({
       {
         label: 'Feed Items',
         value: String(socialFeed?.items?.length ?? 0),
-        detail: socialFeed?.generated_at ? `updated ${formatTimestamp(new Date(socialFeed.generated_at))}` : 'shared source stream',
+        detail: socialFeed?.checked_at
+          ? `source ages checked ${formatTimestamp(new Date(socialFeed.checked_at))} · projection built ${formatTimestamp(new Date(socialFeed.generated_at))}`
+          : socialFeed?.generated_at
+            ? `projection built ${formatTimestamp(new Date(socialFeed.generated_at))}`
+            : 'shared source stream',
       },
       {
         label: 'Post Seeds',
@@ -10613,7 +10665,7 @@ function WorkspaceHubPanel({
         detail: 'workspace training events',
       },
     ],
-    [feedbackSummary?.total_events, reactionQueue?.counts?.post_seeds, socialFeed?.generated_at, socialFeed?.items?.length, workspaceSnapshotError, workspaceSnapshotState],
+    [feedbackSummary?.total_events, reactionQueue?.counts?.post_seeds, socialFeed?.checked_at, socialFeed?.generated_at, socialFeed?.items?.length, workspaceSnapshotError, workspaceSnapshotState],
   );
 
   void sourceAssets;
@@ -10686,6 +10738,15 @@ function WorkspaceHubPanel({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
           <MiniMeta label="Workspace" value={activeWorkspace.shortLabel} detail={activeWorkspace.agent} />
           <MiniMeta label="Status" value={workspaceLifecycleLabel(activeWorkspace.status)} detail={workspaceLifecycleDetail(activeWorkspace.status)} />
+          <MiniMeta
+            label="Canonical Update"
+            value={activeCanonicalUpdate?.created_at ? formatTimestamp(new Date(activeCanonicalUpdate.created_at)) : 'Not recorded'}
+            detail={
+              activeCanonicalUpdate?.created_at
+                ? `${humanizeStatusLabel(activeCanonicalUpdate.truth?.freshness || 'unverified')} against the ${activeCanonicalUpdate.truth?.freshness_limit_hours ?? 'workspace'}${activeCanonicalUpdate.truth?.freshness_limit_hours ? 'h' : ''} contract`
+                : 'no standup-backed canonical workspace update yet'
+            }
+          />
           <MiniMeta label="Operating Rules" value={`${activeWorkspace.operatingPrinciples.length}`} detail="separate principles per workspace" />
           {selectedWorkspaceId === 'feezie-os' && (
             <>
@@ -10707,6 +10768,10 @@ function WorkspaceHubPanel({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
             {workspaceHubs.map((workspace) => {
               const active = workspace.id === selectedWorkspaceId;
+              const portfolioWorkspace = portfolioPulse?.workspaces?.find(
+                (item) => normalizeWorkspaceBoardKey(item.workspace_key) === workspace.id,
+              );
+              const latestCanonicalUpdate = portfolioWorkspace?.latest_standups?.[0];
               return (
                 <button
                   key={workspace.id}
@@ -10751,6 +10816,18 @@ function WorkspaceHubPanel({
                       </p>
                     ))}
                   </div>
+                  <p
+                    style={{
+                      color: latestCanonicalUpdate?.truth?.freshness === 'stale' ? '#fbbf24' : '#64748b',
+                      fontSize: '11px',
+                      lineHeight: 1.45,
+                      margin: 0,
+                    }}
+                  >
+                    {latestCanonicalUpdate?.created_at
+                      ? `Last canonical update ${formatTimestamp(new Date(latestCanonicalUpdate.created_at))} · ${humanizeStatusLabel(latestCanonicalUpdate.truth?.freshness || 'unverified')} against the ${latestCanonicalUpdate.truth?.freshness_limit_hours ?? 'workspace'}${latestCanonicalUpdate.truth?.freshness_limit_hours ? 'h' : ''} contract.`
+                      : 'No canonical workspace update has been recorded yet.'}
+                  </p>
                 </button>
               );
             })}
@@ -11832,7 +11909,7 @@ function WorkspacePanel({
               {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
             </button>
             <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-              Updated {socialFeed?.generated_at ?? 'waiting for feed'} · {visibleFeedItems.length} items tracked
+              Source ages checked {socialFeed?.checked_at ?? 'waiting for check'} · projection built {socialFeed?.generated_at ?? 'waiting for feed'} · {visibleFeedItems.length} items tracked
             </p>
             {refreshStatus && (
               <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>
@@ -14154,14 +14231,9 @@ function isLikelyStaleBoardItem(item: UnifiedBoardItem) {
   if (item.pmReviewPolicy?.attention_class === 'stale' || item.pmReviewPolicy?.auto_resolve_eligible) {
     return true;
   }
-  if (item.lane !== 'review') {
-    return false;
-  }
-  const updatedAt = parseUpdatedAtMillis(item.updatedAt);
-  const ageHours = updatedAt > 0 ? (Date.now() - updatedAt) / 3_600_000 : 0;
   const reason = String(item.reason ?? '').toLowerCase();
   const sweepReroute = reason.includes('accountability sweep rerouted this stale');
-  return sweepReroute || ageHours >= 72;
+  return sweepReroute;
 }
 
 function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem[] {
@@ -16666,9 +16738,10 @@ function buildMeetingOps(
   entries: StandupEntry[],
   pmCards: PMCard[],
   executionQueue: ExecutionQueueEntry[],
+  observedAtMs: number,
 ): MeetingOpsSummary {
   const sortedEntries = [...entries].sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime());
-  const now = Date.now();
+  const now = observedAtMs;
   const linkedCards = pmCards.filter((card) => isStandupLinkedCard(card));
   const linkedCardCount = linkedCards.filter((card) => (card.status ?? '').toLowerCase() !== 'done').length;
   const resolvedLinkedCardCount = linkedCards.filter((card) => (card.status ?? '').toLowerCase() === 'done').length;
@@ -16682,16 +16755,16 @@ function buildMeetingOps(
 
   const staleReadyCount = executionQueue.filter((entry) => {
     const timestamp = entry.last_transition_at ?? entry.queued_at;
-    return normalizeExecutionState(entry.execution_state) === 'ready' && timestamp && now - new Date(timestamp).getTime() > 90 * 60 * 1000;
+    return normalizeExecutionState(entry.execution_state) === 'ready' && timestamp && now > 0 && now - new Date(timestamp).getTime() > 90 * 60 * 1000;
   }).length;
   const staleReviewCount = executionQueue.filter((entry) => {
     const timestamp = entry.last_transition_at ?? entry.queued_at;
-    return normalizeExecutionState(entry.execution_state) === 'review' && timestamp && now - new Date(timestamp).getTime() > 24 * 60 * 60 * 1000;
+    return normalizeExecutionState(entry.execution_state) === 'review' && timestamp && now > 0 && now - new Date(timestamp).getTime() > 24 * 60 * 60 * 1000;
   }).length;
   const staleRunningCount = executionQueue.filter((entry) => {
     const normalized = normalizeExecutionState(entry.execution_state);
     const timestamp = entry.last_transition_at ?? entry.queued_at;
-    return (normalized === 'queued' || normalized === 'running') && timestamp && now - new Date(timestamp).getTime() > 24 * 60 * 60 * 1000;
+    return (normalized === 'queued' || normalized === 'running') && timestamp && now > 0 && now - new Date(timestamp).getTime() > 24 * 60 * 60 * 1000;
   }).length;
 
   const roomsSummary = rooms.map((room) => {
@@ -16707,7 +16780,9 @@ function buildMeetingOps(
         : 'No current meeting evidence. This room stays quiet until a new prep packet or active PM lane calls it back in.';
     let activeCarryForward: StandupCarryForwardState | null = null;
 
-    if (latestEntry) {
+    if (latestEntry && now <= 0) {
+      reason = 'Waiting for the AI Clone server observation time before evaluating meeting freshness.';
+    } else if (latestEntry) {
       const ageMs = now - standupCreatedAt(latestEntry).getTime();
       const maxAgeMs = room.maxAgeHours * 60 * 60 * 1000;
       freshness = ageMs <= maxAgeMs ? 'current' : 'quiet';
@@ -16990,11 +17065,13 @@ function buildMissionActivityRows({
   automations,
   automationRuns,
   sessions,
+  observedAtMs,
 }: {
   executionQueue: ExecutionQueueEntry[];
   automations: Automation[];
   automationRuns: AutomationRun[];
   sessions: { component: string; lastMessage: string; lastTimestamp?: Date }[];
+  observedAtMs: number;
 }): MissionActivityRow[] {
   const prioritized: Array<MissionActivityRow & { sortTime: number; priority: number }> = [];
   const pushRow = (row: MissionActivityRow, priority: number) => {
@@ -17083,7 +17160,7 @@ function buildMissionActivityRows({
       latestRunByAutomation.set(run.automation_id, run);
     });
 
-  const recentCutoff = Date.now() - 6 * 60 * 60 * 1000;
+  const recentCutoff = observedAtMs > 0 ? observedAtMs - 6 * 60 * 60 * 1000 : 0;
   Array.from(latestRunByAutomation.values()).forEach((run) => {
     const timestamp = runTimestamp(run);
     const summary = extractAutomationRunSummary(run);

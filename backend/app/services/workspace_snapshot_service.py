@@ -39,6 +39,7 @@ from app.services.social_persona_review_service import social_persona_review_ser
 from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.workspace_snapshot_store import get_snapshot_payload, list_snapshot_payloads, upsert_snapshot
 from app.utils.runtime_workspace_root import resolve_runtime_workspace_root
+from app.utils.ai_clone_clock import clock_receipt, utc_iso, utc_now
 
 
 TRANSCRIPT_LIBRARY_SKIP_NAMES = {"README.md", "TEMPLATE.md", "INDEX.md"}
@@ -3781,6 +3782,8 @@ def _strategy_contract_freshness(
 
 def _project_weekly_plan_strategy_contract_freshness(
     weekly_plan: dict[str, Any] | None,
+    *,
+    now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Add a response-time comparison without mutating the persisted weekly plan."""
 
@@ -3790,7 +3793,7 @@ def _project_weekly_plan_strategy_contract_freshness(
     # Contract files can change independently of the last persisted plan. Keep
     # checked_at and the comparison live on every response rather than storing
     # a freshness result that becomes stale by definition.
-    projected["strategy_contract_freshness"] = _strategy_contract_freshness(weekly_plan)
+    projected["strategy_contract_freshness"] = _strategy_contract_freshness(weekly_plan, now=now)
     return projected
 
 
@@ -4425,7 +4428,9 @@ class WorkspaceSnapshotService:
         persisted_only: bool = False,
         include_workspace_files: bool = True,
         include_doc_entries: bool = True,
+        observed_at: datetime | None = None,
     ) -> dict[str, Any]:
+        checked_at = (observed_at or utc_now()).astimezone(timezone.utc)
         persisted_payloads = list_snapshot_payloads(WORKSPACE_KEY) if persisted_only else None
         load_snapshot = (
             lambda snapshot_type: _load_persisted_snapshot(snapshot_type, persisted_payloads=persisted_payloads)
@@ -4463,7 +4468,7 @@ class WorkspaceSnapshotService:
         long_form_routes = safe_load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
         weekly_plan = safe_load_snapshot(SNAPSHOT_WEEKLY_PLAN)
         weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
-        weekly_plan = _project_weekly_plan_strategy_contract_freshness(weekly_plan)
+        weekly_plan = _project_weekly_plan_strategy_contract_freshness(weekly_plan, now=checked_at)
         # Browser-derived state must share the weekly-plan trust boundary.  If
         # lifecycle/activity builders consume legacy rows first, those rows can
         # survive even though the weekly-plan field is redacted at route time.
@@ -4480,7 +4485,7 @@ class WorkspaceSnapshotService:
         publication_performance_status = _effective_publication_performance_status(
             publication_performance if isinstance(publication_performance, dict) else None,
             persisted_publication_status if isinstance(persisted_publication_status, dict) else None,
-            now=datetime.now(timezone.utc),
+            now=checked_at,
             load_error_state=(performance_load_error or {}).get("state"),
             load_error_type=(performance_load_error or {}).get("error_type"),
         )
@@ -4490,6 +4495,8 @@ class WorkspaceSnapshotService:
                 social_feed=social_feed if isinstance(social_feed, dict) else None,
                 reaction_queue=reaction_queue if isinstance(reaction_queue, dict) else None,
                 weekly_plan=browser_weekly_plan,
+                feedback_summary=feedback_summary if isinstance(feedback_summary, dict) else None,
+                observed_at=checked_at,
                 publication_records=(
                     publication_performance.get("publication_lifecycle_index")
                     if isinstance(publication_performance, dict)
@@ -4500,7 +4507,9 @@ class WorkspaceSnapshotService:
         except Exception:
             source_lifecycle = {
                 "schema_version": "source_lifecycle/v1",
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": utc_iso(checked_at),
+                "checked_at": utc_iso(checked_at),
+                "clock": clock_receipt(checked_at),
                 "workspace": WORKSPACE_KEY,
                 "counts": {"total": 0, "by_stage": {}, "by_visibility": {}, "needs_decision": 0, "in_workflow": 0},
                 "items": [],
@@ -4527,9 +4536,12 @@ class WorkspaceSnapshotService:
             publication_performance_status=publication_performance_status,
             refresh_status=refresh_status,
             load_errors=load_errors,
+            now=checked_at,
         )
-        private_runtime_context_status = build_feezie_private_runtime_context_status()
+        private_runtime_context_status = build_feezie_private_runtime_context_status(now=checked_at)
         return {
+            "checked_at": utc_iso(checked_at),
+            "clock": clock_receipt(checked_at),
             "workspace_files": (workspace_files_payload or {}).get("items") if isinstance(workspace_files_payload, dict) else [],
             "doc_entries": (doc_entries_payload or {}).get("items") if isinstance(doc_entries_payload, dict) else [],
             "workspace_file_summary": workspace_files_payload if isinstance(workspace_files_payload, dict) else None,

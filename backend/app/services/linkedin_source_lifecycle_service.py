@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.utils.ai_clone_clock import clock_receipt, utc_iso, utc_now
+
 
 WORKSPACE_KEY = "linkedin-content-os"
 WORKSPACE_RELATIVE = "workspaces/linkedin-content-os"
@@ -28,6 +30,15 @@ STAGE_CONFIG: dict[str, dict[str, Any]] = {
         "primary_action": "draft_comment",
         "next_action_label": "Draft comment",
         "reason": "This source is available as a reaction/comment opportunity.",
+    },
+    "prepared_for_use": {
+        "priority": 25,
+        "label": "Copied for use",
+        "visibility": "in_workflow",
+        "primary_surface": "feed_feedback",
+        "primary_action": "complete_on_platform",
+        "next_action_label": "Complete on platform",
+        "reason": "The owner copied the prepared response and opened the source. This records preparation only; it does not claim that a comment was posted.",
     },
     "weekly_plan": {
         "priority": 30,
@@ -504,31 +515,51 @@ def _add_weekly_plan_items(
         )
 
 
-def _add_rejected_feedback_items(
+def _add_feedback_decision_items(
     items_by_key: dict[str, dict[str, Any]],
     key_index: dict[str, str],
     *,
     linkedin_root: Path,
+    feedback_summary: dict[str, Any] | None = None,
 ) -> None:
     feedback_path = linkedin_root / "analytics" / "feed_feedback.jsonl"
-    for event in _read_jsonl(feedback_path):
-        if _clean(event.get("decision")).lower() != "reject":
+    events = _read_jsonl(feedback_path)
+    if isinstance(feedback_summary, dict):
+        events.extend(item for item in feedback_summary.get("recent_events") or [] if isinstance(item, dict))
+    seen: set[tuple[str, str, str]] = set()
+    for event in events:
+        decision = _clean(event.get("decision")).lower()
+        if decision not in {"reject", "copy"}:
             continue
-        title = event.get("title") or event.get("feed_item_id") or "Rejected source"
+        event_key = (
+            decision,
+            _clean(event.get("feed_item_id")),
+            _clean(event.get("recorded_at")),
+        )
+        if event_key in seen:
+            continue
+        seen.add(event_key)
+        stage = "rejected" if decision == "reject" else "prepared_for_use"
+        title = event.get("title") or event.get("feed_item_id") or "Feed source"
         notes = _clean(event.get("notes"))
-        reason = notes or "The owner marked this source Not for FEEZIE from the feed decision surface."
+        default_reason = (
+            "The owner marked this source Not for FEEZIE from the feed decision surface."
+            if decision == "reject"
+            else "The owner copied the prepared response. No external publication or comment is inferred."
+        )
+        reason = notes or default_reason
         _merge_item(
             items_by_key,
             key_index,
             _candidate(
                 linkedin_root=linkedin_root,
-                stage="rejected",
+                stage=stage,
                 title=title,
                 source_url=event.get("source_url"),
                 source_path=event.get("source_path"),
                 author=event.get("author"),
                 source_platform=event.get("platform"),
-                source_kind="feed_feedback_rejection",
+                source_kind=f"feed_feedback_{decision}",
                 reason=reason,
                 artifact_paths=[feedback_path],
                 evidence={
@@ -784,7 +815,9 @@ def build_source_lifecycle(
     social_feed: dict[str, Any] | None = None,
     reaction_queue: dict[str, Any] | None = None,
     weekly_plan: dict[str, Any] | None = None,
+    feedback_summary: dict[str, Any] | None = None,
     publication_records: list[dict[str, Any]] | None = None,
+    observed_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Build a read-only lifecycle projection over existing FEEZIE artifacts."""
 
@@ -793,7 +826,12 @@ def build_source_lifecycle(
     _add_feed_items(items_by_key, key_index, linkedin_root=linkedin_root, social_feed=social_feed)
     _add_reaction_queue_items(items_by_key, key_index, linkedin_root=linkedin_root, reaction_queue=reaction_queue)
     _add_weekly_plan_items(items_by_key, key_index, linkedin_root=linkedin_root, weekly_plan=weekly_plan)
-    _add_rejected_feedback_items(items_by_key, key_index, linkedin_root=linkedin_root)
+    _add_feedback_decision_items(
+        items_by_key,
+        key_index,
+        linkedin_root=linkedin_root,
+        feedback_summary=feedback_summary,
+    )
     _add_draft_items(items_by_key, key_index, linkedin_root=linkedin_root)
     _add_queue_items(items_by_key, key_index, linkedin_root=linkedin_root)
     _add_release_packets(items_by_key, key_index, linkedin_root=linkedin_root)
@@ -820,9 +858,12 @@ def build_source_lifecycle(
         stage_counts[stage] = stage_counts.get(stage, 0) + 1
         visibility_counts[visibility] = visibility_counts.get(visibility, 0) + 1
 
+    checked_at = (observed_at or utc_now()).astimezone(timezone.utc)
     return {
         "schema_version": "source_lifecycle/v1",
-        "generated_at": _now_iso(),
+        "generated_at": utc_iso(checked_at),
+        "checked_at": utc_iso(checked_at),
+        "clock": clock_receipt(checked_at),
         "workspace": WORKSPACE_KEY,
         "source_ref": WORKSPACE_RELATIVE,
         "counts": {

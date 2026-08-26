@@ -15,6 +15,7 @@ from app.services.operator_story_signal_service import (
     _truncate,
     build_operator_story_signals_payload,
 )
+from app.utils.ai_clone_clock import utc_iso, utc_now
 from runtime_paths import resolve_memory_read_path
 
 
@@ -318,6 +319,7 @@ def build_content_safe_operator_lessons_payload(
     workspace_key: str = DEFAULT_WORKSPACE_KEY,
     operator_story_payload: dict[str, Any] | None = None,
     operator_story_report_path: Path | None = None,
+    observed_at: datetime | None = None,
 ) -> dict[str, Any]:
     source_payload = operator_story_payload
     using_default_report = operator_story_report_path is None
@@ -354,6 +356,7 @@ def build_content_safe_operator_lessons_payload(
 
     return {
         "generated_at": _utcnow_iso(),
+        "observed_at": utc_iso(observed_at or utc_now()),
         "workspace": workspace_key,
         "source_snapshot_type": "operator_story_signals",
         "source_generated_at": source_payload.get("generated_at"),

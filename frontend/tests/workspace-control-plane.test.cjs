@@ -90,6 +90,20 @@ test('FEEZIE opens with a bounded Today’s Distribution decision surface', () =
   assert.match(workspaceSource, /Edit it/);
   assert.match(workspaceSource, /Not for me/);
   assert.match(workspaceSource, /repeat\(auto-fit, minmax\(min\(100%, 290px\), 1fr\)\)/);
+  assert.match(workspaceSource, /item\.freshness_state === 'current'/);
+  assert.match(workspaceSource, /Copied and durably recorded/);
+  assert.match(workspaceSource, /selectSignalForPipeline\(item, lens\)/);
+  assert.match(workspaceSource, /id="content-generator"/);
+  assert.doesNotMatch(
+    workspaceSource.match(/<p style=\{sectionLabelStyle\('#22c55e'\)\}>Engage[\s\S]*?\{todaysEngageItems\.length === 0/)?.[0] ?? '',
+    /document\.getElementById\('owner-review-lane'\)/,
+  );
+});
+
+test('FEEZIE separates source-age checks from projection build time', () => {
+  assert.match(workspaceSource, /source ages checked/);
+  assert.match(workspaceSource, /projection built/);
+  assert.doesNotMatch(workspaceSource, /detail=\{`updated \$\{formatTimestamp\(snapshot\?\.social_feed\?\.generated_at\)\}`\}/);
 });
 
 test('runtime header can wrap without widening a narrow phone viewport', () => {

@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 526,
+    "file_count": 527,
     "files": [
       {
         "mode": 493,
@@ -414,8 +414,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/content_generation.py",
-        "sha256": "a31fe01950c24cda3b628d403587085577f41c4c8356161c969d68195462266c",
-        "size": 545620
+        "sha256": "f21cab64d78f110ce22e71571597cd62a36cf2157b8290fc3fd81b3bd2cd6f66",
+        "size": 545648
       },
       {
         "mode": 420,
@@ -900,8 +900,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/content_safe_operator_lesson_service.py",
-        "sha256": "2fcde32d0f37124e9dd77bf00307ba1a93c72bdc40f05fa7a4ccd39156a4c48c",
-        "size": 18000
+        "sha256": "b7abba021b45ecee550a22ffbf6ae29d60f7936211e4fdb986cd6e8f3a13f1f3",
+        "size": 18153
       },
       {
         "mode": 420,
@@ -930,8 +930,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/daily_portfolio_coordinator_service.py",
-        "sha256": "410a2922416b75781f07ea80f9ee698125e884d9d8b4721f8a81ea673cc05513",
-        "size": 5551
+        "sha256": "b6d756135136fdc751612f2ac4c53b63f5e4a928f0a2dff935c0a89786806642",
+        "size": 5835
       },
       {
         "mode": 420,
@@ -1164,8 +1164,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/linkedin_source_lifecycle_service.py",
-        "sha256": "4bd970a7c4f70cf5e56d9b8c03299cfdec110998e0a89eab385201e268a0f16c",
-        "size": 32694
+        "sha256": "97ccd98b092f8606fcaca54501b30356fe098a69dec4e6bd139dc16dcf7a107c",
+        "size": 34343
       },
       {
         "mode": 420,
@@ -1248,8 +1248,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/operator_story_signal_service.py",
-        "sha256": "e9945d6d967aee199d035355f5645292448389e0472b3d7b3135ff3cb696ae25",
-        "size": 27842
+        "sha256": "7612f39bddd74087ece98ab109b49d0912debcc482b7a098883ca12a037030ee",
+        "size": 27995
       },
       {
         "mode": 420,
@@ -1428,8 +1428,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/portfolio_workspace_snapshot_service.py",
-        "sha256": "ecc78a8ffa927c3edf62349bcd39398e76640eb36ba120b50818041b3e5c87d3",
-        "size": 35531
+        "sha256": "ec7e473f15e41941744da6707314598a8a5cc51206852ec28e4997882e23629d",
+        "size": 36650
       },
       {
         "mode": 420,
@@ -1656,8 +1656,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_builder_service.py",
-        "sha256": "32227cf68b8570d1c0206151c1716c14dbe786ed19337979bbdc0e73da93028c",
-        "size": 33688
+        "sha256": "24ef4807dc036eb49bec8c7b95bec48fc67e30b8d6436c5129cf045df22accd4",
+        "size": 37148
       },
       {
         "mode": 420,
@@ -1932,8 +1932,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "74d14b9dd1ec559ec0ef3b103b1e5d7d526148a44d279910b7a44f26df6d9b8f",
-        "size": 189594
+        "sha256": "0579b230448f790abb210117f673e4409b1beb83e6863d2eb3b57d99b3cc985d",
+        "size": 190190
       },
       {
         "mode": 420,
@@ -1952,6 +1952,12 @@
         "path": "backend/app/utils/__init__.py",
         "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size": 0
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/utils/ai_clone_clock.py",
+        "sha256": "035e5f6590aa99874fa2e20b054309bf831fe2eb00bb58a22e87c7e98cd57f8b",
+        "size": 1815
       },
       {
         "mode": 420,
@@ -2406,8 +2412,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "28021f82bbf170c33601f46af7c6e42b9b3573eba0072721c117ae6c05501d4b",
-        "size": 812474
+        "sha256": "ab4b86c47221aef1d7ca79e448b0398fe85652b0841317c6d8dc6c6071b3e61b",
+        "size": 816964
       },
       {
         "mode": 420,
@@ -2568,8 +2574,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/WorkspaceClient.tsx",
-        "sha256": "f56e53344949ed037a1a3b4d06a0c2a6732b644dee98696a95c5b4bacffb749e",
-        "size": 233975
+        "sha256": "663a33c02a13a35183ca2a3dcc0781da5362cc387b5eccba7baddabc1a64443b",
+        "size": 236155
       },
       {
         "mode": 420,
@@ -3048,8 +3054,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "aaa316956e65e1a2d191764d0425a47f3177cb9fd1d498311d48f053ac44ccc2",
-        "size": 6402
+        "sha256": "753ca4ff357f67998061897ee42c25b36ee515d75bfd7e9674fd387e91917806",
+        "size": 7611
       },
       {
         "mode": 420,
@@ -3096,8 +3102,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/workspace-control-plane.test.cjs",
-        "sha256": "7cc6b4028f1a4902f1f6947f5df7ac1f703aa6571a7934574544dd9ca9b3075d",
-        "size": 48995
+        "sha256": "52d85f9b8f7d660e4d8b7526197593c1daa94bf234546f9954bd50eb5f9b5c00",
+        "size": 49801
       },
       {
         "mode": 420,
@@ -3114,7 +3120,7 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "08e920a5e4016c6e13ec07285b0f0c7a3aad56d3b56216ff3fee1be653f8404f",
+        "sha256": "83e13100b90376c263580cc8480e36978b867725b8c681e85898b36ec0f2027a",
         "size": 5879
       },
       {
@@ -3160,15 +3166,15 @@
         "size": 8753
       }
     ],
-    "tree_sha256": "bd75fcb53ab74ffafa9703a372f1b574e5e4ffe603be200a1814da587295b6d3"
+    "tree_sha256": "95eb512ce0607fdf77a8ee088df5aee466b280d1fab3a95ae7e8c1595e709070"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "08e920a5e4016c6e13ec07285b0f0c7a3aad56d3b56216ff3fee1be653f8404f"
+    "sha256": "83e13100b90376c263580cc8480e36978b867725b8c681e85898b36ec0f2027a"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "91b39e42cddfccdb289f1f3a58c2fb27e5eeb655f12084f5e999af97d61b0b1b",
+    "inventory_sha256": "a83760061cb48075b250a9d8f27c097a269d683c03432fa6bd1161cfdf82c0fa",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

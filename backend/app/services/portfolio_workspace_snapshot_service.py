@@ -18,6 +18,7 @@ from app.services.workspace_registry_service import (
     workspace_root_slug,
 )
 from app.services.workspace_snapshot_store import list_snapshot_payloads
+from app.utils.ai_clone_clock import clock_receipt, utc_iso, utc_now
 
 
 PACK_FILES = ("CHARTER.md", "IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md")
@@ -262,7 +263,13 @@ def _pm_attention_kind(card: Any) -> str | None:
     return "review"
 
 
-def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
+def _safe_pm_cards(
+    workspace_key: str,
+    *,
+    limit: int,
+    observed_at: datetime | None = None,
+) -> list[dict[str, Any]]:
+    freshness_reference = (observed_at or utc_now()).astimezone(timezone.utc)
     cards: list[Any] = []
     seen: set[str] = set()
     try:
@@ -285,7 +292,7 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
             payload.get("workspace_key") or payload.get("workspace") or workspace_key,
             default=workspace_key,
         )
-        truth = classify_pm_card(presentation_card)
+        truth = classify_pm_card(presentation_card, now=freshness_reference)
         attention_kind = str(truth.get("attention_class") or "informational")
         compacted.append(
             {
@@ -306,7 +313,14 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
     return compacted[:limit]
 
 
-def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False) -> list[dict[str, Any]]:
+def _safe_standups(
+    workspace_key: str,
+    *,
+    limit: int,
+    observed_at: datetime | None = None,
+    root_exists: bool = False,
+) -> list[dict[str, Any]]:
+    freshness_reference = (observed_at or utc_now()).astimezone(timezone.utc)
     rows: list[Any] = []
     seen: set[str] = set()
     try:
@@ -327,12 +341,13 @@ def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False)
         truth = classify_standup(
             SimpleNamespace(
                 workspace_key=getattr(standup, "workspace_key", workspace_key),
-                created_at=getattr(standup, "created_at", None) or datetime.now(timezone.utc),
+                created_at=getattr(standup, "created_at", None) or freshness_reference,
                 payload=payload,
                 commitments=list(getattr(standup, "commitments", []) or []),
                 blockers=blockers,
                 needs=list(getattr(standup, "needs", []) or []),
-            )
+            ),
+            now=freshness_reference,
         )
         compacted.append(
             {
@@ -655,7 +670,13 @@ def _local_contracts(root: Path, repo_root: Path) -> list[dict[str, Any]]:
     return items
 
 
-def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_limit: int) -> dict[str, Any]:
+def _build_workspace_summary(
+    entry: dict[str, Any],
+    *,
+    pm_limit: int,
+    standup_limit: int,
+    observed_at: datetime,
+) -> dict[str, Any]:
     workspace_key = canonicalize_workspace_key(str(entry.get("key") or ""), default="shared_ops")
     root_slug = str(entry.get("workspace_root") or workspace_root_slug(workspace_key))
     root = _resolve_workspace_root(workspace_key, root_slug)
@@ -684,9 +705,16 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         "memory/execution_log.md",
     )
     active_cards = [
-        card for card in _safe_pm_cards(workspace_key, limit=pm_limit) if str(card.get("status") or "").lower() in ACTIVE_PM_STATUSES
+        card
+        for card in _safe_pm_cards(workspace_key, limit=pm_limit, observed_at=observed_at)
+        if str(card.get("status") or "").lower() in ACTIVE_PM_STATUSES
     ]
-    latest_standups = _safe_standups(workspace_key, limit=standup_limit, root_exists=root.exists())
+    latest_standups = _safe_standups(
+        workspace_key,
+        limit=standup_limit,
+        observed_at=observed_at,
+        root_exists=root.exists(),
+    )
     active_blockers = _active_standup_blockers(latest_standups)
     blocker_count = len(active_blockers)
     operator_cards = [
@@ -821,14 +849,31 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
     }
 
 
-def build_portfolio_workspace_snapshot(*, pm_limit: int = 8, standup_limit: int = 5) -> dict[str, Any]:
+def build_portfolio_workspace_snapshot(
+    *,
+    pm_limit: int = 8,
+    standup_limit: int = 5,
+    observed_at: datetime | None = None,
+) -> dict[str, Any]:
+    checked_at = (observed_at or utc_now()).astimezone(timezone.utc)
     workspaces = [
-        _build_workspace_summary(entry, pm_limit=pm_limit, standup_limit=standup_limit)
+        _build_workspace_summary(
+            entry,
+            pm_limit=pm_limit,
+            standup_limit=standup_limit,
+            observed_at=checked_at,
+        )
         for entry in workspace_registry_entries()
     ]
     visible_workspaces = [workspace for workspace in workspaces if workspace.get("portfolio_visible") or workspace.get("kind") == "executive"]
     response_payload = {
-        "generated_at": _now_iso(),
+        "generated_at": utc_iso(checked_at),
+        "checked_at": utc_iso(checked_at),
+        "clock": clock_receipt(checked_at),
+        "timestamp_semantics": {
+            "checked_at": "Server evaluation time used for every age and freshness decision in this response.",
+            "generated_at": "Compatibility alias for response assembly time; it is not a source update time.",
+        },
         "schema_version": "portfolio_workspace_snapshot/v1",
         "source": "portfolio_workspace_snapshot_service",
         "workspaces": sorted(visible_workspaces, key=lambda item: (int(item.get("priority_order") or 999), str(item.get("workspace_key") or ""))),

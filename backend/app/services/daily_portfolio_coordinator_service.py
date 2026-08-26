@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from app.services.portfolio_cycle_service import PortfolioCycleService
+from app.services.standup_truth_service import DEFAULT_STANDUP_FRESHNESS_HOURS, STANDUP_FRESHNESS_HOURS
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -28,7 +29,6 @@ def adapt_daily_workspace_standups(
     prior: dict[str, tuple[datetime, Mapping[str, Any]]] = {}
     expected = set(expected_workspaces)
     freshness_reference = observed_at.replace(tzinfo=timezone.utc) if observed_at.tzinfo is None else observed_at.astimezone(timezone.utc)
-    freshness_cutoff = freshness_reference - timedelta(hours=healthy_no_change_max_age_hours)
     for raw in rows:
         workspace = str(raw.get("workspace_key") or "").strip()
         if workspace not in expected or str(raw.get("status") or "").strip().lower() != "completed":
@@ -37,6 +37,11 @@ def adapt_daily_workspace_standups(
         if created is None or created.date() > cycle_date:
             continue
         if created.date() < cycle_date:
+            workspace_max_age = STANDUP_FRESHNESS_HOURS.get(
+                workspace,
+                healthy_no_change_max_age_hours or DEFAULT_STANDUP_FRESHNESS_HOURS,
+            )
+            freshness_cutoff = freshness_reference - timedelta(hours=workspace_max_age)
             if created >= freshness_cutoff and (workspace not in prior or created > prior[workspace][0]):
                 prior[workspace] = (created, raw)
             continue

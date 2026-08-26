@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.core_memory_snapshot_service import resolve_memory_read_target, resolve_snapshot_fallback_path
+from app.utils.ai_clone_clock import utc_iso, utc_now
 from app.utils.runtime_workspace_root import resolve_runtime_workspace_root
 
 
@@ -641,6 +642,7 @@ def build_operator_story_signals_payload(
     *,
     workspace_key: str = DEFAULT_WORKSPACE_KEY,
     memory_root: Path | None = None,
+    observed_at: datetime | None = None,
 ) -> dict[str, Any]:
     resolved_memory_root = (memory_root or MEMORY_ROOT).resolve()
     resolved_source_paths: dict[str, str] = {}
@@ -691,6 +693,7 @@ def build_operator_story_signals_payload(
 
     return {
         "generated_at": _utcnow_iso(),
+        "observed_at": utc_iso(observed_at or utc_now()),
         "workspace": workspace_key,
         "source_paths": dict(SOURCE_LOGICAL_REFS),
         "signals": signals,

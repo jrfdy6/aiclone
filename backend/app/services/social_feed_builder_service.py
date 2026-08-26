@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.utils.ai_clone_clock import clock_receipt, utc_iso, utc_now
+
 import yaml
 
 from app.services.integrated_system_store import IntegratedSystemStore
@@ -500,6 +502,18 @@ def _evaluate_curation(item: dict[str, Any], config: dict[str, Any]) -> dict[str
     blocked_by: list[str] = []
     score_adjustment = 0.0
 
+    unusable_markers = (
+        "[ removed by reddit ]",
+        "[removed by reddit]",
+        "[removed]",
+        "[deleted]",
+        "removed by reddit",
+    )
+    title = _lowered_text(str(item.get("title") or ""))
+    summary = _lowered_text(str(item.get("summary") or ""))
+    if any(marker == title or marker == summary for marker in unusable_markers):
+        blocked_by.append("unusable_source_content")
+
     platform_boost = _coerce_float(config["platform_boosts"].get(platform), 0.0)
     if platform_boost:
         score_adjustment += platform_boost
@@ -683,16 +697,80 @@ def _preserve_existing_real_items(items: list[dict[str, Any]], *feeds: dict[str,
     return merged
 
 
-def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[str, Any]:
+def _source_temporality(
+    item: dict[str, Any],
+    *,
+    observed_at: datetime,
+) -> dict[str, Any]:
+    published_at = _parse_datetime(item.get("published_at"))
+    captured_at = _parse_datetime(item.get("captured_at"))
+    source_time = published_at or captured_at
+    basis = "published_at" if published_at is not None else "captured_at" if captured_at is not None else "unknown"
+    if source_time is None:
+        age_days: float | None = None
+        freshness_state = "unknown"
+    else:
+        age_days = max(0.0, (observed_at - source_time.astimezone(timezone.utc)).total_seconds() / 86_400)
+        if age_days <= 14:
+            freshness_state = "current"
+        elif age_days <= 30:
+            freshness_state = "aging"
+        else:
+            freshness_state = "stale"
+    temporality = _clean_text(item.get("source_temporality")).lower()
+    if not temporality:
+        source_kind = _clean_text(item.get("source_kind")).lower()
+        source_lane = _clean_text(item.get("source_lane")).lower()
+        temporality = (
+            "trend"
+            if source_kind in {"market_signal", "social_signal", "trend"}
+            or source_lane in {"market_signal", "social_signal", "trend"}
+            else "unknown"
+        )
+    if temporality == "evergreen":
+        freshness_state = "evergreen"
+    elif source_time is None:
+        freshness_state = "unknown"
+    elif temporality != "trend":
+        freshness_state = "dated_recent" if age_days is not None and age_days <= 30 else "dated_stale"
+    return {
+        "freshness_state": freshness_state,
+        "source_temporality": temporality,
+        "source_age_days": round(age_days, 1) if age_days is not None else None,
+        "freshness_basis": basis,
+        "freshness_checked_at": utc_iso(observed_at),
+    }
+
+
+def _apply_source_temporality(item: dict[str, Any], *, observed_at: datetime) -> dict[str, Any]:
+    enriched = dict(item)
+    enriched.update(_source_temporality(enriched, observed_at=observed_at))
+    ranking = dict(enriched.get("ranking") or {})
+    age_days = enriched.get("source_age_days")
+    if isinstance(age_days, (int, float)):
+        ranking["recency"] = max(0, round(100 - float(age_days) * 24, 1))
+        ranking["total"] = round(
+            sum(_coerce_float(value, 0.0) for key, value in ranking.items() if key not in {"total", "base_total", "curation"}),
+            1,
+        )
+    enriched["ranking"] = ranking
+    return enriched
+
+
+def _normalize_signal(
+    signal: dict[str, Any],
+    watchlist: dict[str, Any],
+    *,
+    observed_at: datetime,
+) -> dict[str, Any]:
     normalized = normalize_saved_signal(
         signal,
         signal_id=signal.get("id"),
         source_path=signal.get("source_path"),
         raw_text=signal.get("body_text"),
     )
-    now = datetime.now(timezone.utc)
-    created_dt = _parse_datetime(normalized.get("captured_at")) or now
-    age_hours = max(0, round((now - created_dt).total_seconds() / 3600))
+    source_dt = _parse_datetime(normalized.get("published_at")) or _parse_datetime(normalized.get("captured_at")) or observed_at
+    age_hours = max(0, round((observed_at - source_dt.astimezone(timezone.utc)).total_seconds() / 3600))
     topics = normalized.get("topic_tags") or []
     lenses: list[str] = []
     priority_people = watchlist.get("priority_people", [])
@@ -745,7 +823,7 @@ def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict
     }
     expression_assessment = default_variant["expression_assessment"]
 
-    return {
+    item = {
         "id": f"{normalized.get('source_channel', 'unknown')}__{normalized.get('signal_id')}",
         "platform": normalized.get("source_channel", "linkedin"),
         "source_type": normalized.get("source_type", "post"),
@@ -780,6 +858,7 @@ def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict
         "expression_assessment": expression_assessment,
         "evaluation": default_variant["evaluation"],
     }
+    return _apply_source_temporality(item, observed_at=observed_at)
 
 
 def build_feed(
@@ -787,7 +866,9 @@ def build_feed(
     *,
     source_workspace_root: Path | None = None,
     canonical_store: IntegratedSystemStore | None = None,
+    observed_at: datetime | None = None,
 ) -> dict[str, Any]:
+    freshness_reference = (observed_at or utc_now()).astimezone(timezone.utc)
     resolved_root = workspace_root or discover_linkedin_workspace_root()
     explicit_workspace_root = workspace_root is not None
     watchlist = _load_watchlist(source_workspace_root or resolved_root)
@@ -812,7 +893,7 @@ def build_feed(
     else:
         alternate_feeds = _load_alternate_feeds(resolved_root)
     if signals:
-        items = [_normalize_signal(signal, watchlist) for signal in signals]
+        items = [_normalize_signal(signal, watchlist, observed_at=freshness_reference) for signal in signals]
         items = _preserve_existing_real_items(items, existing_feed, persisted_feed, *alternate_feeds)
     elif existing_feed:
         items = [_ensure_source_contract(item) for item in existing_feed.get("items") or [] if isinstance(item, dict)]
@@ -832,9 +913,12 @@ def build_feed(
         if persisted_feed:
             return {**persisted_feed, "input_health": input_health}
 
+    items = [_apply_source_temporality(item, observed_at=freshness_reference) for item in items]
     items, curation_summary = _apply_feed_curation(items, watchlist)
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": utc_iso(utc_now(), seconds=False),
+        "checked_at": utc_iso(freshness_reference),
+        "clock": clock_receipt(freshness_reference),
         "workspace": "linkedin-content-os",
         "strategy_mode": "production",
         "input_health": input_health,

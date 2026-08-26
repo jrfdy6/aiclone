@@ -176,6 +176,9 @@ type SourceLifecycleItem = {
   observed_at?: string;
   freshness_state?: string;
   source_temporality?: string;
+  source_age_days?: number | null;
+  freshness_basis?: string;
+  freshness_checked_at?: string;
   queue_id?: string;
   draft_path?: string;
   stage?: FeedPlanningStage | string;
@@ -234,6 +237,9 @@ type SocialFeedItem = {
   observed_at?: string;
   freshness_state?: string;
   source_temporality?: string;
+  source_age_days?: number | null;
+  freshness_basis?: string;
+  freshness_checked_at?: string;
   why_it_matters?: string;
   comment_draft?: string;
   repost_draft?: string;
@@ -469,6 +475,8 @@ type WorkspaceSnapshot = {
   } | null;
   social_feed?: {
     generated_at?: string;
+    checked_at?: string;
+    clock?: { authority?: string; timezone?: string; observed_at?: string };
     strategy_mode?: string;
     items?: SocialFeedItem[];
   } | null;
@@ -2572,12 +2580,13 @@ export function LinkedinWorkspaceSurface({
         ...current,
         [item.id]: decision === 'like' ? 'Liked' : decision === 'reject' ? 'Marked Not for FEEZIE' : 'Disliked',
       }));
+      await loadSnapshot();
     } catch (error) {
       setFeedbackState((current) => ({ ...current, [item.id]: ownerSafeErrorMessage(error, 'Feedback failed.') }));
     } finally {
       setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
     }
-  }, [postFeedFeedback]);
+  }, [loadSnapshot, postFeedFeedback]);
 
   const approveFeedLine = useCallback(async (item: SocialFeedItem, line: string, lens: FeedLensId) => {
     setIsApprovingQuote(true);
@@ -2708,7 +2717,14 @@ export function LinkedinWorkspaceSurface({
       await copyText(text);
       setCopyStatus(`${label} copied.`);
       if (feedbackContext) {
-        void postFeedFeedback(feedbackContext.item, 'copy', feedbackContext.lens, { notes: feedbackContext.notes ?? label });
+        try {
+          await postFeedFeedback(feedbackContext.item, 'copy', feedbackContext.lens, { notes: feedbackContext.notes ?? label });
+          setFeedbackState((current) => ({ ...current, [feedbackContext.item.id]: 'Copied and durably recorded. Complete the action on the source platform; no publication is inferred.' }));
+          await loadSnapshot();
+          setCopyStatus(`${label} copied and durably recorded. No external action was claimed.`);
+        } catch (feedbackError) {
+          setCopyStatus(ownerSafeErrorMessage(feedbackError, `${label} was copied, but the durable workflow receipt failed. Reload before using this card again.`));
+        }
       }
     } catch (error) {
       setCopyStatus(ownerSafeErrorMessage(error, 'Unable to copy right now.'));
@@ -2823,7 +2839,7 @@ export function LinkedinWorkspaceSurface({
   const todaysCreateItems = ownerReviewItems.slice(0, 2);
   const todaysEngageItems = decisionFeedItems
     .map(({ item }) => item)
-    .filter((item) => Boolean(item.comment_draft?.trim()))
+    .filter((item) => Boolean(item.comment_draft?.trim()) && item.freshness_state === 'current')
     .slice(0, 3);
 
   const content = (
@@ -2873,7 +2889,15 @@ export function LinkedinWorkspaceSurface({
               detail={snapshotState === 'error' ? snapshotError ?? 'Snapshot unavailable' : snapshotState === 'live' ? 'HTTP available · editorial state shown above' : 'checking shared state'}
             />
             <MiniStat label="Pipeline" value={String(stats.total)} detail="saved drafts" />
-            <MiniStat label="Feed Items" value={String(unifiedFeedTotal)} detail={`updated ${formatTimestamp(snapshot?.social_feed?.generated_at)}`} />
+            <MiniStat
+              label="Feed Items"
+              value={String(unifiedFeedTotal)}
+              detail={
+                snapshot?.social_feed?.checked_at
+                  ? `source ages checked ${formatTimestamp(snapshot.social_feed.checked_at)} · projection built ${formatTimestamp(snapshot.social_feed.generated_at)}`
+                  : `projection built ${formatTimestamp(snapshot?.social_feed?.generated_at)}`
+              }
+            />
             <MiniStat label="Comments" value={String(snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0)} detail="reaction-ready items" />
             <MiniStat label="Post Seeds" value={String(snapshot?.reaction_queue?.counts?.post_seeds ?? 0)} detail="save-for-post angles" />
             <MiniStat label="Feedback" value={String(snapshot?.feedback_summary?.total_events ?? 0)} detail="human training events" />
@@ -3030,6 +3054,9 @@ export function LinkedinWorkspaceSurface({
                       <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
                         Source: {item.author || item.platform} · Destination: {item.platform}
                       </p>
+                      <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
+                        Published {formatTimestamp(item.published_at)} · {item.source_age_days == null ? 'age unknown' : `${item.source_age_days.toFixed(1)} days old`} · checked on the AI Clone clock
+                      </p>
                     </div>
                     <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
                       {item.why_it_matters || 'Selected because it creates a credible opening to join a relevant conversation.'}
@@ -3050,8 +3077,10 @@ export function LinkedinWorkspaceSurface({
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedFeedId(item.id);
-                          document.getElementById('owner-review-lane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          selectSignalForPipeline(item, lens);
+                          window.requestAnimationFrame(() => {
+                            document.getElementById('content-generator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          });
                         }}
                         style={secondaryActionStyle('#38bdf8')}
                       >
@@ -3061,6 +3090,7 @@ export function LinkedinWorkspaceSurface({
                         Not for me
                       </button>
                     </div>
+                    {feedbackState[item.id] ? <p role="status" style={{ color: '#86efac', fontSize: '11px', margin: 0 }}>{feedbackState[item.id]}</p> : null}
                   </article>
                 );
               })}
@@ -3229,7 +3259,7 @@ export function LinkedinWorkspaceSurface({
           </button>
 
           {showGenerator && (
-            <div style={generatorPanelStyle}>
+            <div id="content-generator" style={generatorPanelStyle}>
               <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>
                 Generate {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
               </h3>
@@ -4047,6 +4077,10 @@ export function LinkedinWorkspaceSurface({
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       <span style={platformBadgeStyle}>{item.platform}</span>
                       {planningStatus ? <InlinePill label={planningStatus.label} tone={planningStatus.tone} /> : null}
+                      <InlinePill
+                        label={item.freshness_state ? `Source ${humanizeFeezieWorkspaceLabel(item.freshness_state)}` : 'Source age unknown'}
+                        tone={item.freshness_state === 'current' ? '#22c55e' : item.freshness_state === 'aging' ? '#f59e0b' : '#94a3b8'}
+                      />
                     </div>
                     <span style={scoreBadgeStyle}>score {item.ranking.total.toFixed(1)}</span>
                   </div>
