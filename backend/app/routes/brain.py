@@ -1118,21 +1118,21 @@ def publish_ops_standup_projection(payload: OpsStandupProjectionSyncRequest):
             legacy_snapshot_payload,
             target_projection=projection,
         )
-    legacy_migration_kwargs = (
-        {
+    legacy_migration_kwargs = {}
+    if legacy_candidate is not None:
+        legacy_migration_schemas = dict(_OPS_STANDUP_LEGACY_MIGRATION_SCHEMAS)
+        legacy_schema = legacy_candidate.get("schema_version")
+        if isinstance(legacy_schema, str):
+            legacy_migration_schemas[legacy_schema] = tuple(legacy_candidate)
+        legacy_migration_kwargs = {
             "semantic_legacy_migration_revision": 2,
-            "semantic_legacy_migration_schemas": (
-                _OPS_STANDUP_LEGACY_MIGRATION_SCHEMAS
-            ),
+            "semantic_legacy_migration_schemas": legacy_migration_schemas,
             "semantic_legacy_migration_required_values": {
                 "data_policy": _OPS_STANDUP_DATA_POLICY,
             },
             "semantic_legacy_migration_max_bytes": OPS_STANDUP_MAX_BYTES,
             "semantic_legacy_migration_expected_payload": legacy_candidate,
         }
-        if legacy_candidate is not None
-        else {}
-    )
     try:
         stored_snapshot, stored = upsert_snapshot_monotonic(
             OPS_STANDUP_WORKSPACE_KEY,
