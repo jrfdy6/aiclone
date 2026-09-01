@@ -843,8 +843,8 @@ export default function IntegratedContentPortfolio() {
 
           <div style={lineageGridStyle} aria-label="Canonical learning, persona, and decision summary">
             <div style={nestedCardStyle}>
-              <strong style={microHeadingStyle}>Learning events</strong>
-              <p style={helperStyle}>{projection.activity_summary.learning.total} total · {Object.entries(projection.activity_summary.learning.by_kind).map(([kind, count]) => `${readable(kind)} ${count}`).join(' · ') || 'none recorded'}</p>
+              <strong style={microHeadingStyle}>Canonical content learning receipts</strong>
+              <p style={helperStyle}>{projection.activity_summary.learning.total} total · {Object.entries(projection.activity_summary.learning.by_kind).map(([kind, count]) => `${readable(kind)} ${count}`).join(' · ') || 'none recorded'}<br />This is the gated content-lifecycle count, not a measure of all AI Clone learning. Operational outcomes, owner decisions, and other evidence remain in their governed lanes.</p>
             </div>
             <div style={nestedCardStyle}>
               <strong style={microHeadingStyle}>Persona learning</strong>

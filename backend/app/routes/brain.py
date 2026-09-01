@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from functools import partial
@@ -67,6 +68,7 @@ from app.services.source_sharing_policy_service import credential_free_public_ur
 from app.services.work_lifecycle_service import build_work_lifecycle_report
 from app.services.workspace_snapshot_store import (
     delete_snapshot_types,
+    get_snapshot_payload,
     list_snapshot_payloads,
     upsert_snapshot,
     upsert_snapshot_monotonic,
@@ -77,8 +79,13 @@ from app.services.integrated_content_projection_service import (
     validate_integrated_content_projection,
 )
 from app.services.ops_standup_projection_service import (
+    LEGACY_PROJECTION_SCHEMA as OPS_STANDUP_LEGACY_SCHEMA,
+    MAX_BYTES as OPS_STANDUP_MAX_BYTES,
+    OpsStandupProjectionError,
+    PRE_CLOCK_PROJECTION_SCHEMA as OPS_STANDUP_PRE_CLOCK_SCHEMA,
     SNAPSHOT_TYPE as OPS_STANDUP_SNAPSHOT_TYPE,
     WORKSPACE_KEY as OPS_STANDUP_WORKSPACE_KEY,
+    ops_projection_semantic_sha256,
     validate_ops_standup_projection,
 )
 from app.services.workspace_snapshot_service import SNAPSHOT_WEEKLY_PLAN, workspace_snapshot_service
@@ -124,6 +131,209 @@ BRAIN_WORKSPACE_PREVIEW_TYPES = {
     "publication_performance_summary": "publication_performance_summary",
     "publication_performance_status": "publication_performance_status",
 }
+
+# v1 was the original bounded Ops mirror. v2 added workspace recursion but
+# still predated the canonical clock/attempt receipt. These exact top-level
+# writer shapes are the only legacy rows that may take the one-time, same-
+# observation migration to canonical attempt 2. Read compatibility remains
+# broader and sanitizing; write migration is intentionally narrower.
+_OPS_STANDUP_LEGACY_V1_FIELDS = (
+    "schema_version",
+    "generated_at",
+    "state",
+    "reason_codes",
+    "ops_conclusion_id",
+    "portfolio_cycle_id",
+    "cycle_date",
+    "observed_at",
+    "status",
+    "workspace_updates",
+    "workspace_cycle_evaluations",
+    "ai_clone_process_updates",
+    "endpoint_and_subsystem_health",
+    "work_underway",
+    "completed_work",
+    "blockers",
+    "urgent_escalations",
+    "workspace_decisions",
+    "ops_decisions",
+    "owner_calls",
+    "canonical_decisions",
+    "decision_readiness",
+    "degraded_system_warnings",
+    "supporting_evidence_links",
+    "recommended_next_actions",
+    "data_policy",
+)
+_OPS_STANDUP_LEGACY_MIGRATION_SCHEMAS = {
+    OPS_STANDUP_LEGACY_SCHEMA: _OPS_STANDUP_LEGACY_V1_FIELDS,
+    OPS_STANDUP_PRE_CLOCK_SCHEMA: (
+        *_OPS_STANDUP_LEGACY_V1_FIELDS,
+        "workspace_recursion",
+    ),
+}
+_OPS_STANDUP_DATA_POLICY = {
+    "canonical_authority": "mac_local_sql",
+    "railway_role": "authenticated_bounded_ops_projection",
+    "private_bodies_included": False,
+}
+_OPS_STANDUP_LEGACY_UTC_TIMESTAMP_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)"
+)
+
+
+def _validated_ops_legacy_migration_candidate(
+    payload: Any,
+) -> dict[str, Any] | None:
+    """Admit only an exact, bounded v1/v2 writer payload for migration.
+
+    The normal projection validator deliberately keeps old Railway rows
+    readable by sanitizing and upgrading them. That lossy read path is not a
+    write authority: a malformed nested value could otherwise be discarded
+    during validation and the raw row still receive the one-time revision
+    bypass. Migration therefore requires the exact historical top-level
+    writer shape and a lossless field-for-field upgrade of every data-bearing
+    value. The returned JSON copy is later compared atomically with the row
+    inside the monotonic upsert.
+    """
+
+    if not isinstance(payload, dict):
+        return None
+    schema = payload.get("schema_version")
+    expected_fields = _OPS_STANDUP_LEGACY_MIGRATION_SCHEMAS.get(schema)
+    if expected_fields is None or set(payload) != set(expected_fields):
+        return None
+    try:
+        serialized = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError):
+        return None
+    if len(serialized.encode("utf-8")) > OPS_STANDUP_MAX_BYTES:
+        return None
+    exact_payload = json.loads(serialized)
+    if exact_payload.get("data_policy") != _OPS_STANDUP_DATA_POLICY:
+        return None
+
+    for identity_field in ("ops_conclusion_id", "portfolio_cycle_id"):
+        identity = exact_payload.get(identity_field)
+        if (
+            not isinstance(identity, str)
+            or not identity
+            or identity != identity.strip()
+            or len(identity) > 200
+        ):
+            return None
+    cycle_date = exact_payload.get("cycle_date")
+    if (
+        not isinstance(cycle_date, str)
+        or cycle_date != cycle_date.strip()
+        or len(cycle_date) != 10
+    ):
+        return None
+    parsed_times: dict[str, datetime] = {}
+    for timestamp_field in ("generated_at", "observed_at"):
+        timestamp = exact_payload.get(timestamp_field)
+        if (
+            not isinstance(timestamp, str)
+            or not timestamp
+            or timestamp != timestamp.strip()
+            or len(timestamp) > 100
+            or _OPS_STANDUP_LEGACY_UTC_TIMESTAMP_RE.fullmatch(timestamp) is None
+        ):
+            return None
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if (
+            parsed.tzinfo is None
+            or parsed.utcoffset() is None
+            or parsed.utcoffset() != timedelta(0)
+        ):
+            return None
+        parsed_times[timestamp_field] = parsed.astimezone(timezone.utc)
+    if parsed_times["observed_at"].date().isoformat() != cycle_date:
+        return None
+    state = exact_payload.get("state")
+    status = exact_payload.get("status")
+    raw_reason_codes = exact_payload.get("reason_codes")
+    if (
+        state not in {"ready", "degraded"}
+        or status not in {"complete", "degraded"}
+        or not isinstance(raw_reason_codes, list)
+        or len(raw_reason_codes) > 20
+        or any(
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > 200
+            for item in raw_reason_codes
+        )
+        or (state == "ready" and (status != "complete" or raw_reason_codes))
+        or (state == "degraded" and not raw_reason_codes)
+    ):
+        return None
+
+    try:
+        upgraded = validate_ops_standup_projection(exact_payload)
+    except OpsStandupProjectionError:
+        return None
+
+    # These fields were already bounded by the historical writer. Requiring
+    # exact equality with the compatibility upgrade proves that no unknown
+    # nested field, private material, type confusion, truncation, or
+    # normalization was hidden by the read path.
+    lossless_fields = (
+        "generated_at",
+        "ops_conclusion_id",
+        "portfolio_cycle_id",
+        "cycle_date",
+        "status",
+        "workspace_updates",
+        "workspace_cycle_evaluations",
+        "ai_clone_process_updates",
+        "endpoint_and_subsystem_health",
+        "work_underway",
+        "completed_work",
+        "blockers",
+        "urgent_escalations",
+        "workspace_decisions",
+        "ops_decisions",
+        "owner_calls",
+        "canonical_decisions",
+        "decision_readiness",
+        "degraded_system_warnings",
+        "supporting_evidence_links",
+        "data_policy",
+    )
+    if any(upgraded.get(field) != exact_payload.get(field) for field in lossless_fields):
+        return None
+    if schema == OPS_STANDUP_PRE_CLOCK_SCHEMA and (
+        upgraded.get("workspace_recursion")
+        != exact_payload.get("workspace_recursion")
+    ):
+        return None
+    if upgraded.get("reason_codes", [])[: len(raw_reason_codes)] != raw_reason_codes:
+        return None
+    expected_recommendations: list[dict[str, Any]] = []
+    raw_recommendations = exact_payload.get("recommended_next_actions")
+    if not isinstance(raw_recommendations, list):
+        return None
+    for item in raw_recommendations:
+        if isinstance(item, str) and item and item == item.strip() and len(item) <= 1000:
+            expected_recommendations.append({"summary": item})
+        elif isinstance(item, dict):
+            expected_recommendations.append(item)
+        else:
+            return None
+    if upgraded.get("recommended_next_actions") != expected_recommendations:
+        return None
+    return exact_payload
 
 
 def _parse_generated_at(value: str) -> datetime:
@@ -834,13 +1044,85 @@ def publish_integrated_content_projection(payload: IntegratedContentProjectionSy
 
 @router.post("/ops-standup/sync")
 def publish_ops_standup_projection(payload: OpsStandupProjectionSyncRequest):
-    projection = validate_ops_standup_projection(payload.projection)
+    try:
+        projection = validate_ops_standup_projection(payload.projection)
+    except OpsStandupProjectionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Ops standup projection clock or bounded contract is invalid.",
+        ) from exc
+    request_generated_at = _parse_generated_at(payload.generated_at)
+    projection_generated_at = _parse_generated_at(str(projection["generated_at"]))
+    if request_generated_at != projection_generated_at:
+        raise HTTPException(
+            status_code=422,
+            detail="Ops standup projection receipt time does not match its envelope.",
+        )
+    semantic_observed_at = (
+        _parse_generated_at(str(projection["observed_at"]))
+        if projection.get("observed_at") is not None
+        else None
+    )
+    semantic_attempt_number = projection.get("ops_conclusion_attempt_number")
+    if semantic_observed_at is not None and not isinstance(
+        semantic_attempt_number, int
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Ops standup projection is missing its canonical conclusion attempt.",
+        )
+    legacy_candidate = None
+    if semantic_observed_at is not None and semantic_attempt_number == 2:
+        try:
+            legacy_snapshot_payload = get_snapshot_payload(
+                OPS_STANDUP_WORKSPACE_KEY,
+                OPS_STANDUP_SNAPSHOT_TYPE,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Ops standup projection storage is unavailable.",
+            ) from exc
+        legacy_candidate = _validated_ops_legacy_migration_candidate(
+            legacy_snapshot_payload
+        )
+    legacy_migration_kwargs = (
+        {
+            "semantic_legacy_migration_revision": 2,
+            "semantic_legacy_migration_schemas": (
+                _OPS_STANDUP_LEGACY_MIGRATION_SCHEMAS
+            ),
+            "semantic_legacy_migration_required_values": {
+                "data_policy": _OPS_STANDUP_DATA_POLICY,
+            },
+            "semantic_legacy_migration_max_bytes": OPS_STANDUP_MAX_BYTES,
+            "semantic_legacy_migration_expected_payload": legacy_candidate,
+        }
+        if legacy_candidate is not None
+        else {}
+    )
     try:
         stored_snapshot, stored = upsert_snapshot_monotonic(
             OPS_STANDUP_WORKSPACE_KEY,
             OPS_STANDUP_SNAPSHOT_TYPE,
             projection,
-            generated_at=_parse_generated_at(payload.generated_at),
+            generated_at=request_generated_at,
+            semantic_observed_at=semantic_observed_at,
+            semantic_order_required=True,
+            semantic_revision=semantic_attempt_number,
+            semantic_revision_field=(
+                "ops_conclusion_attempt_number"
+                if semantic_attempt_number is not None
+                else None
+            ),
+            semantic_revision_required=semantic_observed_at is not None,
+            semantic_revision_strict_increment=semantic_observed_at is not None,
+            semantic_identity_fields=(
+                ("ops_conclusion_id", "portfolio_cycle_id")
+                if semantic_observed_at is not None
+                else ()
+            ),
+            **legacy_migration_kwargs,
             metadata={"source": "codex_local_runner", "projection": "ops_standup"},
         )
     except Exception as exc:
@@ -850,12 +1132,80 @@ def publish_ops_standup_projection(payload: OpsStandupProjectionSyncRequest):
     current = validate_ops_standup_projection(stored_snapshot.get("payload"))
     requested_hash = hashlib.sha256(json.dumps(projection, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
     current_hash = hashlib.sha256(json.dumps(current, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    disposition = "stored"
+    if not stored:
+        current_observed_at = (
+            _parse_generated_at(str(current["observed_at"]))
+            if current.get("observed_at") is not None
+            else None
+        )
+        current_attempt_number = current.get("ops_conclusion_attempt_number")
+        if current_hash == requested_hash:
+            disposition = "idempotent_same_hash"
+        elif (
+            semantic_observed_at is not None
+            and current_observed_at == semantic_observed_at
+        ):
+            if current_attempt_number == semantic_attempt_number:
+                if (
+                    current.get("ops_conclusion_id")
+                    == projection.get("ops_conclusion_id")
+                    and current.get("portfolio_cycle_id")
+                    == projection.get("portfolio_cycle_id")
+                    and current.get("ops_conclusion_attempt_id")
+                    == projection.get("ops_conclusion_attempt_id")
+                    and current.get("ops_conclusion_attempt_number")
+                    == projection.get("ops_conclusion_attempt_number")
+                    and current.get("ops_conclusion_attempt_payload_sha256")
+                    == projection.get("ops_conclusion_attempt_payload_sha256")
+                    and ops_projection_semantic_sha256(current)
+                    == ops_projection_semantic_sha256(projection)
+                ):
+                    disposition = "idempotent_same_canonical_attempt"
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The same canonical Ops attempt has conflicting semantic content.",
+                    )
+            elif (
+                isinstance(current_attempt_number, int)
+                and isinstance(semantic_attempt_number, int)
+                and semantic_attempt_number <= current_attempt_number
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="A stale or lower canonical Ops attempt cannot replace the current attempt.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A canonical Ops attempt cannot skip the next append-only attempt.",
+                )
+        elif (
+            current_observed_at is not None
+            and semantic_observed_at is not None
+            and current_observed_at > semantic_observed_at
+        ):
+            disposition = "retained_newer_semantic_observation"
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail="Ops projection semantic ordering could not be established.",
+            )
     return {
         "stored": stored,
-        "disposition": "stored" if stored else ("idempotent_same_hash" if current_hash == requested_hash else "retained_newer"),
+        "disposition": disposition,
         "workspace_key": OPS_STANDUP_WORKSPACE_KEY,
         "snapshot_type": OPS_STANDUP_SNAPSHOT_TYPE,
         "payload_sha256": current_hash,
+        "semantic_payload_sha256": ops_projection_semantic_sha256(current),
+        "ops_conclusion_attempt_id": current.get("ops_conclusion_attempt_id"),
+        "ops_conclusion_attempt_number": current.get(
+            "ops_conclusion_attempt_number"
+        ),
+        "ops_conclusion_attempt_payload_sha256": current.get(
+            "ops_conclusion_attempt_payload_sha256"
+        ),
         "updated_at": stored_snapshot.get("updated_at"),
     }
 

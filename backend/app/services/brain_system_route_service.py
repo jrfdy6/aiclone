@@ -9,7 +9,12 @@ from typing import Any
 from app.models import PMCard, PMCardCreate, PersonaDelta, PersonaDeltaUpdate, StandupCreate, StandupEntry
 from app.services import persona_delta_service, pm_card_service, standup_service
 from app.services.pm_execution_contract_service import build_execution_contract
-from app.services.workspace_runtime_contract_service import default_standup_kind_for_workspace, standup_participants_for
+from app.services.workspace_runtime_contract_service import (
+    canonical_standup_kind_for_workspace,
+    standup_participants_for,
+    standup_relevance_required_for,
+)
+from app.utils.ai_clone_clock import as_utc, clock_receipt, utc_iso, utc_now
 
 
 ACTION_PM_PREFIXES = (
@@ -117,7 +122,8 @@ def _route_delta_signal_locked(
     workspace_targets = _normalize_workspace_targets(primary_workspace_key=workspace_key, workspace_keys=workspace_keys)
     canonical_targets = _normalize_string_list(canonical_memory_targets or [])
 
-    routed_at = _iso_now()
+    route_observed_at = utc_now()
+    routed_at = utc_iso(route_observed_at)
     route_history = _dedupe_route_records(metadata.get("brain_route_history"))
     pending_memory_routes = _dedupe_route_records(metadata.get("pending_canonical_memory_routes"))
     memory_sync_history = [item for item in (metadata.get("brain_memory_sync_history") or []) if isinstance(item, dict)]
@@ -158,6 +164,7 @@ def _route_delta_signal_locked(
                 selected_items=selected_items,
                 route_id=route_id,
                 known_standup_id=str((existing_history or {}).get("standup_id") or "") or None,
+                observed_at=route_observed_at,
             )
             if route_to_standup
             else (None, False)
@@ -375,6 +382,7 @@ def _create_standup_route(
     selected_items: list[dict[str, Any]],
     route_id: str | None = None,
 ) -> StandupEntry:
+    route_observed_at = utc_now()
     effective_route_id = route_id or build_brain_route_id(
         delta_id=delta.id,
         workspace_key=workspace_key,
@@ -394,6 +402,7 @@ def _create_standup_route(
         selected_items=selected_items,
         route_id=effective_route_id,
         known_standup_id=None,
+        observed_at=route_observed_at,
     )
     return standup
 
@@ -407,7 +416,12 @@ def _ensure_standup_route(
     selected_items: list[dict[str, Any]],
     route_id: str,
     known_standup_id: str | None,
+    observed_at: datetime,
 ) -> tuple[StandupEntry, bool]:
+    standup_kind = canonical_standup_kind_for_workspace(
+        workspace_key,
+        standup_kind,
+    )
     if known_standup_id:
         known = standup_service.get_standup(known_standup_id)
         known_payload = dict(known.payload or {}) if known is not None else {}
@@ -419,6 +433,20 @@ def _ensure_standup_route(
             return existing, True
 
     participants = _participants_for(workspace_key, standup_kind)
+    route_observed_at = as_utc(observed_at)
+    relevance_pending = standup_relevance_required_for(workspace_key)
+    participant_claims: dict[str, Any] = {"participants": participants}
+    if relevance_pending:
+        participant_claims.update(
+            {
+                "participants": [],
+                "participant_selection_state": "pending_standup_prep_relevance",
+                "participant_selection_authority": "standup_relevance/v1",
+                "participant_selection_next_step": "standup_prep",
+                "canonical_pm_execution_authority": "Jean-Claude",
+                "pm_execution_authority_transferred": False,
+            }
+        )
     agenda = [f"Review routed Brain signal: {delta.trait}"]
     if selected_items:
         agenda.extend(
@@ -432,13 +460,21 @@ def _ensure_standup_route(
             owner="Jean-Claude",
             workspace_key=workspace_key,
             status="queued",
-            needs=[f"Brain triage queued this signal for meeting review: {delta.trait}"],
+            needs=[
+                (
+                    f"Brain triage queued this signal for governed FEEZIE relevance evaluation: {delta.trait}"
+                    if relevance_pending
+                    else f"Brain triage queued this signal for meeting review: {delta.trait}"
+                )
+            ],
             source="brain_triage",
             payload={
                 "standup_kind": standup_kind,
+                "observed_at": utc_iso(route_observed_at),
+                "clock": clock_receipt(route_observed_at),
                 "summary": summary,
                 "agenda": agenda,
-                "participants": participants,
+                **participant_claims,
                 "brain_route_id": route_id,
                 "triage_source_delta_id": delta.id,
                 "triage_source_capture_id": delta.capture_id,
@@ -735,9 +771,7 @@ def _normalize_workspace_targets(primary_workspace_key: str | None, workspace_ke
 
 
 def _standup_kind_for_workspace(workspace_key: str, requested_kind: str) -> str:
-    if requested_kind and requested_kind != "auto":
-        return requested_kind
-    return default_standup_kind_for_workspace(workspace_key)
+    return canonical_standup_kind_for_workspace(workspace_key, requested_kind)
 
 
 def _iso_now() -> str:

@@ -13,7 +13,13 @@ FEEZIE_RUNTIME_CONTRACT: dict[str, Any] = {
     "workspace_agent": None,
     "execution_mode": "direct",
     "default_standup_kind": "workspace_sync",
-    "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
+    # FEEZIE does not have a static workspace-sync roster. Its canonical
+    # standup relevance plan selects zero, one, or multiple role lenses from
+    # the current agenda; meeting closure remains a separate Jean-Claude
+    # authority. An explicit empty list prevents the registry's historical
+    # trio from leaking back into runtime routing as a selected roster.
+    "workspace_sync_participants": [],
+    "standup_relevance_required": True,
     "pm_review_policy": {
         "interrupt_policy": "owner_gate_only",
         "default_resolution_mode": "close_and_spawn_next",
@@ -140,6 +146,13 @@ def runtime_contract_for_workspace(workspace_key: str | None) -> dict[str, Any]:
     manager_agent = str(contract.get("manager_agent") or registry.get("manager_agent") or "Jean-Claude")
     target_agent = str(contract.get("target_agent") or registry.get("target_agent") or manager_agent)
     workspace_agent = contract.get("workspace_agent") if "workspace_agent" in contract else registry.get("workspace_agent")
+    configured_participants = (
+        contract.get("workspace_sync_participants")
+        if "workspace_sync_participants" in contract
+        else registry.get("workspace_sync_participants")
+    )
+    if not isinstance(configured_participants, list):
+        configured_participants = [manager_agent, target_agent]
     return {
         "display_name": str(contract.get("display_name") or registry.get("display_name") or normalized),
         "manager_agent": manager_agent,
@@ -147,11 +160,8 @@ def runtime_contract_for_workspace(workspace_key: str | None) -> dict[str, Any]:
         "workspace_agent": workspace_agent,
         "execution_mode": str(contract.get("execution_mode") or registry.get("execution_mode") or "delegated"),
         "default_standup_kind": str(contract.get("default_standup_kind") or registry.get("default_standup_kind") or "workspace_sync"),
-        "workspace_sync_participants": list(
-            contract.get("workspace_sync_participants")
-            or registry.get("workspace_sync_participants")
-            or [manager_agent, target_agent]
-        ),
+        "workspace_sync_participants": list(configured_participants),
+        "standup_relevance_required": bool(contract.get("standup_relevance_required")),
         "pm_review_policy": dict(contract.get("pm_review_policy") or {}),
     }
 
@@ -198,10 +208,57 @@ def default_standup_kind_for_workspace(workspace_key: str | None) -> str:
     return str(contract.get("default_standup_kind") or "workspace_sync")
 
 
-def standup_participants_for(workspace_key: str | None, standup_kind: str | None) -> list[str]:
-    normalized_kind = str(standup_kind or "").strip()
+def canonical_standup_kind_for_workspace(
+    workspace_key: str | None,
+    requested_kind: str | None,
+) -> str:
+    """Resolve a requested kind without transferring another lane's authority.
+
+    Shared Ops owns the named executive cadences. Project workspaces own their
+    one canonical project-sync kind. Normalizing at this boundary prevents an
+    arbitrary ``executive_ops`` string from selecting Neo/Yoda for a project or
+    creating a Brain agenda that the canonical project target can never read.
+    """
+
+    normalized_workspace = canonicalize_workspace_key(
+        workspace_key,
+        default="shared_ops",
+    )
+    default_kind = default_standup_kind_for_workspace(normalized_workspace)
+    normalized_kind = str(requested_kind or "").strip()
     if not normalized_kind or normalized_kind == "auto":
-        normalized_kind = default_standup_kind_for_workspace(workspace_key)
+        return default_kind
+    if normalized_workspace == "shared_ops":
+        return (
+            normalized_kind
+            if normalized_kind in EXECUTIVE_STANDUP_KINDS
+            else default_kind
+        )
+    return default_kind
+
+
+def standup_relevance_required_for(workspace_key: str | None) -> bool:
+    """Return whether participant selection must come from relevance evidence.
+
+    This is intentionally workspace-scoped rather than standup-kind-scoped so
+    a caller cannot transfer executive-trio authority into FEEZIE by supplying
+    an executive kind for a FEEZIE route.
+    """
+
+    contract = runtime_contract_for_workspace(workspace_key)
+    return bool(contract.get("standup_relevance_required"))
+
+
+def standup_participants_for(workspace_key: str | None, standup_kind: str | None) -> list[str]:
+    normalized_kind = canonical_standup_kind_for_workspace(
+        workspace_key,
+        standup_kind,
+    )
+    if standup_relevance_required_for(workspace_key):
+        # No role has been selected until a validated standup_relevance/v1
+        # plan exists. The plan's `run` disposition adds Jean-Claude as the
+        # non-transferable closer through effective_feezie_meeting_participants.
+        return []
     if normalized_kind in EXECUTIVE_STANDUP_KINDS:
         return ["Jean-Claude", "Neo", "Yoda"]
     contract = runtime_contract_for_workspace(workspace_key)

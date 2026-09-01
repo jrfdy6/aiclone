@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -19,9 +21,24 @@ REPO_ROOT = resolve_repo_root()
 WORKSPACES_ROOT = REPO_ROOT / "workspaces"
 
 WORKSPACE_STATUS_VALUES = ("live", "standing_up", "planned")
+ACTIVE_PORTFOLIO_WORKSPACE_STATUSES = frozenset({"live", "standing_up"})
 WORKSPACE_KIND_VALUES = ("executive", "workspace")
 
 BASE_WORKSPACE_CAPABILITY_KEYS = ("system_health", "pm_work", "standups")
+
+WORKSPACE_GOAL_CONTRACT_SCHEMA_VERSION = "workspace_goal_contract/v1"
+WORKSPACE_GOAL_CONTRACT_AUTHORITY_SCHEMA_VERSION = "workspace_goal_contract_authority/v1"
+WORKSPACE_GOAL_CONTRACT_AUTHORITY_PATH = WORKSPACES_ROOT / "shared-ops" / "workspace_goal_contracts.json"
+WORKSPACE_GOAL_CONTRACT_AUTHORITY_MAX_BYTES = 256 * 1024
+WORKSPACE_GOAL_CONTRACT_REQUIRED_FIELDS = (
+    "goal",
+    "progress_signals",
+    "phase_gate",
+    "no_action_trigger",
+    "safe_internal_boundary",
+    "owner_required_boundary",
+    "authority_refs",
+)
 
 WORKSPACE_CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
     "system_health": {
@@ -114,6 +131,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
             "Let cross-workspace signals route through one executive lane",
             "Promote only what should become real work",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": ["shared_ops", "shared-ops", "shared ops"],
         "route": None,
         "accent": "#f59e0b",
@@ -137,13 +155,15 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "workspace_agent": None,
         "execution_mode": "direct",
         "default_standup_kind": "workspace_sync",
-        "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
+        "workspace_sync_participants": [],
+        "standup_relevance_required": True,
         "description": "Turns Feeze's knowledge, experience, and aspirations into public value, credibility, relationships, audience, and durable distribution.",
         "operating_principles": [
             "Persona truth first, posting second",
             "Use live source signals before generic ideation",
             "Turn reactions into reusable visibility assets",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": [
             "feezie-os",
             "feezie os",
@@ -184,6 +204,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
             "Let frontline signals drive process changes",
             "Make execution clearer before scaling it",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": ["fusion-os", "fusion os", "fusion"],
         "route": None,
         "accent": "#22c55e",
@@ -213,6 +234,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
             "Prioritize owned-wardrobe trust over shopping pressure",
             "Make recommendation quality and reasoning legible",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": ["easyoutfitapp", "easy outfit app", "easy outfit"],
         "route": None,
         "accent": "#f472b6",
@@ -243,6 +265,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
             "Optimize for traffic and learning before catalog breadth",
             "Keep fulfillment and operations simple enough to repeat",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": ["ai-swag-store", "ai swag store", "swag store"],
         "route": None,
         "accent": "#f59e0b",
@@ -272,6 +295,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
             "Earn credibility without inventing capability claims",
             "Optimize for qualified inbound email from real buyers",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": ["agc"],
         "route": None,
         "accent": "#a78bfa",
@@ -302,6 +326,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
             "Use verified product and traffic evidence before expanding the tool set",
             "Preserve private career evidence without inventing impact claims",
         ],
+        "goal_contract_authority": "private_shared_ops",
         "aliases": [
             "work-life-tools",
             "work life tools",
@@ -319,9 +344,124 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
 )
 
 
+def _validated_goal_contract(workspace_key: str, contract: Any) -> dict[str, Any]:
+    if not isinstance(contract, dict):
+        raise ValueError(f"Workspace `{workspace_key}` is missing its canonical goal contract.")
+    expected_fields = {"schema_version", *WORKSPACE_GOAL_CONTRACT_REQUIRED_FIELDS}
+    if set(contract) != expected_fields:
+        raise ValueError(f"Workspace `{workspace_key}` goal contract has unsupported fields.")
+    if str(contract.get("schema_version") or "") != WORKSPACE_GOAL_CONTRACT_SCHEMA_VERSION:
+        raise ValueError(f"Workspace `{workspace_key}` has an unsupported goal-contract schema.")
+    missing = [field for field in WORKSPACE_GOAL_CONTRACT_REQUIRED_FIELDS if not contract.get(field)]
+    if missing:
+        raise ValueError(f"Workspace `{workspace_key}` goal contract is missing: {', '.join(missing)}.")
+
+    normalized = {"schema_version": WORKSPACE_GOAL_CONTRACT_SCHEMA_VERSION}
+    for field in ("progress_signals", "safe_internal_boundary", "owner_required_boundary", "authority_refs"):
+        values = contract.get(field)
+        if not isinstance(values, list) or not all(isinstance(value, str) and value.strip() for value in values):
+            raise ValueError(f"Workspace `{workspace_key}` goal-contract field `{field}` must contain non-empty strings.")
+        normalized[field] = [value.strip() for value in values]
+    for field in ("goal", "phase_gate", "no_action_trigger"):
+        value = contract.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Workspace `{workspace_key}` goal-contract field `{field}` must be a non-empty string.")
+        normalized[field] = value.strip()
+    return normalized
+
+
+def _parse_authority_observed_at(value: Any) -> str:
+    raw = str(value or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Workspace goal authority observed_at must be ISO-8601.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Workspace goal authority observed_at must be timezone-aware.")
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+@lru_cache(maxsize=1)
+def _load_private_goal_contract_authority() -> dict[str, Any] | None:
+    """Read the private goal authority when this checkout legitimately has it.
+
+    The public deployment tree intentionally excludes this file. Missing is
+    therefore a bounded availability state, while a present-but-invalid file
+    fails closed for goal-directed work without disabling structural routing.
+    """
+
+    path = WORKSPACE_GOAL_CONTRACT_AUTHORITY_PATH
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Workspace goal authority must be a regular non-symlink file.")
+    if path.stat().st_size > WORKSPACE_GOAL_CONTRACT_AUTHORITY_MAX_BYTES:
+        raise ValueError("Workspace goal authority exceeds its bounded size.")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Workspace goal authority could not be read as bounded JSON.") from exc
+    required_top_level = {
+        "schema_version",
+        "observed_at",
+        "clock",
+        "write_authority",
+        "contracts",
+    }
+    if not isinstance(payload, dict) or set(payload) != required_top_level:
+        raise ValueError("Workspace goal authority has unsupported top-level fields.")
+    if payload.get("schema_version") != WORKSPACE_GOAL_CONTRACT_AUTHORITY_SCHEMA_VERSION:
+        raise ValueError("Workspace goal authority has an unsupported schema.")
+    if payload.get("write_authority") != "private_workspace_repository":
+        raise ValueError("Workspace goal authority has an unsupported writer.")
+    clock = payload.get("clock")
+    if (
+        not isinstance(clock, dict)
+        or set(clock) != {"authority", "timestamp_meaning"}
+        or clock.get("authority") != "ai_clone_utc"
+        or not str(clock.get("timestamp_meaning") or "").strip()
+    ):
+        raise ValueError("Workspace goal authority has an invalid clock contract.")
+    observed_at = _parse_authority_observed_at(payload.get("observed_at"))
+    contracts = payload.get("contracts")
+    expected_keys = {str(entry["key"]) for entry in _WORKSPACE_REGISTRY}
+    if not isinstance(contracts, dict) or set(contracts) != expected_keys:
+        raise ValueError("Workspace goal authority must cover the exact canonical portfolio.")
+    normalized_contracts = {
+        workspace_key: _validated_goal_contract(workspace_key, contracts[workspace_key])
+        for workspace_key in sorted(expected_keys)
+    }
+    canonical = {
+        "schema_version": WORKSPACE_GOAL_CONTRACT_AUTHORITY_SCHEMA_VERSION,
+        "observed_at": observed_at,
+        "clock": {
+            "authority": "ai_clone_utc",
+            "timestamp_meaning": str(clock["timestamp_meaning"]).strip(),
+        },
+        "write_authority": "private_workspace_repository",
+        "contracts": normalized_contracts,
+    }
+    canonical["authority_sha256"] = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return canonical
+
+
+def _goal_contract_authority_state() -> tuple[dict[str, Any] | None, str]:
+    try:
+        authority = _load_private_goal_contract_authority()
+    except ValueError:
+        return None, "invalid_private_authority"
+    if authority is None:
+        return None, "private_authority_unavailable"
+    return authority, "available_private_authority"
+
+
 @lru_cache(maxsize=1)
 def workspace_registry_entries() -> tuple[dict[str, Any], ...]:
     ordered = sorted(_WORKSPACE_REGISTRY, key=lambda item: (int(item.get("priority_order") or 0), str(item.get("key") or "")))
+    goal_authority, goal_authority_state = _goal_contract_authority_state()
+    contracts = goal_authority.get("contracts") if isinstance(goal_authority, dict) else {}
     enriched: list[dict[str, Any]] = []
     for entry in ordered:
         capability_keys = list(
@@ -335,6 +475,19 @@ def workspace_registry_entries() -> tuple[dict[str, Any], ...]:
         enriched.append(
             {
                 **entry,
+                "goal_contract": dict(contracts.get(str(entry["key"])) or {}),
+                "goal_contract_status": goal_authority_state,
+                "goal_contract_source_path": (
+                    "workspaces/shared-ops/workspace_goal_contracts.json"
+                    if goal_authority_state == "available_private_authority"
+                    else None
+                ),
+                "goal_contract_observed_at": (
+                    goal_authority.get("observed_at") if isinstance(goal_authority, dict) else None
+                ),
+                "goal_contract_authority_sha256": (
+                    goal_authority.get("authority_sha256") if isinstance(goal_authority, dict) else None
+                ),
                 "capability_keys": capability_keys,
                 "capabilities": [
                     {"key": key, **WORKSPACE_CAPABILITY_CATALOG[key]}
@@ -355,7 +508,7 @@ def workspace_registry_map() -> dict[str, dict[str, Any]]:
 def workspace_aliases_map() -> dict[str, frozenset[str]]:
     return {
         str(entry["key"]): frozenset(str(alias).strip() for alias in entry.get("aliases") or [] if str(alias).strip())
-        for entry in workspace_registry_entries()
+        for entry in _WORKSPACE_REGISTRY
     }
 
 
@@ -366,6 +519,16 @@ def workspace_alias_lookup() -> dict[str, str]:
         for alias in aliases:
             lookup[alias] = canonical
     return lookup
+
+
+def clear_workspace_registry_caches() -> None:
+    """Clear the bounded registry/goal read caches after an authority change."""
+
+    _load_private_goal_contract_authority.cache_clear()
+    workspace_registry_entries.cache_clear()
+    workspace_registry_map.cache_clear()
+    workspace_aliases_map.cache_clear()
+    workspace_alias_lookup.cache_clear()
 
 
 def workspace_registry_keys(*, include_executive: bool = True) -> tuple[str, ...]:
@@ -384,10 +547,22 @@ def project_workspace_keys() -> tuple[str, ...]:
 
 
 def portfolio_workspace_keys() -> tuple[str, ...]:
+    """Return the canonical active portfolio scope used by Dream and Ops."""
+
+    return active_portfolio_workspace_keys()
+
+
+def active_portfolio_workspace_keys(
+    entries: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+) -> tuple[str, ...]:
+    source = entries if entries is not None else workspace_registry_entries()
     return tuple(
         str(entry["key"])
-        for entry in workspace_registry_entries()
-        if entry.get("kind") == "workspace" and bool(entry.get("portfolio_visible"))
+        for entry in source
+        if entry.get("kind") in {None, "workspace"}
+        and bool(entry.get("portfolio_visible"))
+        and str(entry.get("status") or "") in ACTIVE_PORTFOLIO_WORKSPACE_STATUSES
+        and str(entry.get("key") or "").strip()
     )
 
 
@@ -502,5 +677,21 @@ def workspace_registry_payload(*, include_executive: bool = True) -> dict[str, A
             {"key": key, **definition}
             for key, definition in WORKSPACE_CAPABILITY_CATALOG.items()
         ],
-        "workspaces": [dict(entry) for entry in workspaces],
+        "workspaces": [
+            {
+                **{
+                    key: value
+                    for key, value in entry.items()
+                    if key not in {
+                        "goal_contract",
+                        "goal_contract_source_path",
+                        "goal_contract_status",
+                        "goal_contract_observed_at",
+                        "goal_contract_authority_sha256",
+                    }
+                },
+                "goal_contract_status": "private_authority_not_exposed_by_structural_registry",
+            }
+            for entry in workspaces
+        ],
     }

@@ -5,7 +5,7 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
-from uuid import uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo
 
 from psycopg.rows import dict_row
@@ -22,6 +22,7 @@ from app.models import (
     PMExecutionGateBackfillItem,
     PMExecutionGateBackfillRequest,
     PMExecutionGateBackfillResult,
+    PMExecutionClaimFailureRequest,
     PMExecutionClaimRequest,
     PMExecutionResultCommitRequest,
     PMStaleExecutionClaimRecoveryRequest,
@@ -31,6 +32,7 @@ from app.models import (
 from app.services.open_brain_db import get_pool
 from app.services.execution_gate_service import (
     AUTO_EXECUTE,
+    BOUNDED_PROJECT_CAPABILITY,
     POLICY_VERSION,
     REQUIRE_APPROVAL,
     apply_execution_gate,
@@ -44,6 +46,8 @@ from app.services.execution_artifact_reference_service import (
     contains_private_filesystem_reference,
     validate_remote_execution_artifact_reference,
 )
+from app.services.brain_response_privacy_service import sanitize_brain_text
+from app.services.canonical_decision_service import PM_OWNER_DECISION_CHOICES
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.pm_review_hygiene_audit_service import list_review_hygiene_audit, record_review_hygiene_audit
 from app.services.trigger_identity_service import build_pm_trigger_key
@@ -57,11 +61,18 @@ from app.services.workspace_runtime_contract_service import (
     execution_defaults_for_workspace as runtime_execution_defaults_for_workspace,
     pm_review_policy_for_workspace as runtime_pm_review_policy_for_workspace,
 )
-from app.security.execution_authorization import execution_signing_configured, sign_execution_payload, verify_execution_payload
+from app.security.execution_authorization import (
+    AUTH_FIELD,
+    execution_signing_configured,
+    sign_execution_payload,
+    verify_execution_payload,
+)
+from app.utils.ai_clone_clock import as_utc, utc_now
 
 AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 AUTO_CONTRACT_RETRY_LIMIT = 2
+FAILED_EXECUTION_RECOVERY_SCHEMA_VERSION = "pm_failed_execution_recovery/v1"
 HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK = "fallback_watchdog_writeback"
 HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK = "linkedin_scheduled_writeback"
 HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK = "standup_prep_writeback"
@@ -137,6 +148,42 @@ class PMExecutionResultCommitConflict(ValueError):
 
 class PMExecutionClaimConflict(ValueError):
     """Raised when a local runner cannot atomically acquire a PM execution claim."""
+
+
+class PMExecutionClaimFailureConflict(ValueError):
+    """Raised when a runner failure no longer matches the live signed claim."""
+
+
+class PMOwnerDecisionReconciliationConflict(ValueError):
+    """Raised when a canonical owner choice no longer matches its signed PM intent."""
+
+
+class PMCardMutationConflict(ValueError):
+    """Raised when a best-effort PM mutation cannot survive its bounded CAS retry."""
+
+
+class PMRecommendationIdentityConflict(ValueError):
+    """Raised when one coordination recommendation cannot resolve to one PM card."""
+
+
+PM_OWNER_DECISION_RESOLUTION_SCHEMA = "pm_owner_decision_resolution/v1"
+PM_RETAINED_TRIGGER_EVIDENCE_SCHEMA = "pm_retained_trigger_evidence/v1"
+PM_EXECUTION_RESULT_COMMIT_SCHEMA = "pm_execution_result_commit/v1"
+PM_EXECUTION_RESULT_TIMESTAMP_SEMANTICS = (
+    "executor_finished_at_is_request_created_at/v1"
+)
+PM_RECOMMENDATION_IDENTITY_SCHEMA = "pm_recommendation_identity/v1"
+PM_RECOMMENDATION_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+PM_OWNER_DECISION_APPROVABLE_RISK_FACTORS = frozenset(
+    {"OWNER_JUDGMENT_REQUIRED", "OWNER_REVIEW_REQUIRED"}
+)
+PM_OWNER_DECISION_APPROVABLE_REASON_CODES = frozenset(
+    {
+        "BOUNDED_INTERNAL_PROJECT_WORK",
+        "OWNER_REVIEW_DECISION_REQUIRES_APPROVAL",
+        "OWNER_REVIEW_GATE_PRESENT",
+    }
+)
 
 
 STALE_CLAIM_AUTO_RECOVERABLE_BRAIN_ACTIONS = frozenset(
@@ -408,29 +455,320 @@ def _persist_execution_gate_backfill(card: PMCard, next_payload: dict[str, Any])
     return _row_to_card(row) if row else None
 
 
+_MISSING_PM_PAYLOAD_VALUE = object()
+
+
+def _persist_reconciled_card_update(
+    snapshot: PMCard,
+    *,
+    operation: str,
+    build_update: Any,
+    is_committed: Any,
+    update_kwargs: dict[str, Any] | None = None,
+) -> PMCard:
+    """Persist one card mutation with one bounded, freshly rebuilt CAS retry.
+
+    Callers supply both the mutation builder and the durable-state predicate so a
+    CAS miss can never be converted into a synthetic success. The retry is built
+    from the newly read row and is bound to that row's ``updated_at`` value.
+    """
+
+    current = snapshot
+    for _attempt in range(2):
+        if is_committed(current):
+            return current
+        if current.updated_at is None:
+            raise PMCardMutationConflict(
+                f"{operation} was not persisted because PM card {snapshot.id} has no CAS timestamp."
+            )
+        mutation = build_update(current)
+        if mutation is None:
+            raise PMCardMutationConflict(
+                f"{operation} was not persisted because PM card {snapshot.id} changed incompatibly."
+            )
+        governed_kwargs = dict(update_kwargs or {})
+        governed_kwargs.pop("_expected_updated_at", None)
+        updated = update_card(
+            snapshot.id,
+            mutation,
+            _expected_updated_at=current.updated_at,
+            **governed_kwargs,
+        )
+        if updated is not None:
+            if not is_committed(updated):
+                raise PMCardMutationConflict(
+                    f"{operation} returned without the requested durable PM state for card {snapshot.id}."
+                )
+            return updated
+        current = get_card(snapshot.id)
+        if current is None:
+            raise PMCardMutationConflict(
+                f"{operation} was not persisted because PM card {snapshot.id} no longer exists."
+            )
+
+    if is_committed(current):
+        return current
+    raise PMCardMutationConflict(
+        f"{operation} was not persisted because PM card {snapshot.id} changed during both CAS attempts."
+    )
+
+
+def _status_payload_reconciliation(
+    snapshot: PMCard,
+    *,
+    status: str | None,
+    payload: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Build safe retry and durable-state checks for status/payload mutations."""
+
+    base_payload = dict(snapshot.payload or {})
+    desired_payload = dict(payload) if payload is not None else None
+    changed_payload_keys = (
+        {
+            key
+            for key in set(base_payload) | set(desired_payload or {})
+            if base_payload.get(key, _MISSING_PM_PAYLOAD_VALUE)
+            != (desired_payload or {}).get(key, _MISSING_PM_PAYLOAD_VALUE)
+        }
+        if desired_payload is not None
+        else set()
+    )
+
+    def is_committed(current: PMCard) -> bool:
+        if status is not None and str(current.status) != str(status):
+            return False
+        current_payload = dict(current.payload or {})
+        return all(
+            current_payload.get(key, _MISSING_PM_PAYLOAD_VALUE)
+            == (desired_payload or {}).get(key, _MISSING_PM_PAYLOAD_VALUE)
+            for key in changed_payload_keys
+        )
+
+    def build_update(current: PMCard) -> PMCardUpdate | None:
+        if (
+            status is not None
+            and str(current.status) not in {str(snapshot.status), str(status)}
+        ):
+            return None
+        rebased_payload = dict(current.payload or {})
+        if desired_payload is not None:
+            for key in changed_payload_keys:
+                base_value = base_payload.get(key, _MISSING_PM_PAYLOAD_VALUE)
+                desired_value = desired_payload.get(key, _MISSING_PM_PAYLOAD_VALUE)
+                current_value = rebased_payload.get(key, _MISSING_PM_PAYLOAD_VALUE)
+                if current_value not in (base_value, desired_value):
+                    return None
+                if desired_value is _MISSING_PM_PAYLOAD_VALUE:
+                    rebased_payload.pop(key, None)
+                else:
+                    rebased_payload[key] = desired_value
+        return PMCardUpdate(
+            status=status,
+            payload=rebased_payload if desired_payload is not None else None,
+        )
+
+    return build_update, is_committed
+
+
+def _persist_status_payload_update(
+    snapshot: PMCard,
+    *,
+    operation: str,
+    status: str | None = None,
+    payload: dict[str, Any] | None = None,
+    update_kwargs: dict[str, Any] | None = None,
+) -> PMCard:
+    build_update, is_committed = _status_payload_reconciliation(
+        snapshot,
+        status=status,
+        payload=payload,
+    )
+    return _persist_reconciled_card_update(
+        snapshot,
+        operation=operation,
+        build_update=build_update,
+        is_committed=is_committed,
+        update_kwargs=update_kwargs,
+    )
+
+
+def _signed_new_card_payload(
+    normalized_payload: PMCardCreate,
+    *,
+    card_id: str,
+    payload_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    canonical_payload = dict(normalized_payload.payload or {})
+    canonical_payload.update(payload_overrides or {})
+    execution = (
+        dict(canonical_payload.get("execution") or {})
+        if isinstance(canonical_payload.get("execution"), dict)
+        else {}
+    )
+    execution_state = str(execution.get("state") or "").strip().lower()
+    if execution and execution_state in {"queued", "pending"}:
+        queued_at = datetime.now(timezone.utc).isoformat()
+        execution.setdefault("queued_at", queued_at)
+        execution.setdefault("last_transition_at", queued_at)
+        canonical_payload["execution"] = execution
+    gated_payload = apply_execution_gate(
+        card_id=card_id,
+        title=normalized_payload.title,
+        source=normalized_payload.source,
+        workspace_key=_workspace_key_from_payload(canonical_payload),
+        payload=canonical_payload,
+    )
+    return sign_execution_payload(card_id, gated_payload)
+
+
+def get_or_create_recommendation_card(
+    payload: PMCardCreate,
+    *,
+    coordination_record_id: str,
+    request_sha256: str,
+) -> tuple[PMCard, bool]:
+    """Atomically bind one exact coordination recommendation to one PM card.
+
+    The partial unique index is the canonical concurrency authority. The card
+    and its identity are inserted in one statement and one transaction, so a
+    losing concurrent caller can only return the winner; it cannot leave an
+    unreferenced second card behind.
+    """
+
+    try:
+        canonical_coordination_id = str(UUID(str(coordination_record_id).strip()))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("coordination_record_id must be a canonical UUID") from exc
+    canonical_request_sha256 = str(request_sha256 or "").strip().lower()
+    if PM_RECOMMENDATION_SHA256_PATTERN.fullmatch(canonical_request_sha256) is None:
+        raise ValueError("request_sha256 must be exactly 64 lowercase hexadecimal characters")
+
+    normalized_payload = _normalize_card_create_payload(payload)
+    raw_card_payload = dict(normalized_payload.payload or {})
+    supplied_coordination_id = str(
+        raw_card_payload.get("created_from_coordination_record_id") or ""
+    ).strip()
+    supplied_request_sha256 = str(
+        raw_card_payload.get("recommendation_request_sha256") or ""
+    ).strip().lower()
+    if supplied_coordination_id and supplied_coordination_id != canonical_coordination_id:
+        raise PMRecommendationIdentityConflict(
+            "PM recommendation payload coordination identity does not match its canonical writer"
+        )
+    if supplied_request_sha256 and supplied_request_sha256 != canonical_request_sha256:
+        raise PMRecommendationIdentityConflict(
+            "PM recommendation payload digest does not match its canonical writer"
+        )
+
+    card_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            (
+                "ai-clone:pm-recommendation:"
+                f"{canonical_coordination_id}:{canonical_request_sha256}"
+            ),
+        )
+    )
+    signed_payload = _signed_new_card_payload(
+        normalized_payload,
+        card_id=card_id,
+        payload_overrides={
+            "recommendation_identity_schema_version": PM_RECOMMENDATION_IDENTITY_SCHEMA,
+            "created_from_coordination_record_id": canonical_coordination_id,
+            "recommendation_request_sha256": canonical_request_sha256,
+        },
+    )
+    pool = get_pool()
+    with pool.connection() as conn:
+        try:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pm_cards (
+                        id, title, owner, status, source, link_type, link_id,
+                        recommendation_coordination_record_id,
+                        recommendation_request_sha256,
+                        due_at, payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id, title, owner, status, source, link_type, link_id,
+                              due_at, payload, created_at, updated_at
+                    """,
+                    (
+                        card_id,
+                        normalized_payload.title,
+                        normalized_payload.owner,
+                        normalized_payload.status or "todo",
+                        normalized_payload.source,
+                        normalized_payload.link_type,
+                        normalized_payload.link_id,
+                        canonical_coordination_id,
+                        canonical_request_sha256,
+                        normalized_payload.due_at,
+                        Json(signed_payload),
+                    ),
+                )
+                row = cur.fetchone()
+                created = row is not None
+                if row is None:
+                    cur.execute(
+                        """
+                        SELECT id, title, owner, status, source, link_type, link_id,
+                               due_at, payload, created_at, updated_at
+                        FROM pm_cards
+                        WHERE recommendation_coordination_record_id = %s
+                          AND recommendation_request_sha256 = %s
+                        """,
+                        (canonical_coordination_id, canonical_request_sha256),
+                    )
+                    row = cur.fetchone()
+                if row is None:
+                    raise PMRecommendationIdentityConflict(
+                        "PM recommendation identity conflicted without a canonical card"
+                    )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return _row_to_card(row), created
+
+
 def create_card(payload: PMCardCreate) -> PMCard:
     normalized_payload = _normalize_card_create_payload(payload)
     trigger_key = _payload_value(normalized_payload.payload, "trigger_key")
     if trigger_key:
         existing = find_active_card_by_trigger_key(trigger_key)
         if existing is not None:
-            existing_payload = dict(existing.payload or {})
-            existing_payload["last_triggered_at"] = datetime.now(timezone.utc).isoformat()
-            existing_payload["trigger_replays"] = int(existing_payload.get("trigger_replays") or 0) + 1
-            existing_payload["latest_trigger_origin"] = _payload_value(normalized_payload.payload, "trigger_origin")
-            updated = update_card(existing.id, PMCardUpdate(payload=existing_payload))
-            return updated or existing
+            replay_observed_at = datetime.now(timezone.utc).isoformat()
+            replay_origin = _payload_value(normalized_payload.payload, "trigger_origin")
+            minimum_replay_count = int((existing.payload or {}).get("trigger_replays") or 0) + 1
+
+            def replay_is_committed(current: PMCard) -> bool:
+                current_payload = dict(current.payload or {})
+                return bool(
+                    current_payload.get("last_triggered_at") == replay_observed_at
+                    and current_payload.get("latest_trigger_origin") == replay_origin
+                    and int(current_payload.get("trigger_replays") or 0) >= minimum_replay_count
+                )
+
+            def build_replay_update(current: PMCard) -> PMCardUpdate:
+                current_payload = dict(current.payload or {})
+                current_payload["last_triggered_at"] = replay_observed_at
+                current_payload["trigger_replays"] = int(current_payload.get("trigger_replays") or 0) + 1
+                current_payload["latest_trigger_origin"] = replay_origin
+                return PMCardUpdate(payload=current_payload)
+
+            return _persist_reconciled_card_update(
+                existing,
+                operation=f"PM trigger replay `{trigger_key}`",
+                build_update=build_replay_update,
+                is_committed=replay_is_committed,
+            )
 
     pool = get_pool()
     card_id = str(uuid4())
-    gated_payload = apply_execution_gate(
-        card_id=card_id,
-        title=normalized_payload.title,
-        source=normalized_payload.source,
-        workspace_key=_workspace_key_from_payload(normalized_payload.payload or {}),
-        payload=normalized_payload.payload or {},
-    )
-    signed_payload = sign_execution_payload(card_id, gated_payload)
+    signed_payload = _signed_new_card_payload(normalized_payload, card_id=card_id)
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -456,11 +794,64 @@ def create_card(payload: PMCardCreate) -> PMCard:
     return _row_to_card(row)
 
 
-def update_card(card_id: str, payload: PMCardUpdate) -> Optional[PMCard]:
+def update_card(
+    card_id: str,
+    payload: PMCardUpdate,
+    *,
+    _governed_review_transition: bool = False,
+    _governed_execution_approval_transition: bool = False,
+    _expected_updated_at: datetime | None = None,
+) -> Optional[PMCard]:
     pool = get_pool()
     fields = []
     values = []
-    current_card = get_card(card_id) if payload.payload is not None or payload.title is not None or payload.source is not None else None
+    current_card = get_card(card_id)
+    if current_card is None:
+        return None
+    if (
+        _expected_updated_at is not None
+        and current_card.updated_at != _expected_updated_at
+    ):
+        return None
+    write_expected_updated_at = _expected_updated_at or current_card.updated_at
+    effective_title = payload.title if payload.title is not None else current_card.title
+    effective_source = payload.source if payload.source is not None else current_card.source
+    proposed_card_payload = (
+        payload.payload if payload.payload is not None else dict(current_card.payload or {})
+    )
+    _require_update_preserves_owner_decision_resolution(
+        current_card,
+        proposed_payload=proposed_card_payload,
+    )
+    _require_update_preserves_execution_approval(
+        current_card,
+        proposed_payload=proposed_card_payload,
+        proposed_title=effective_title,
+        proposed_source=effective_source,
+        governed_transition=_governed_execution_approval_transition,
+    )
+    governed_result_transition = bool(
+        _governed_review_transition
+        and _has_purpose_authorized_execution_result_receipt(current_card)
+    )
+    if governed_result_transition:
+        _require_governed_execution_result_review_transition(
+            current_card,
+            proposed_payload=proposed_card_payload,
+            proposed_status=payload.status,
+            proposed_title=effective_title,
+            proposed_source=effective_source,
+            proposed_owner=payload.owner,
+        )
+    else:
+        _require_generic_update_preserves_execution_authority(
+            current_card,
+            proposed_payload=proposed_card_payload,
+            proposed_status=payload.status,
+            proposed_title=effective_title,
+            proposed_source=effective_source,
+            proposed_owner=payload.owner,
+        )
     if payload.title is not None:
         fields.append("title = %s")
         values.append(payload.title)
@@ -483,8 +874,6 @@ def update_card(card_id: str, payload: PMCardUpdate) -> Optional[PMCard]:
         fields.append("due_at = %s")
         values.append(payload.due_at)
     if payload.payload is not None:
-        effective_title = payload.title if payload.title is not None else (current_card.title if current_card is not None else "Untitled PM task")
-        effective_source = payload.source if payload.source is not None else (current_card.source if current_card is not None else None)
         gated_payload = apply_execution_gate(
             card_id=card_id,
             title=effective_title,
@@ -492,6 +881,8 @@ def update_card(card_id: str, payload: PMCardUpdate) -> Optional[PMCard]:
             workspace_key=_workspace_key_from_payload(payload.payload),
             payload=payload.payload,
         )
+        if not governed_result_transition:
+            _require_generic_update_preserves_gate_intent(current_card, gated_payload)
         fields.append("payload = %s")
         values.append(Json(sign_execution_payload(card_id, gated_payload)))
     elif current_card is not None and (payload.title is not None or payload.source is not None):
@@ -504,6 +895,8 @@ def update_card(card_id: str, payload: PMCardUpdate) -> Optional[PMCard]:
             workspace_key=_workspace_key_from_payload(current_card.payload or {}),
             payload=current_card.payload or {},
         )
+        if not governed_result_transition:
+            _require_generic_update_preserves_gate_intent(current_card, gated_payload)
         fields.append("payload = %s")
         values.append(Json(sign_execution_payload(card_id, gated_payload)))
 
@@ -511,12 +904,13 @@ def update_card(card_id: str, payload: PMCardUpdate) -> Optional[PMCard]:
         return get_card(card_id)
 
     fields.append("updated_at = NOW()")
-    values.append(card_id)
+    values.extend((card_id, write_expected_updated_at))
 
     query = f"""
         UPDATE pm_cards
         SET {', '.join(fields)}
         WHERE id = %s
+          AND updated_at = %s
         RETURNING id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
     """
 
@@ -528,6 +922,921 @@ def update_card(card_id: str, payload: PMCardUpdate) -> Optional[PMCard]:
     return _row_to_card(row) if row else None
 
 
+def _claim_bound_execution(payload: dict[str, Any]) -> dict[str, Any] | None:
+    execution = payload.get("execution")
+    if not isinstance(execution, dict):
+        return None
+    if (
+        str(execution.get("state") or "").strip().lower() != "running"
+        or str(execution.get("executor_status") or "").strip().lower() != "running"
+        or not str(execution.get("claim_id") or "").strip()
+        or not str(execution.get("executor_worker_id") or "").strip()
+        or not str(execution.get("execution_packet_sha256") or "").strip()
+        or not str(execution.get("result_runner_id") or "").strip()
+        or not str(execution.get("result_author_agent") or "").strip()
+        or not str(execution.get("claimed_execution_gate_intent_hash") or "").strip()
+    ):
+        return None
+    return dict(execution)
+
+
+def _require_update_preserves_owner_decision_resolution(
+    card: PMCard,
+    *,
+    proposed_payload: dict[str, Any],
+) -> None:
+    """Reserve canonical owner-decision receipts for the locked reconciler."""
+
+    current_payload = dict(card.payload or {})
+    current_has_resolution = "owner_decision_resolution" in current_payload
+    proposed_has_resolution = "owner_decision_resolution" in proposed_payload
+    if (
+        current_has_resolution != proposed_has_resolution
+        or (
+            current_has_resolution
+            and proposed_payload.get("owner_decision_resolution")
+            != current_payload.get("owner_decision_resolution")
+        )
+    ):
+        raise ValueError(
+            "Generic PM updates cannot create, replace, or remove canonical "
+            "owner-decision authority; use the locked canonical decision reconciler."
+        )
+
+
+def _require_update_preserves_execution_approval(
+    card: PMCard,
+    *,
+    proposed_payload: dict[str, Any],
+    proposed_title: str,
+    proposed_source: str | None,
+    governed_transition: bool,
+) -> None:
+    """Allow execution approval writes only from a validated private PM path."""
+
+    current_payload = dict(card.payload or {})
+    current_has_approval = "execution_approval" in current_payload
+    proposed_has_approval = "execution_approval" in proposed_payload
+    approval_changed = (
+        current_has_approval != proposed_has_approval
+        or (
+            current_has_approval
+            and proposed_payload.get("execution_approval")
+            != current_payload.get("execution_approval")
+        )
+    )
+    if not approval_changed:
+        return
+    if governed_transition is not True:
+        raise ValueError(
+            "Generic PM updates cannot create, replace, or remove execution-approval "
+            "authority; use a governed PM approval action."
+        )
+
+    approval = proposed_payload.get("execution_approval")
+    gate = (
+        dict(proposed_payload.get("execution_gate") or {})
+        if isinstance(proposed_payload.get("execution_gate"), dict)
+        else {}
+    )
+    current_workspace = canonicalize_workspace_key(_workspace_key_from_card(card))
+    proposed_workspace = canonicalize_workspace_key(
+        _workspace_key_from_payload(proposed_payload)
+    )
+    if (
+        not isinstance(approval, dict)
+        or approval.get("schema_version") != "execution_approval/v1"
+        or not str(approval.get("approval_id") or "").strip()
+        or not str(approval.get("approved_by") or "").strip()
+        or not str(approval.get("approved_at") or "").strip()
+        or proposed_workspace != current_workspace
+        or gate.get("decision") != REQUIRE_APPROVAL
+        or gate.get("approval_state") != "approved"
+        or str(approval.get("intent_hash") or "")
+        != str(gate.get("intent_hash") or "")
+        or not execution_gate_allows_run(proposed_payload)
+        or not execution_gate_matches_current(
+            card_id=card.id,
+            title=proposed_title,
+            source=proposed_source,
+            workspace_key=current_workspace,
+            payload=proposed_payload,
+        )
+    ):
+        raise ValueError(
+            "Governed PM approval writes require one current, runnable execution approval "
+            "for the card's exact workspace and intent."
+        )
+
+
+def _require_generic_update_preserves_execution_authority(
+    card: PMCard,
+    *,
+    proposed_payload: dict[str, Any],
+    proposed_status: str | None,
+    proposed_title: str,
+    proposed_source: str | None,
+    proposed_owner: str | None,
+) -> None:
+    """Keep generic PM mutation outside claimed and canonical-result authority."""
+
+    current_payload = dict(card.payload or {})
+    if (
+        proposed_payload.get("scheduler_receipt")
+        != current_payload.get("scheduler_receipt")
+        and "scheduler_receipt" in proposed_payload
+    ):
+        raise ValueError(
+            "Generic PM updates cannot create or replace scheduler authority."
+        )
+    claim_execution = _claim_bound_execution(current_payload)
+    canonical_result = _has_purpose_authorized_execution_result_receipt(card)
+    if claim_execution is None and not canonical_result:
+        return
+    if not verify_execution_payload(card.id, current_payload):
+        raise ValueError("Canonical PM execution authority is missing or invalid.")
+    if proposed_title != card.title or proposed_source != card.source:
+        raise ValueError(
+            "Generic PM updates cannot change title or source while canonical execution authority is active."
+        )
+    if proposed_owner is not None and proposed_owner != card.owner:
+        raise ValueError(
+            "Generic PM updates cannot change owner while canonical execution authority is active."
+        )
+    if proposed_status is not None and str(proposed_status) != str(card.status):
+        raise ValueError(
+            "Generic PM updates cannot change status while canonical execution authority is active."
+        )
+    current_workspace = canonicalize_workspace_key(_workspace_key_from_payload(current_payload))
+    proposed_workspace = canonicalize_workspace_key(_workspace_key_from_payload(proposed_payload))
+    if current_workspace != proposed_workspace:
+        raise ValueError(
+            "Generic PM updates cannot move canonical execution authority into another workspace."
+        )
+    if proposed_payload.get("execution") != current_payload.get("execution"):
+        raise ValueError(
+            "Generic PM updates cannot replace a live claim or canonical execution result."
+        )
+    for field in ("latest_execution_result", "latest_execution_failure"):
+        if proposed_payload.get(field) != current_payload.get(field):
+            raise ValueError(
+                f"Generic PM updates cannot replace canonical {field.replace('_', ' ')} truth."
+            )
+
+
+def _require_generic_update_preserves_gate_intent(
+    card: PMCard,
+    proposed_payload: dict[str, Any],
+) -> None:
+    current_payload = dict(card.payload or {})
+    if (
+        _claim_bound_execution(current_payload) is None
+        and not _has_purpose_authorized_execution_result_receipt(card)
+    ):
+        return
+    current_intent = str(dict(current_payload.get("execution_gate") or {}).get("intent_hash") or "")
+    proposed_intent = str(dict(proposed_payload.get("execution_gate") or {}).get("intent_hash") or "")
+    if not current_intent or proposed_intent != current_intent:
+        raise ValueError(
+            "Generic PM updates cannot change the execution intent behind a live claim or canonical result."
+        )
+
+
+def _require_governed_execution_result_review_transition(
+    card: PMCard,
+    *,
+    proposed_payload: dict[str, Any],
+    proposed_status: str | None,
+    proposed_title: str,
+    proposed_source: str | None,
+    proposed_owner: str | None,
+) -> None:
+    """Authorize only the existing review action while retaining its signed result."""
+
+    current_payload = dict(card.payload or {})
+    current_result = dict(current_payload.get("latest_execution_result") or {})
+    proposed_result = proposed_payload.get("latest_execution_result")
+    review = (
+        dict(proposed_payload.get("latest_manual_review") or {})
+        if isinstance(proposed_payload.get("latest_manual_review"), dict)
+        else {}
+    )
+    action = str(review.get("action") or "").strip().lower()
+    expected = {
+        "approve": ("done", "done", "manual_approve"),
+        "return": ("todo", "queued", "manual_return"),
+        "blocked": ("blocked", "queued", "manual_blocked"),
+    }.get(action)
+    proposed_execution = (
+        dict(proposed_payload.get("execution") or {})
+        if isinstance(proposed_payload.get("execution"), dict)
+        else {}
+    )
+    history = [item for item in proposed_execution.get("history") or [] if isinstance(item, dict)]
+    if (
+        not verify_execution_payload(card.id, current_payload)
+        or str(card.status or "").strip().lower() != "review"
+        or str(current_result.get("status") or "").strip().lower() != "review"
+        or expected is None
+        or proposed_status != expected[0]
+        or str(proposed_execution.get("state") or "").strip().lower() != expected[1]
+        or not history
+        or str(history[-1].get("event") or "") != expected[2]
+        or proposed_result != current_result
+        or proposed_title != card.title
+        or proposed_source != card.source
+        or proposed_owner is not None and proposed_owner != card.owner
+        or canonicalize_workspace_key(_workspace_key_from_payload(proposed_payload))
+        != canonicalize_workspace_key(_workspace_key_from_payload(current_payload))
+        or str(proposed_execution.get("result_id") or "")
+        != str(dict(current_payload.get("execution") or {}).get("result_id") or "")
+        or str(proposed_execution.get("claim_id") or "")
+        != str(dict(current_payload.get("execution") or {}).get("claim_id") or "")
+    ):
+        raise ValueError(
+            "Governed PM review transition must preserve the immutable accepted result and its workspace."
+        )
+
+
+def _normalize_pm_owner_decision_choice(choice: object) -> str:
+    normalized = " ".join(str(choice or "").split()).strip()
+    if normalized not in PM_OWNER_DECISION_CHOICES:
+        raise PMOwnerDecisionReconciliationConflict(
+            "Unsupported canonical PM owner decision choice."
+        )
+    return normalized
+
+
+def _validate_pm_owner_decision_binding(
+    card: PMCard,
+    *,
+    expected_execution_gate_intent_hash: str,
+) -> dict[str, Any]:
+    payload = dict(card.payload or {})
+    expected_hash = str(expected_execution_gate_intent_hash or "").strip()
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_hash):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The canonical decision is missing its exact signed PM execution intent."
+        )
+    if not verify_execution_payload(card.id, payload):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card no longer has valid signed execution authorization."
+        )
+    gate = _execution_gate_for_card(card)
+    if not execution_gate_matches_current(
+        card_id=card.id,
+        title=card.title,
+        source=card.source,
+        workspace_key=_workspace_key_from_card(card),
+        payload=payload,
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card execution gate is stale for its current intent."
+        )
+    if str(gate.get("intent_hash") or "") != expected_hash:
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card changed after this canonical owner decision was created."
+        )
+    return gate
+
+
+def _require_approvable_bounded_internal_pm_intent(
+    card: PMCard,
+    *,
+    gate: dict[str, Any],
+) -> None:
+    """Allow this owner path to queue internal project work, never external action."""
+
+    payload = dict(card.payload or {})
+    completion_contract = (
+        dict(payload.get("completion_contract") or {})
+        if isinstance(payload.get("completion_contract"), dict)
+        else {}
+    )
+    instructions = payload.get("instructions")
+    acceptance_criteria = payload.get("acceptance_criteria")
+    done_when = completion_contract.get("done_when")
+    if (
+        gate.get("capability_id") != BOUNDED_PROJECT_CAPABILITY
+        or gate.get("runner_profile") != "codex_workspace"
+        or completion_contract.get("source") != "standup_promotion"
+        or not isinstance(instructions, list)
+        or not any(str(item or "").strip() for item in instructions)
+        or not isinstance(acceptance_criteria, list)
+        or not any(str(item or "").strip() for item in acceptance_criteria)
+        or not isinstance(done_when, list)
+        or not any(str(item or "").strip() for item in done_when)
+        or not gate.get("allowed_roots")
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "Only a signed, bounded standup-promotion project contract can use this approval choice."
+        )
+    if isinstance(payload.get("host_action_required"), dict):
+        raise PMOwnerDecisionReconciliationConflict(
+            "Host or platform actions cannot be approved into the internal PM executor."
+        )
+    risk_factors = {
+        str(item).strip().upper()
+        for item in gate.get("risk_factors") or []
+        if str(item).strip()
+    }
+    reason_codes = {
+        str(item).strip().upper()
+        for item in gate.get("reason_codes") or []
+        if str(item).strip()
+    }
+    if risk_factors - PM_OWNER_DECISION_APPROVABLE_RISK_FACTORS:
+        raise PMOwnerDecisionReconciliationConflict(
+            "This choice cannot authorize publication, communication, platform, deployment, financial, "
+            "destructive, privileged, identity-sensitive, unknown, or otherwise non-internal work."
+        )
+    if reason_codes - PM_OWNER_DECISION_APPROVABLE_REASON_CODES:
+        raise PMOwnerDecisionReconciliationConflict(
+            "This PM intent requires a different governed owner-action path and cannot enter internal execution."
+        )
+    if gate.get("decision") not in {AUTO_EXECUTE, REQUIRE_APPROVAL}:
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card has no recognized execution-gate decision."
+        )
+
+
+def _build_pm_owner_decision_update(
+    card: PMCard,
+    *,
+    decision_id: str,
+    choice: str,
+    expected_execution_gate_intent_hash: str,
+    future_trigger: str,
+    decided_by: str,
+    decided_at: datetime,
+) -> tuple[str, dict[str, Any], str]:
+    """Build one signed-authority PM transition from the currently locked card."""
+
+    normalized_choice = _normalize_pm_owner_decision_choice(choice)
+    normalized_decision_id = " ".join(str(decision_id or "").split()).strip()
+    if not normalized_decision_id or len(normalized_decision_id) > 128:
+        raise PMOwnerDecisionReconciliationConflict(
+            "A bounded canonical decision identity is required."
+        )
+    if decided_at.tzinfo is None or decided_at.utcoffset() is None:
+        raise PMOwnerDecisionReconciliationConflict(
+            "The PM owner decision time must be timezone-aware."
+        )
+    decided_at = decided_at.astimezone(timezone.utc)
+    payload = dict(card.payload or {})
+    gate = _validate_pm_owner_decision_binding(
+        card,
+        expected_execution_gate_intent_hash=expected_execution_gate_intent_hash,
+    )
+    existing_resolution = (
+        dict(payload.get("owner_decision_resolution") or {})
+        if isinstance(payload.get("owner_decision_resolution"), dict)
+        else {}
+    )
+    if existing_resolution:
+        if (
+            existing_resolution.get("schema_version")
+            == PM_OWNER_DECISION_RESOLUTION_SCHEMA
+            and str(existing_resolution.get("decision_id") or "")
+            == normalized_decision_id
+            and str(existing_resolution.get("choice") or "") == normalized_choice
+            and str(existing_resolution.get("bound_execution_gate_intent_hash") or "")
+            == str(expected_execution_gate_intent_hash)
+        ):
+            return str(card.status or "todo"), payload, "already_reconciled"
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card already has a different canonical owner decision receipt."
+        )
+
+    status = str(card.status or "todo").strip().lower()
+    execution = (
+        dict(payload.get("execution") or {})
+        if isinstance(payload.get("execution"), dict)
+        else {}
+    )
+    execution_state = str(execution.get("state") or "").strip().lower()
+    executor_status = str(execution.get("executor_status") or "").strip().lower()
+    latest_result = (
+        dict(payload.get("latest_execution_result") or {})
+        if isinstance(payload.get("latest_execution_result"), dict)
+        else {}
+    )
+    if (
+        _is_closed_pm_status(status)
+        or status in {"blocked", "failed", "running", "in_progress"}
+        or execution_state in {"running", "in_progress", "claimed", "done", "completed", "failed", "blocked"}
+        or executor_status not in {"", "queued", "pending"}
+        or str(execution.get("claim_id") or "").strip()
+        or str(latest_result.get("result_id") or "").strip()
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card advanced after the owner decision was prepared; no stale state was overwritten."
+        )
+    if not execution:
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card has no bounded execution lifecycle to reconcile."
+        )
+
+    normalized_trigger = " ".join(str(future_trigger or "").split()).strip()[:1000]
+    if not normalized_trigger:
+        normalized_trigger = (
+            "New eligible evidence changes this recommendation or its authorization boundary."
+        )
+    now_iso = decided_at.isoformat()
+    history = list(execution.get("history") or [])
+    resolution_state = {
+        "approve_bounded_internal_action": "queued",
+        "reject_recommendation": "rejected",
+        "retain_until_trigger": "retained",
+    }[normalized_choice]
+    receipt = {
+        "schema_version": PM_OWNER_DECISION_RESOLUTION_SCHEMA,
+        "decision_id": normalized_decision_id,
+        "choice": normalized_choice,
+        "state": resolution_state,
+        "decided_by": " ".join(str(decided_by or "Neo").split()).strip()[:120] or "Neo",
+        "decided_at": now_iso,
+        "bound_execution_gate_intent_hash": str(expected_execution_gate_intent_hash),
+        "future_trigger": normalized_trigger if normalized_choice == "retain_until_trigger" else None,
+    }
+    payload["owner_decision_resolution"] = receipt
+
+    if normalized_choice == "approve_bounded_internal_action":
+        _require_approvable_bounded_internal_pm_intent(card, gate=gate)
+        payload = grant_execution_approval(
+            card_id=card.id,
+            title=card.title,
+            source=card.source,
+            workspace_key=_workspace_key_from_card(card),
+            payload=payload,
+            approved_by=receipt["decided_by"],
+            reason="Owner approved this exact bounded internal PM intent through its canonical decision.",
+            surface="canonical_owner_decision",
+        )
+        execution = dict(payload.get("execution") or execution)
+        history.append(
+            {
+                "event": "canonical_owner_approved_bounded_internal_action",
+                "state": "queued",
+                "requested_by": receipt["decided_by"],
+                "decision_id": normalized_decision_id,
+                "at": now_iso,
+            }
+        )
+        execution.update(
+            {
+                "state": "queued",
+                "queued_at": execution.get("queued_at") or now_iso,
+                "last_transition_at": now_iso,
+                "manager_attention_required": False,
+                "executor_status": None,
+                "executor_worker_id": None,
+                "execution_packet_path": None,
+                "claim_id": None,
+                "history": history[-16:],
+            }
+        )
+        payload["execution"] = execution
+        next_status = "todo"
+        disposition = "queued"
+    elif normalized_choice == "reject_recommendation":
+        payload.pop("execution_approval", None)
+        history.append(
+            {
+                "event": "canonical_owner_rejected_recommendation",
+                "state": "cancelled",
+                "requested_by": receipt["decided_by"],
+                "decision_id": normalized_decision_id,
+                "at": now_iso,
+            }
+        )
+        execution.update(
+            {
+                "state": "cancelled",
+                "last_transition_at": now_iso,
+                "manager_attention_required": False,
+                "executor_status": None,
+                "executor_worker_id": None,
+                "execution_packet_path": None,
+                "claim_id": None,
+                "history": history[-16:],
+            }
+        )
+        payload["execution"] = execution
+        next_status = "cancelled"
+        disposition = "rejected"
+    else:
+        payload.pop("execution_approval", None)
+        history.append(
+            {
+                "event": "canonical_owner_retained_until_trigger",
+                "state": "approval_required",
+                "requested_by": receipt["decided_by"],
+                "decision_id": normalized_decision_id,
+                "future_trigger": normalized_trigger,
+                "at": now_iso,
+            }
+        )
+        execution.update(
+            {
+                "state": "approval_required",
+                "last_transition_at": now_iso,
+                "manager_attention_required": False,
+                "executor_status": None,
+                "executor_worker_id": None,
+                "execution_packet_path": None,
+                "claim_id": None,
+                "history": history[-16:],
+            }
+        )
+        payload["execution"] = execution
+        next_status = "review"
+        disposition = "retained"
+
+    payload = apply_execution_gate(
+        card_id=card.id,
+        title=card.title,
+        source=card.source,
+        workspace_key=_workspace_key_from_card(card),
+        payload=payload,
+    )
+    return next_status, payload, disposition
+
+
+def reconcile_pm_owner_decision(
+    card_id: str,
+    *,
+    decision_id: str,
+    choice: str,
+    expected_execution_gate_intent_hash: str,
+    future_trigger: str,
+    decided_by: str = "Neo",
+) -> tuple[PMCard, str]:
+    """Atomically reconcile one resolved canonical decision through PM authority.
+
+    The linked row is locked and revalidated against the exact execution-gate
+    intent captured by the decision. Exact replays return the durable receipt;
+    different or stale work fails without replacing newer PM truth.
+    """
+
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                FROM pm_cards
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (card_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                conn.rollback()
+                raise PMOwnerDecisionReconciliationConflict(
+                    "The canonical decision's linked PM card no longer exists."
+                )
+            card = _row_to_card(row)
+            next_status, next_payload, disposition = _build_pm_owner_decision_update(
+                card,
+                decision_id=decision_id,
+                choice=choice,
+                expected_execution_gate_intent_hash=expected_execution_gate_intent_hash,
+                future_trigger=future_trigger,
+                decided_by=decided_by,
+                decided_at=datetime.now(timezone.utc),
+            )
+            if disposition == "already_reconciled":
+                conn.commit()
+                return card, disposition
+            signed_payload = sign_execution_payload(card.id, next_payload)
+            cur.execute(
+                """
+                UPDATE pm_cards
+                SET status = %s,
+                    payload = %s,
+                    updated_at = clock_timestamp()
+                WHERE id = %s
+                  AND updated_at = %s
+                  AND COALESCE(payload->'execution_gate'->>'intent_hash', '') = %s
+                RETURNING id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                """,
+                (
+                    next_status,
+                    Json(signed_payload),
+                    card.id,
+                    row["updated_at"],
+                    str(expected_execution_gate_intent_hash),
+                ),
+            )
+            updated_row = cur.fetchone()
+        if updated_row is None:
+            conn.rollback()
+            raise PMOwnerDecisionReconciliationConflict(
+                "The linked PM card changed before its canonical owner decision could be reconciled."
+            )
+        conn.commit()
+    return _row_to_card(updated_row), disposition
+
+
+def preflight_pm_owner_decision(
+    card_id: str,
+    *,
+    decision_id: str,
+    choice: str,
+    expected_execution_gate_intent_hash: str,
+    future_trigger: str,
+    decided_by: str = "Neo",
+) -> str:
+    """Fail deterministic stale or unsafe choices before the canonical commit.
+
+    The actual PM write still occurs after the canonical transition. This
+    read-only check prevents a known-invalid publication or stale-intent choice
+    from terminally resolving the local decision, while the locked reconciler
+    remains the final authority against races.
+    """
+
+    card = get_card(card_id)
+    if card is None:
+        raise PMOwnerDecisionReconciliationConflict(
+            "The canonical decision's linked PM card no longer exists."
+        )
+    _next_status, _next_payload, disposition = _build_pm_owner_decision_update(
+        card,
+        decision_id=decision_id,
+        choice=choice,
+        expected_execution_gate_intent_hash=expected_execution_gate_intent_hash,
+        future_trigger=future_trigger,
+        decided_by=decided_by,
+        decided_at=datetime.now(timezone.utc),
+    )
+    return disposition
+
+
+def _build_retained_pm_owner_decision_refresh(
+    card: PMCard,
+    *,
+    expected_decision_id: str,
+    expected_execution_gate_intent_hash: str,
+    title: str,
+    proposed_payload: dict[str, Any],
+) -> tuple[str, dict[str, Any], str]:
+    """Build a new signed intent only when an exact Dream delta fires retention."""
+
+    old_gate = _validate_pm_owner_decision_binding(
+        card,
+        expected_execution_gate_intent_hash=expected_execution_gate_intent_hash,
+    )
+    current_payload = dict(card.payload or {})
+    resolution = (
+        dict(current_payload.get("owner_decision_resolution") or {})
+        if isinstance(current_payload.get("owner_decision_resolution"), dict)
+        else {}
+    )
+    normalized_decision_id = " ".join(str(expected_decision_id or "").split()).strip()
+    retained_trigger = " ".join(
+        str(resolution.get("future_trigger") or "").split()
+    ).strip()[:1000]
+    if (
+        resolution.get("schema_version") != PM_OWNER_DECISION_RESOLUTION_SCHEMA
+        or resolution.get("choice") != "retain_until_trigger"
+        or resolution.get("state") != "retained"
+        or str(resolution.get("decision_id") or "") != normalized_decision_id
+        or str(resolution.get("bound_execution_gate_intent_hash") or "")
+        != str(expected_execution_gate_intent_hash)
+        or not retained_trigger
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The linked PM card does not have the exact retained canonical owner decision to refresh."
+        )
+    execution = (
+        dict(current_payload.get("execution") or {})
+        if isinstance(current_payload.get("execution"), dict)
+        else {}
+    )
+    if (
+        str(card.status or "").strip().lower() != "review"
+        or str(execution.get("state") or "").strip().lower() != "approval_required"
+        or str(execution.get("claim_id") or "").strip()
+        or str(execution.get("executor_status") or "").strip()
+        or isinstance(current_payload.get("latest_execution_result"), dict)
+        and str(current_payload["latest_execution_result"].get("result_id") or "").strip()
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The retained PM lane advanced before its future trigger could refresh the intent."
+        )
+
+    next_payload = dict(proposed_payload or {})
+    current_workspace_key = canonicalize_workspace_key(_workspace_key_from_card(card))
+    proposed_workspace_key = canonicalize_workspace_key(
+        _workspace_key_from_payload(next_payload)
+    )
+    if proposed_workspace_key != current_workspace_key:
+        raise PMOwnerDecisionReconciliationConflict(
+            "A retained PM lane trigger cannot move work into a different workspace."
+        )
+    evidence = (
+        dict(next_payload.get("retained_trigger_evidence") or {})
+        if isinstance(next_payload.get("retained_trigger_evidence"), dict)
+        else {}
+    )
+    dream_lineage = (
+        dict(next_payload.get("dream_lineage") or {})
+        if isinstance(next_payload.get("dream_lineage"), dict)
+        else {}
+    )
+    source_delta = (
+        dict(dream_lineage.get("source_goal_delta") or {})
+        if isinstance(dream_lineage.get("source_goal_delta"), dict)
+        else {}
+    )
+    prior_lineage = (
+        dict(current_payload.get("dream_lineage") or {})
+        if isinstance(current_payload.get("dream_lineage"), dict)
+        else {}
+    )
+    prior_delta = (
+        dict(prior_lineage.get("source_goal_delta") or {})
+        if isinstance(prior_lineage.get("source_goal_delta"), dict)
+        else {}
+    )
+    source_delta_id = str(source_delta.get("goal_delta_id") or "").strip()
+    source_consolidation_id = str(source_delta.get("consolidation_id") or "").strip()
+    if (
+        evidence.get("schema_version") != PM_RETAINED_TRIGGER_EVIDENCE_SCHEMA
+        or str(evidence.get("prior_decision_id") or "") != normalized_decision_id
+        or str(evidence.get("prior_execution_gate_intent_hash") or "")
+        != str(expected_execution_gate_intent_hash)
+        or " ".join(str(evidence.get("prior_future_trigger") or "").split()).strip()
+        != retained_trigger
+        or source_delta.get("schema_version") != "dream_workspace_goal_delta/v1"
+        or source_delta.get("delta_kind") != "unresolved_action_recommendation"
+        or canonicalize_workspace_key(
+            str(source_delta.get("workspace_key") or "").strip()
+        )
+        != current_workspace_key
+        or not source_delta_id
+        or source_delta_id == str(prior_delta.get("goal_delta_id") or "").strip()
+        or str(evidence.get("source_goal_delta_id") or "") != source_delta_id
+        or not source_consolidation_id
+        or str(evidence.get("source_consolidation_id") or "")
+        != source_consolidation_id
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "A distinct exact Dream goal delta must evidence the retained PM lane's explicit future trigger."
+        )
+
+    normalized_title = " ".join(str(title or "").split()).strip()[:300]
+    if not normalized_title:
+        raise PMOwnerDecisionReconciliationConflict(
+            "A retained PM lane refresh requires one bounded successor title."
+        )
+    next_execution = (
+        dict(next_payload.get("execution") or {})
+        if isinstance(next_payload.get("execution"), dict)
+        else {}
+    )
+    if (
+        str(next_execution.get("state") or "").strip().lower() != "queued"
+        or str(next_execution.get("claim_id") or "").strip()
+        or str(next_execution.get("executor_status") or "").strip()
+    ):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The refreshed retained lane must re-enter the existing unclaimed PM queue lifecycle."
+        )
+    next_payload.pop("owner_decision_resolution", None)
+    next_payload.pop("execution_approval", None)
+    next_payload.pop("scheduler_receipt", None)
+    next_payload = apply_execution_gate(
+        card_id=card.id,
+        title=normalized_title,
+        source=card.source,
+        workspace_key=current_workspace_key,
+        payload=next_payload,
+    )
+    next_gate = dict(next_payload.get("execution_gate") or {})
+    if str(next_gate.get("intent_hash") or "") == str(old_gate.get("intent_hash") or ""):
+        raise PMOwnerDecisionReconciliationConflict(
+            "The exact Dream trigger did not produce a distinct PM execution intent."
+        )
+    return "todo", next_payload, "refreshed"
+
+
+def refresh_retained_pm_owner_decision_lane(
+    card_id: str,
+    *,
+    expected_card_updated_at: datetime,
+    expected_decision_id: str,
+    expected_execution_gate_intent_hash: str,
+    title: str,
+    proposed_payload: dict[str, Any],
+) -> tuple[PMCard, str]:
+    """CAS-refresh one retained PM row in place from exact Dream evidence."""
+
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                FROM pm_cards
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (card_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                conn.rollback()
+                raise PMOwnerDecisionReconciliationConflict(
+                    "The retained canonical decision's linked PM card no longer exists."
+                )
+            card = _row_to_card(row)
+            current_payload = dict(card.payload or {})
+            current_evidence = (
+                dict(current_payload.get("retained_trigger_evidence") or {})
+                if isinstance(current_payload.get("retained_trigger_evidence"), dict)
+                else {}
+            )
+            proposed_evidence = (
+                dict(proposed_payload.get("retained_trigger_evidence") or {})
+                if isinstance(proposed_payload.get("retained_trigger_evidence"), dict)
+                else {}
+            )
+            if not isinstance(current_payload.get("owner_decision_resolution"), dict):
+                if (
+                    current_evidence == proposed_evidence
+                    and card.title == " ".join(str(title or "").split()).strip()[:300]
+                    and verify_execution_payload(card.id, current_payload)
+                    and execution_gate_matches_current(
+                        card_id=card.id,
+                        title=card.title,
+                        source=card.source,
+                        workspace_key=_workspace_key_from_card(card),
+                        payload=current_payload,
+                    )
+                    and str(
+                        dict(current_payload.get("execution_gate") or {}).get("intent_hash")
+                        or ""
+                    )
+                    != str(expected_execution_gate_intent_hash)
+                ):
+                    conn.commit()
+                    return card, "already_refreshed"
+                conn.rollback()
+                raise PMOwnerDecisionReconciliationConflict(
+                    "The retained PM lane no longer has the exact owner decision targeted by this trigger."
+                )
+            if row["updated_at"] != expected_card_updated_at:
+                conn.rollback()
+                raise PMOwnerDecisionReconciliationConflict(
+                    "The retained PM lane changed before its exact Dream trigger could refresh it."
+                )
+
+            next_status, next_payload, disposition = _build_retained_pm_owner_decision_refresh(
+                card,
+                expected_decision_id=expected_decision_id,
+                expected_execution_gate_intent_hash=expected_execution_gate_intent_hash,
+                title=title,
+                proposed_payload=proposed_payload,
+            )
+            signed_payload = sign_execution_payload(card.id, next_payload)
+            cur.execute(
+                """
+                UPDATE pm_cards
+                SET title = %s,
+                    status = %s,
+                    payload = %s,
+                    updated_at = clock_timestamp()
+                WHERE id = %s
+                  AND updated_at = %s
+                  AND COALESCE(payload->'execution_gate'->>'intent_hash', '') = %s
+                  AND COALESCE(payload->'owner_decision_resolution'->>'decision_id', '') = %s
+                  AND COALESCE(payload->'owner_decision_resolution'->>'choice', '') = 'retain_until_trigger'
+                  AND COALESCE(payload->'owner_decision_resolution'->>'state', '') = 'retained'
+                RETURNING id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                """,
+                (
+                    " ".join(str(title or "").split()).strip()[:300],
+                    next_status,
+                    Json(signed_payload),
+                    card.id,
+                    row["updated_at"],
+                    str(expected_execution_gate_intent_hash),
+                    str(expected_decision_id),
+                ),
+            )
+            updated_row = cur.fetchone()
+        if updated_row is None:
+            conn.rollback()
+            raise PMOwnerDecisionReconciliationConflict(
+                "The retained PM lane changed before its exact Dream trigger refresh committed."
+            )
+        conn.commit()
+    return _row_to_card(updated_row), disposition
+
+
 def _execution_result_commit_digest(payload: PMExecutionResultCommitRequest) -> str:
     canonical = json.dumps(
         payload.model_dump(mode="json"),
@@ -536,6 +1845,262 @@ def _execution_result_commit_digest(payload: PMExecutionResultCommitRequest) -> 
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _execution_result_commit_authorization_id(card_id: str, result_id: str) -> str:
+    return f"pm-execution-result-commit:{card_id}:{result_id}"
+
+
+def _result_runner_id_for_target(target_agent: object) -> str:
+    """Use the same stable result-writer identity as the local runner packet."""
+
+    lowered = "".join(
+        character.lower() if character.isalnum() else "-"
+        for character in str(target_agent or "").strip()
+    )
+    return "-".join(part for part in lowered.split("-") if part) or "codex-executor"
+
+
+def _authorize_execution_result_commit_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Bind one result receipt to the canonical signing authority and purpose."""
+
+    next_receipt = dict(receipt)
+    card_id = str(next_receipt.get("card_id") or "").strip()
+    result_id = str(next_receipt.get("result_id") or "").strip()
+    authorized = sign_execution_payload(
+        _execution_result_commit_authorization_id(card_id, result_id),
+        next_receipt,
+    )
+    authorization = authorized.get(AUTH_FIELD)
+    if isinstance(authorization, dict):
+        next_receipt["commit_authorization"] = dict(authorization)
+    return next_receipt
+
+
+def _execution_result_timestamp_semantics(result: dict[str, Any]) -> str | None:
+    """Classify exact signed legacy or current result timestamp semantics.
+
+    Marker absence is accepted only as compatibility truth for receipts written
+    before the current semantic timestamp contract. It does not claim that the
+    legacy executor-finished value represented actual executor completion.
+    """
+
+    if "timestamp_semantics" not in result:
+        return "legacy_pm_commit_time/v1"
+    if (
+        result.get("timestamp_semantics")
+        == PM_EXECUTION_RESULT_TIMESTAMP_SEMANTICS
+    ):
+        return PM_EXECUTION_RESULT_TIMESTAMP_SEMANTICS
+    return None
+
+
+def _has_purpose_authorized_execution_result_receipt(card: PMCard) -> bool:
+    """Verify the immutable accepted receipt independent of later PM lifecycle state."""
+
+    payload = dict(card.payload or {})
+    result = (
+        dict(payload.get("latest_execution_result") or {})
+        if isinstance(payload.get("latest_execution_result"), dict)
+        else {}
+    )
+    authorization = (
+        dict(result.get("commit_authorization") or {})
+        if isinstance(result.get("commit_authorization"), dict)
+        else {}
+    )
+    if (
+        result.get("schema_version") != PM_EXECUTION_RESULT_COMMIT_SCHEMA
+        or _execution_result_timestamp_semantics(result) is None
+        or str(result.get("status") or "").strip().lower()
+        not in {"done", "review", "blocked"}
+        or authorization.get("version") != 1
+        or authorization.get("algorithm") != "hmac-sha256"
+        or not str(authorization.get("signature") or "").strip()
+    ):
+        return False
+    request_payload = {
+        key: result.get(key) for key in PMExecutionResultCommitRequest.model_fields
+    }
+    try:
+        request = PMExecutionResultCommitRequest.model_validate(request_payload)
+        committed_at = datetime.fromisoformat(
+            str(result.get("committed_at") or "").strip().replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return False
+    if (
+        committed_at.tzinfo is None
+        or committed_at.utcoffset() is None
+        or request.created_at.astimezone(timezone.utc)
+        > committed_at.astimezone(timezone.utc)
+        or str(request.card_id) != str(card.id)
+        or request.workspace_key != _workspace_key_from_card(card)
+        or request.title != card.title
+        or str(result.get("commit_digest") or "")
+        != _execution_result_commit_digest(request)
+    ):
+        return False
+    unsigned_receipt = dict(result)
+    unsigned_receipt.pop("commit_authorization", None)
+    return verify_execution_payload(
+        _execution_result_commit_authorization_id(
+            str(request.card_id),
+            str(request.result_id),
+        ),
+        {**unsigned_receipt, AUTH_FIELD: authorization},
+    )
+
+
+def _has_authorized_execution_result_commit(card: PMCard) -> bool:
+    """Return whether `card` carries one exact purpose-authorized result receipt.
+
+    The card-level signature alone is insufficient because generic PM updates
+    are also re-signed. The result writer therefore adds a purpose-bound
+    authorization over the complete receipt. Every committed status must also
+    match the status-specific PM and execution state written by this authority.
+    """
+
+    if not _has_purpose_authorized_execution_result_receipt(card):
+        return False
+    payload = dict(card.payload or {})
+    result = (
+        dict(payload.get("latest_execution_result") or {})
+        if isinstance(payload.get("latest_execution_result"), dict)
+        else {}
+    )
+    execution = (
+        dict(payload.get("execution") or {})
+        if isinstance(payload.get("execution"), dict)
+        else {}
+    )
+    authorization = (
+        dict(result.get("commit_authorization") or {})
+        if isinstance(result.get("commit_authorization"), dict)
+        else {}
+    )
+    if (
+        result.get("schema_version") != PM_EXECUTION_RESULT_COMMIT_SCHEMA
+        or str(result.get("status") or "").strip().lower()
+        not in {"done", "review", "blocked"}
+        or authorization.get("version") != 1
+        or authorization.get("algorithm") != "hmac-sha256"
+        or not str(authorization.get("signature") or "").strip()
+    ):
+        return False
+
+    request_fields = PMExecutionResultCommitRequest.model_fields
+    request_payload = {key: result.get(key) for key in request_fields}
+    try:
+        request = PMExecutionResultCommitRequest.model_validate(request_payload)
+    except (TypeError, ValueError):
+        return False
+    card_id = str(request.card_id)
+    result_id = str(request.result_id)
+    claim_id = str(request.claim_id)
+    result_status = str(request.status)
+    expected_execution_state = "queued" if result_status == "blocked" else result_status
+    expected_history_event = "blocked_return" if result_status == "blocked" else "result"
+    expected_assigned_runner = (
+        "jean-claude" if result_status == "blocked" else request.runner_id
+    )
+    committed_at_raw = str(result.get("committed_at") or "").strip()
+    executor_finished_at_raw = str(execution.get("executor_finished_at") or "").strip()
+    executor_started_at_raw = str(execution.get("executor_started_at") or "").strip()
+    timestamp_semantics = _execution_result_timestamp_semantics(result)
+    try:
+        committed_at = datetime.fromisoformat(committed_at_raw.replace("Z", "+00:00"))
+        executor_finished_at = datetime.fromisoformat(
+            executor_finished_at_raw.replace("Z", "+00:00")
+        )
+        executor_started_at = datetime.fromisoformat(
+            executor_started_at_raw.replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return False
+    if (
+        committed_at.tzinfo is None
+        or committed_at.utcoffset() is None
+        or executor_finished_at.tzinfo is None
+        or executor_finished_at.utcoffset() is None
+        or executor_started_at.tzinfo is None
+        or executor_started_at.utcoffset() is None
+    ):
+        return False
+    if timestamp_semantics == PM_EXECUTION_RESULT_TIMESTAMP_SEMANTICS:
+        executor_finished_at_is_authorized = (
+            executor_finished_at.astimezone(timezone.utc)
+            == request.created_at.astimezone(timezone.utc)
+        )
+    elif timestamp_semantics == "legacy_pm_commit_time/v1":
+        executor_finished_at_is_authorized = (
+            executor_finished_at.astimezone(timezone.utc)
+            == committed_at.astimezone(timezone.utc)
+        )
+    else:
+        return False
+    if (
+        not executor_finished_at_is_authorized
+        or request.created_at.astimezone(timezone.utc)
+        < executor_started_at.astimezone(timezone.utc)
+        or request.created_at.astimezone(timezone.utc)
+        > committed_at.astimezone(timezone.utc)
+        or card_id != str(card.id)
+        or request.workspace_key != _workspace_key_from_card(card)
+        or request.title != card.title
+        or str(card.status or "").strip().lower() != result_status
+        or str(result.get("commit_digest") or "")
+        != _execution_result_commit_digest(request)
+        or str(execution.get("state") or "").strip().lower()
+        != expected_execution_state
+        or str(execution.get("executor_status") or "").strip().lower()
+        != "completed"
+        or str(execution.get("result_id") or "") != result_id
+        or str(execution.get("claim_id") or "") != claim_id
+        or str(execution.get("executor_worker_id") or "") != request.worker_id
+        or str(execution.get("result_runner_id") or "") != request.runner_id
+        or str(execution.get("result_author_agent") or "") != request.author_agent
+        or str(execution.get("execution_packet_sha256") or "")
+        != request.execution_packet_sha256
+        or not str(execution.get("claimed_execution_gate_intent_hash") or "")
+        or str(execution.get("claimed_execution_gate_intent_hash") or "")
+        != str(dict(payload.get("execution_gate") or {}).get("intent_hash") or "")
+        or str(execution.get("assigned_runner") or "")
+        != expected_assigned_runner
+    ):
+        return False
+    matching_history = any(
+        isinstance(item, dict)
+        and item.get("event") == expected_history_event
+        and str(item.get("state") or "").strip().lower()
+        == expected_execution_state
+        and str(item.get("result_id") or "") == result_id
+        and str(item.get("claim_id") or "") == claim_id
+        and str(item.get("runner_id") or "") == request.runner_id
+        and str(item.get("at") or "") == committed_at_raw
+        for item in execution.get("history") or []
+    )
+    if not matching_history:
+        return False
+
+    unsigned_receipt = dict(result)
+    unsigned_receipt.pop("commit_authorization", None)
+    proof_payload = {**unsigned_receipt, AUTH_FIELD: authorization}
+    return verify_execution_payload(
+        _execution_result_commit_authorization_id(card_id, result_id),
+        proof_payload,
+    )
+
+
+def has_canonical_execution_result_commit(card: PMCard) -> bool:
+    """Return whether `card` has a canonical completed (`done`) result."""
+
+    result = dict(card.payload or {}).get("latest_execution_result")
+    return bool(
+        isinstance(result, dict)
+        and str(result.get("status") or "").strip().lower() == "done"
+        and _has_authorized_execution_result_commit(card)
+    )
 
 
 def _require_safe_execution_result_references(request: PMExecutionResultCommitRequest) -> None:
@@ -567,6 +2132,12 @@ def claim_execution(
 ) -> tuple[PMCard, str] | None:
     """Atomically claim one signed runnable card for one exact local worker."""
 
+    try:
+        validate_remote_execution_artifact_reference(request.execution_packet_path)
+    except ValueError as exc:
+        raise PMExecutionClaimConflict(
+            "PM execution packet must use a control-plane-safe logical reference."
+        ) from exc
     pool = get_pool()
     claim_id = str(request.claim_id)
     with pool.connection() as conn:
@@ -597,7 +2168,7 @@ def claim_execution(
             if not verify_execution_payload(card.id, payload):
                 raise PMExecutionClaimConflict("PM card execution authorization is missing or invalid.")
             try:
-                require_current_execution_gate(
+                current_gate = require_current_execution_gate(
                     card_id=card.id,
                     title=card.title,
                     source=card.source,
@@ -632,11 +2203,13 @@ def claim_execution(
             current_claim_id = str(execution.get("claim_id") or "").strip()
             current_worker_id = str(execution.get("executor_worker_id") or "").strip()
             current_packet_path = str(execution.get("execution_packet_path") or "").strip()
+            current_packet_sha256 = str(execution.get("execution_packet_sha256") or "").strip()
             if current_state == "running" and current_executor_status == "running":
                 if (
                     current_claim_id == claim_id
                     and current_worker_id == request.worker_id
                     and current_packet_path == request.execution_packet_path
+                    and current_packet_sha256 == request.execution_packet_sha256
                 ):
                     return card, "already_claimed"
                 raise PMExecutionClaimConflict("PM card already has a different active execution claim.")
@@ -644,6 +2217,8 @@ def claim_execution(
                 raise PMExecutionClaimConflict("PM card execution is not currently claimable.")
 
             now = datetime.now(timezone.utc)
+            result_author_agent = current_target
+            result_runner_id = _result_runner_id_for_target(result_author_agent)
             history = list(execution.get("history") or [])
             history.append(
                 {
@@ -659,6 +2234,10 @@ def claim_execution(
                 **effective_execution,
                 "state": "running",
                 "execution_packet_path": request.execution_packet_path,
+                "execution_packet_sha256": request.execution_packet_sha256,
+                "result_author_agent": result_author_agent,
+                "result_runner_id": result_runner_id,
+                "claimed_execution_gate_intent_hash": str(current_gate.get("intent_hash") or ""),
                 "executor_status": "running",
                 "executor_worker_id": request.worker_id,
                 "claim_id": claim_id,
@@ -712,6 +2291,198 @@ def claim_execution(
     if updated_row is None:
         raise PMExecutionClaimConflict("PM card changed before its execution claim could be committed.")
     return _row_to_card(updated_row), "claimed"
+
+
+def _execution_claim_failure_digest(request: PMExecutionClaimFailureRequest) -> str:
+    canonical = json.dumps(
+        request.model_dump(mode="json"),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def fail_execution_claim(
+    card_id: str,
+    request: PMExecutionClaimFailureRequest,
+    *,
+    legacy_owner_review_compatibility: bool = False,
+) -> tuple[PMCard, str] | None:
+    """Atomically fail only the exact signed execution claim observed by a runner.
+
+    The runner's detached card payload is never accepted as write input. The
+    canonical row is locked, its signature and current execution gate are
+    revalidated, and the update repeats the claim, worker, gate, running state,
+    and ``updated_at`` predicates. A result commit, owner reconciliation, stale
+    recovery, heartbeat, or replacement claim therefore wins without being
+    overwritten by a delayed failure report.
+    """
+
+    if str(request.card_id) != str(card_id):
+        raise PMExecutionClaimFailureConflict("Execution failure card_id does not match the route.")
+
+    expected_updated_at = request.expected_updated_at.astimezone(timezone.utc)
+    claim_id = str(request.claim_id)
+    failure_id = str(request.failure_id)
+    failure_digest = _execution_claim_failure_digest(request)
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                FROM pm_cards
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (card_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+
+            card = _row_to_card(row)
+            current_payload = dict(card.payload or {})
+            if (
+                _is_workspace_owner_review_card(card)
+                and legacy_owner_review_compatibility is not True
+                and current_payload.get("legacy_owner_review_compatibility") is not True
+            ):
+                raise PMExecutionClaimFailureConflict(
+                    "Historical owner-review PM rows are read-only without rollback compatibility."
+                )
+            if not verify_execution_payload(card.id, current_payload):
+                raise PMExecutionClaimFailureConflict(
+                    "PM card execution authorization is missing or invalid."
+                )
+
+            # An exact signed receipt replay is a read-only success even when
+            # later governed work has moved the card to a non-runnable gate.
+            # It must never reopen or replace that newer truth.
+            latest_failure = current_payload.get("latest_execution_failure")
+            if isinstance(latest_failure, dict) and str(latest_failure.get("failure_id") or "") == failure_id:
+                if str(latest_failure.get("failure_digest") or "") != failure_digest:
+                    raise PMExecutionClaimFailureConflict(
+                        "The failure id is already recorded with different content."
+                    )
+                return card, "already_failed"
+
+            try:
+                require_current_execution_gate(
+                    card_id=card.id,
+                    title=card.title,
+                    source=card.source,
+                    workspace_key=_workspace_key_from_card(card),
+                    payload=current_payload,
+                )
+            except ValueError as exc:
+                raise PMExecutionClaimFailureConflict(str(exc)) from exc
+
+            row_updated_at = row.get("updated_at")
+            if not isinstance(row_updated_at, datetime) or row_updated_at.astimezone(timezone.utc) != expected_updated_at:
+                raise PMExecutionClaimFailureConflict(
+                    "PM card changed after this execution claim was observed; no stale failure was written."
+                )
+            if _is_closed_pm_status(card.status) or str(card.status or "").strip().lower() in {"blocked", "failed"}:
+                raise PMExecutionClaimFailureConflict("PM card is no longer in a fail-able execution status.")
+
+            execution = current_payload.get("execution")
+            if not isinstance(execution, dict):
+                raise PMExecutionClaimFailureConflict("PM card has no active execution claim.")
+            if str(execution.get("state") or "").strip().lower() != "running" or str(
+                execution.get("executor_status") or ""
+            ).strip().lower() != "running":
+                raise PMExecutionClaimFailureConflict("PM card execution is no longer running.")
+            if str(execution.get("claim_id") or "") != claim_id:
+                raise PMExecutionClaimFailureConflict("PM card execution claim_id does not match.")
+            if str(execution.get("executor_worker_id") or "") != request.worker_id:
+                raise PMExecutionClaimFailureConflict("PM card execution worker does not match.")
+
+            safe_error = sanitize_brain_text(" ".join(request.error_message.split()).strip())[:4000]
+            if not safe_error:
+                safe_error = "Execution failed without a safe error message."
+            recorded_at = datetime.now(timezone.utc)
+            failed_at = recorded_at
+            history = list(execution.get("history") or [])
+            history.append(
+                {
+                    "event": "codex_execution_failed",
+                    "state": "failed",
+                    "runner_id": request.runner_id,
+                    "requested_by": request.worker_id,
+                    "at": failed_at.isoformat(),
+                    "recorded_at": recorded_at.isoformat(),
+                    "claim_id": claim_id,
+                    "failure_id": failure_id,
+                    "error": safe_error[:400],
+                }
+            )
+            next_execution = {
+                **execution,
+                "state": "failed",
+                "executor_status": "failed",
+                "executor_finished_at": failed_at.isoformat(),
+                "executor_last_error": safe_error,
+                "manager_attention_required": True,
+                "last_transition_at": failed_at.isoformat(),
+                "history": history[-16:],
+            }
+            next_payload = dict(current_payload)
+            next_payload["execution"] = next_execution
+            next_payload["latest_execution_failure"] = {
+                "schema_version": "pm_execution_claim_failure_receipt/v1",
+                "failure_id": failure_id,
+                "failure_digest": failure_digest,
+                "claim_id": claim_id,
+                "worker_id": request.worker_id,
+                "runner_id": request.runner_id,
+                "failed_at": failed_at.isoformat(),
+                "recorded_at": recorded_at.isoformat(),
+                "error": safe_error,
+            }
+            current_workspace = _workspace_key_from_card(card)
+            current_gate = dict(current_payload.get("execution_gate") or {})
+            current_gate_intent_hash = str(current_gate.get("intent_hash") or "")
+            next_payload = apply_execution_gate(
+                card_id=card.id,
+                title=card.title,
+                source=card.source,
+                workspace_key=current_workspace,
+                payload=next_payload,
+            )
+            signed_payload = sign_execution_payload(card.id, next_payload)
+            cur.execute(
+                """
+                UPDATE pm_cards
+                SET payload = %s,
+                    updated_at = clock_timestamp()
+                WHERE id = %s
+                  AND updated_at = %s
+                  AND LOWER(COALESCE(status, 'todo')) NOT IN ('done', 'closed', 'cancelled', 'blocked', 'failed')
+                  AND LOWER(COALESCE(payload->'execution'->>'state', '')) = 'running'
+                  AND LOWER(COALESCE(payload->'execution'->>'executor_status', '')) = 'running'
+                  AND COALESCE(payload->'execution'->>'claim_id', '') = %s
+                  AND COALESCE(payload->'execution'->>'executor_worker_id', '') = %s
+                  AND COALESCE(payload->'execution_gate'->>'intent_hash', '') = %s
+                RETURNING id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                """,
+                (
+                    Json(signed_payload),
+                    card.id,
+                    row["updated_at"],
+                    claim_id,
+                    request.worker_id,
+                    current_gate_intent_hash,
+                ),
+            )
+            updated_row = cur.fetchone()
+        conn.commit()
+    if updated_row is None:
+        raise PMExecutionClaimFailureConflict(
+            "PM card changed before its execution failure could be committed; no stale failure was written."
+        )
+    return _row_to_card(updated_row), "failed"
 
 
 def commit_execution_result(
@@ -768,6 +2539,10 @@ def commit_execution_result(
                     raise PMExecutionResultCommitConflict(
                         "The result id is already committed with different content."
                     )
+                if not _has_purpose_authorized_execution_result_receipt(card):
+                    raise PMExecutionResultCommitConflict(
+                        "The committed result receipt is incomplete or tampered."
+                    )
                 return card, "already_committed"
 
             execution = current_payload.get("execution")
@@ -783,13 +2558,64 @@ def commit_execution_result(
                 raise PMExecutionResultCommitConflict("PM card execution worker does not match.")
             if _workspace_key_from_card(card) != request.workspace_key:
                 raise PMExecutionResultCommitConflict("PM card execution workspace does not match.")
+            if card.title != request.title:
+                raise PMExecutionResultCommitConflict("PM card execution title does not match.")
 
-            now = datetime.now(timezone.utc)
+            try:
+                current_gate = require_current_execution_gate(
+                    card_id=card.id,
+                    title=card.title,
+                    source=card.source,
+                    workspace_key=_workspace_key_from_card(card),
+                    payload=current_payload,
+                )
+            except ValueError as exc:
+                raise PMExecutionResultCommitConflict(str(exc)) from exc
+            if str(execution.get("claimed_execution_gate_intent_hash") or "") != str(
+                current_gate.get("intent_hash") or ""
+            ):
+                raise PMExecutionResultCommitConflict(
+                    "PM card execution intent changed after the live claim was acquired."
+                )
+            if (
+                _is_closed_pm_status(card.status)
+                or str(card.status or "").strip().lower() in {"blocked", "failed"}
+            ):
+                raise PMExecutionResultCommitConflict(
+                    "PM card status changed after the live claim was acquired."
+                )
+
+            now = utc_now()
+            expected_result_runner_id = str(execution.get("result_runner_id") or "").strip()
+            expected_result_author_agent = str(execution.get("result_author_agent") or "").strip()
+            expected_packet_sha256 = str(execution.get("execution_packet_sha256") or "").strip()
+            if not expected_result_runner_id or request.runner_id != expected_result_runner_id:
+                raise PMExecutionResultCommitConflict(
+                    "Execution result runner does not match the identity bound to the live claim."
+                )
+            if not expected_result_author_agent or request.author_agent != expected_result_author_agent:
+                raise PMExecutionResultCommitConflict(
+                    "Execution result author does not match the identity bound to the live claim."
+                )
+            if not expected_packet_sha256 or request.execution_packet_sha256 != expected_packet_sha256:
+                raise PMExecutionResultCommitConflict(
+                    "Execution result work order does not match the exact packet bound to the live claim."
+                )
+            executor_started_at = _parse_datetime(execution.get("executor_started_at"))
+            result_created_at = as_utc(request.created_at)
+            if executor_started_at is None or result_created_at < executor_started_at.astimezone(timezone.utc):
+                raise PMExecutionResultCommitConflict(
+                    "Execution result creation time predates the live execution claim."
+                )
+            if result_created_at > now:
+                raise PMExecutionResultCommitConflict(
+                    "Execution result creation time is in the future relative to canonical PM time."
+                )
             history = list(execution.get("history") or [])
             next_execution_state = request.status
             next_pm_status = "done" if request.status == "done" else ("blocked" if request.status == "blocked" else "review")
             next_target_agent = execution.get("target_agent") or request.author_agent
-            next_assigned_runner = request.runner_id
+            next_assigned_runner = expected_result_runner_id
             if request.status == "blocked":
                 next_execution_state = "queued"
                 next_target_agent = "Jean-Claude"
@@ -815,7 +2641,7 @@ def commit_execution_result(
                 "workspace_agent": execution.get("workspace_agent") or execution.get("target_agent"),
                 "execution_mode": "direct" if request.status == "blocked" else execution.get("execution_mode"),
                 "executor_status": "completed",
-                "executor_finished_at": now.isoformat(),
+                "executor_finished_at": result_created_at.isoformat(),
                 "executor_last_error": None,
                 "returned_from_agent": (
                     request.author_agent if request.status == "blocked" else execution.get("returned_from_agent")
@@ -829,29 +2655,15 @@ def commit_execution_result(
             }
             next_payload = dict(current_payload)
             next_payload["execution"] = next_execution
-            next_payload["latest_execution_result"] = {
-                "result_id": result_id,
-                "claim_id": claim_id,
-                "commit_digest": commit_digest,
-                "created_at": request.created_at.isoformat(),
-                "summary": request.summary,
-                "status": request.status,
-                "result_path": request.result_path,
-                "memo_path": request.memo_path,
-                "work_order_path": request.work_order_path,
-                "workspace_result_path": request.workspace_result_path,
-                "decisions": request.decisions,
-                "blockers": request.blockers,
-                "follow_ups": request.follow_ups,
-                "host_actions": request.host_actions,
-                "host_action_proof": request.host_action_proof,
-                "learnings": request.learnings,
-                "outcomes": request.outcomes,
-                "project_updates": request.project_updates,
-                "memory_promotions": request.memory_promotions,
-                "persistent_state_updates": request.persistent_state_updates,
-                "artifacts": request.artifacts,
-            }
+            result_receipt = request.model_dump(mode="json")
+            result_receipt["commit_digest"] = commit_digest
+            result_receipt["committed_at"] = now.isoformat()
+            result_receipt["timestamp_semantics"] = (
+                PM_EXECUTION_RESULT_TIMESTAMP_SEMANTICS
+            )
+            next_payload["latest_execution_result"] = (
+                _authorize_execution_result_commit_receipt(result_receipt)
+            )
             signed_payload = sign_execution_payload(card.id, next_payload)
             cur.execute(
                 """
@@ -865,10 +2677,17 @@ def commit_execution_result(
                 (next_pm_status, Json(signed_payload), card.id),
             )
             updated_row = cur.fetchone()
+            if updated_row is None:  # pragma: no cover - row remains locked until this update.
+                conn.rollback()
+                raise RuntimeError(f"Failed to commit execution result for PM card {card_id}.")
+            updated_card = _row_to_card(updated_row)
+            if not _has_authorized_execution_result_commit(updated_card):
+                conn.rollback()
+                raise PMExecutionResultCommitConflict(
+                    "Canonical PM result failed post-write verification; the transaction was rolled back."
+                )
         conn.commit()
-    if updated_row is None:  # pragma: no cover - row is locked until this update.
-        raise RuntimeError(f"Failed to commit execution result for PM card {card_id}.")
-    return _row_to_card(updated_row), "committed"
+    return updated_card, "committed"
 
 
 def recover_stale_execution_claims(
@@ -1309,26 +3128,6 @@ def dispatch_card(
         workspace_key=workspace_key,
         payload=execution_ready_payload,
     )
-    gate = dict(card_payload.get("execution_gate") or {})
-    if not execution_gate_allows_run(gate):
-        if not payload.approval_confirmed:
-            raise ValueError(
-                str(gate.get("reason") or "This execution requires owner approval.")
-                + " Review the exact intent, then use Approve & queue."
-            )
-        card_payload = grant_execution_approval(
-            card_id=card.id,
-            title=card.title,
-            source=card.source,
-            workspace_key=workspace_key,
-            payload=card_payload,
-            approved_by=payload.requested_by or "Neo",
-            reason=payload.approval_reason,
-        )
-        gate = dict(card_payload.get("execution_gate") or {})
-    if not execution_gate_allows_run(gate):
-        raise ValueError(str(gate.get("reason") or "This execution is not authorized for the local Codex runner."))
-
     defaults = execution_defaults_for_workspace(_workspace_key_from_card(card))
     current_execution = dict(card_payload.get("execution") or {})
     if not current_execution:
@@ -1338,18 +3137,6 @@ def dispatch_card(
     requested_by = payload.requested_by or current_execution.get("requested_by") or card.owner or defaults["manager_agent"]
     effective_target_agent = payload.target_agent or current_execution.get("target_agent") or defaults["target_agent"]
     history = list(current_execution.get("history") or [])
-    history.append(
-        {
-            "event": "dispatch",
-            "state": payload.execution_state,
-            "target_agent": effective_target_agent,
-            "requested_by": requested_by,
-            "at": now.isoformat(),
-            "execution_gate_intent_hash": gate.get("intent_hash"),
-            "execution_gate_approval_state": gate.get("approval_state"),
-        }
-    )
-
     current_execution.update(
         {
             "lane": payload.lane or current_execution.get("lane") or "codex",
@@ -1371,12 +3158,65 @@ def dispatch_card(
             "executor_started_at": None,
             "executor_finished_at": None,
             "executor_last_error": None,
-            "history": history[-12:],
         }
     )
     card_payload["execution"] = current_execution
+    card_payload = apply_execution_gate(
+        card_id=card.id,
+        title=card.title,
+        source=card.source,
+        workspace_key=workspace_key,
+        payload=card_payload,
+    )
+    gate = dict(card_payload.get("execution_gate") or {})
+    governed_execution_approval_transition = False
+    if not execution_gate_allows_run(gate):
+        if not payload.approval_confirmed:
+            raise ValueError(
+                str(gate.get("reason") or "This execution requires owner approval.")
+                + " Review the exact intent, then use Approve & queue."
+            )
+        card_payload = grant_execution_approval(
+            card_id=card.id,
+            title=card.title,
+            source=card.source,
+            workspace_key=workspace_key,
+            payload=card_payload,
+            approved_by=payload.requested_by or "Neo",
+            reason=payload.approval_reason,
+        )
+        governed_execution_approval_transition = True
+        gate = dict(card_payload.get("execution_gate") or {})
+    if not execution_gate_allows_run(gate):
+        raise ValueError(
+            str(
+                gate.get("reason")
+                or "This execution is not authorized for the local Codex runner."
+            )
+        )
+    history.append(
+        {
+            "event": "dispatch",
+            "state": payload.execution_state,
+            "target_agent": effective_target_agent,
+            "requested_by": requested_by,
+            "at": now.isoformat(),
+            "execution_gate_intent_hash": gate.get("intent_hash"),
+            "execution_gate_approval_state": gate.get("approval_state"),
+        }
+    )
+    current_execution["history"] = history[-12:]
+    card_payload["execution"] = current_execution
 
-    updated = update_card(card_id, PMCardUpdate(payload=card_payload))
+    updated = update_card(
+        card_id,
+        PMCardUpdate(payload=card_payload),
+        **(
+            {"_governed_execution_approval_transition": True}
+            if governed_execution_approval_transition
+            else {}
+        ),
+    )
     if updated is None:
         return None
     return PMCardDispatchResult(card=updated, queue_entry=build_execution_queue_entry(updated) or _fallback_execution_entry(updated))
@@ -1476,7 +3316,10 @@ def queue_host_action_automation(
     current_state = str(automation.get("state") or "ready").strip().lower()
     if current_state in {"queued", "running"}:
         payload["host_action_automation"] = automation
-        if bool(automation.get("requires_host_confirmation")):
+        governed_execution_approval_transition = bool(
+            automation.get("requires_host_confirmation")
+        )
+        if governed_execution_approval_transition:
             payload = grant_execution_approval(
                 card_id=card.id,
                 title=card.title,
@@ -1486,7 +3329,18 @@ def queue_host_action_automation(
                 approved_by=requested_by,
                 reason=reason or "Owner confirmed this exact host-action automation.",
             )
-        updated = update_card(card.id, PMCardUpdate(status=card.status, payload=payload)) or card
+        governed_update_kwargs = (
+            {"_governed_execution_approval_transition": True}
+            if governed_execution_approval_transition
+            else {}
+        )
+        updated = _persist_status_payload_update(
+            card,
+            operation="queued host-action automation confirmation",
+            status=card.status,
+            payload=payload,
+            update_kwargs=governed_update_kwargs,
+        )
     else:
         automation.update(
             {
@@ -1524,7 +3378,10 @@ def queue_host_action_automation(
             "executor_last_error": None,
             "history": history[-12:],
         }
-        if bool(automation.get("requires_host_confirmation")):
+        governed_execution_approval_transition = bool(
+            automation.get("requires_host_confirmation")
+        )
+        if governed_execution_approval_transition:
             payload = grant_execution_approval(
                 card_id=card.id,
                 title=card.title,
@@ -1534,7 +3391,15 @@ def queue_host_action_automation(
                 approved_by=requested_by,
                 reason=reason or "Owner confirmed this exact host-action automation.",
             )
-        updated = update_card(card.id, PMCardUpdate(status="in_progress", payload=payload))
+        updated = update_card(
+            card.id,
+            PMCardUpdate(status="in_progress", payload=payload),
+            **(
+                {"_governed_execution_approval_transition": True}
+                if governed_execution_approval_transition
+                else {}
+            ),
+        )
         if updated is None:
             return None
 
@@ -1581,7 +3446,16 @@ def _apply_card_action(
         card_payload["host_action_completion"] = host_action_completion
     if host_action_followup_gate is not None and not bool(host_action_followup_gate.get("ready")):
         card_payload["host_action_followup_pending"] = host_action_followup_gate
-    updated = update_card(card.id, PMCardUpdate(status=status, payload=card_payload))
+    update_kwargs = (
+        {"_governed_review_transition": True}
+        if _has_purpose_authorized_execution_result_receipt(card)
+        else {}
+    )
+    updated = update_card(
+        card.id,
+        PMCardUpdate(status=status, payload=card_payload),
+        **update_kwargs,
+    )
     if updated is None:
         return None
 
@@ -1604,9 +3478,12 @@ def _apply_card_action(
             "created_at": _datetime_to_iso(successor_card.created_at),
             "workspace_key": _workspace_key_from_card(successor_card),
         }
-        refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
-        if refreshed is not None:
-            updated = refreshed
+        updated = _persist_status_payload_update(
+            updated,
+            operation="PM resolution-successor link receipt",
+            status=updated.status,
+            payload=updated_payload,
+        )
 
     if (
         action == "approve"
@@ -1632,18 +3509,24 @@ def _apply_card_action(
             "workspace_key": _workspace_key_from_card(successor_card),
         }
         updated_payload.pop("host_action_followup_pending", None)
-        refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
-        if refreshed is not None:
-            updated = refreshed
+        updated = _persist_status_payload_update(
+            updated,
+            operation="host-action follow-up link receipt",
+            status=updated.status,
+            payload=updated_payload,
+        )
 
     if review_metadata:
         updated_payload = dict(updated.payload or {})
         latest_manual_review = dict(updated_payload.get("latest_manual_review") or {})
         latest_manual_review.update(review_metadata)
         updated_payload["latest_manual_review"] = latest_manual_review
-        refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
-        if refreshed is not None:
-            updated = refreshed
+        updated = _persist_status_payload_update(
+            updated,
+            operation="PM review metadata receipt",
+            status=updated.status,
+            payload=updated_payload,
+        )
 
     return PMCardActionResult(card=updated, queue_entry=build_execution_queue_entry(updated), successor_card=successor_card)
 
@@ -1865,13 +3748,6 @@ def build_card_action_update(
         "reason": effective_reason,
         "history": history[-12:],
     }
-
-    latest_execution_result = payload.get("latest_execution_result")
-    if isinstance(latest_execution_result, dict):
-        updated_result = dict(latest_execution_result)
-        updated_result["review_resolution"] = action
-        updated_result["reviewed_at"] = now
-        payload["latest_execution_result"] = updated_result
 
     payload["latest_manual_review"] = {
         "action": action,
@@ -2333,8 +4209,12 @@ def _auto_close_stale_owner_review_duplicates(cards: list[PMCard]) -> list[dict[
             "closed_at": datetime.now(timezone.utc).isoformat(),
             "reason": "Closed stale owner-review duplicate because a completed sibling card already resolved the same owner-approved work.",
         }
-        updated = update_card(card.id, PMCardUpdate(status="done", payload=payload))
-        effective = updated or card.model_copy(update={"status": "done", "payload": payload})
+        effective = _persist_status_payload_update(
+            card,
+            operation="stale owner-review duplicate closure",
+            status="done",
+            payload=payload,
+        )
         closed.append(
             {
                 "card_id": effective.id,
@@ -2445,6 +4325,411 @@ def _accountability_tracked_card_is_healthy(card: PMCard | None) -> bool:
     return state in {"review", "done"}
 
 
+def _current_gate_allows_failed_execution_recovery(card: PMCard, gate: dict[str, Any]) -> bool:
+    """Allow retries only for a current, signed, bounded internal execution."""
+
+    payload = dict(card.payload or {})
+    if _is_closed_pm_status(card.status):
+        return False
+    if _is_workspace_owner_review_card(card) or _is_owner_decision_gate(card) or _is_host_action_required_card(card):
+        return False
+    if isinstance(payload.get("host_action_required"), dict) or isinstance(payload.get("host_action_automation"), dict):
+        return False
+    return bool(
+        gate.get("decision") == AUTO_EXECUTE
+        and gate.get("approval_state") == "not_required"
+        and gate.get("authorization_current") is True
+        and gate.get("risk_class") == "safe_internal_reversible"
+        and gate.get("capability_id") == BOUNDED_PROJECT_CAPABILITY
+        and gate.get("runner_profile") == "codex_workspace"
+        and not gate.get("risk_factors")
+    )
+
+
+def _failed_execution_evidence(card: PMCard) -> dict[str, Any]:
+    payload = dict(card.payload or {})
+    execution = dict(_execution_payload(card) or {})
+    latest_result = payload.get("latest_execution_result")
+    latest_result_status = (
+        str(latest_result.get("status") or "").strip().lower()
+        if isinstance(latest_result, dict)
+        else ""
+    )
+    error_text = sanitize_brain_text(
+        " ".join(str(execution.get("executor_last_error") or "").split()).strip()
+    )
+    packet_reference = (
+        "legacy-execution-packet-present"
+        if str(execution.get("execution_packet_path") or "").strip()
+        else ""
+    )
+    evidence = {
+        "pm_status": str(card.status or "").strip().lower(),
+        "execution_state": str(execution.get("state") or "").strip().lower(),
+        "executor_status": str(execution.get("executor_status") or "").strip().lower(),
+        "latest_result_status": latest_result_status,
+        "latest_result_id": (
+            str(latest_result.get("result_id") or "").strip() or None
+            if isinstance(latest_result, dict)
+            else None
+        ),
+        "latest_result_claim_id": (
+            str(latest_result.get("claim_id") or "").strip() or None
+            if isinstance(latest_result, dict)
+            else None
+        ),
+        "latest_result_commit_digest": (
+            str(latest_result.get("commit_digest") or "").strip() or None
+            if isinstance(latest_result, dict)
+            else None
+        ),
+        "execution_claim_id": str(execution.get("claim_id") or "").strip() or None,
+        "execution_result_id": str(execution.get("result_id") or "").strip() or None,
+        "executor_worker_id": str(execution.get("executor_worker_id") or "").strip() or None,
+        "executor_started_at": str(execution.get("executor_started_at") or "").strip() or None,
+        "executor_finished_at": str(execution.get("executor_finished_at") or "").strip() or None,
+        "last_transition_at": str(execution.get("last_transition_at") or "").strip() or None,
+        "executor_last_error": error_text[:1000] or None,
+        "execution_packet_reference": packet_reference[:1000] or None,
+    }
+    evidence["evidence_sha256"] = hashlib.sha256(
+        json.dumps(evidence, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return evidence
+
+
+def _failed_execution_recovery_history(
+    card: PMCard,
+    *,
+    evidence: dict[str, Any],
+    retry_count: int,
+    retry_limit: int,
+    captured_at: str,
+) -> list[dict[str, Any]]:
+    latest_manual_review = dict((card.payload or {}).get("latest_manual_review") or {})
+    history = [
+        dict(item)
+        for item in latest_manual_review.get("failed_execution_recovery_history") or []
+        if isinstance(item, dict)
+    ]
+    evidence_sha256 = str(evidence.get("evidence_sha256") or "")
+    if not any(str(item.get("evidence_sha256") or "") == evidence_sha256 for item in history):
+        history.append(
+            {
+                **evidence,
+                "captured_at": captured_at,
+                "retry_count_before_resolution": retry_count,
+                "retry_limit": retry_limit,
+            }
+        )
+    return history[-(AUTO_CONTRACT_RETRY_LIMIT + 1) :]
+
+
+def _autonomous_failed_execution_progression(
+    card: PMCard,
+    *,
+    gate: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _current_gate_allows_failed_execution_recovery(card, gate):
+        return None
+
+    payload = dict(card.payload or {})
+    execution = dict(_execution_payload(card) or {})
+    failure_states = {
+        str(card.status or "").strip().lower(),
+        str(execution.get("state") or "").strip().lower(),
+        str(execution.get("executor_status") or "").strip().lower(),
+    }
+    if "failed" not in failure_states:
+        return None
+    contract = payload.get("completion_contract")
+    if not isinstance(contract, dict) or not contract:
+        return None
+
+    retry_limit = _bounded_completion_contract_retry_limit(contract.get("auto_return_limit"))
+    retry_count = _completion_contract_auto_retry_count(card)
+    evidence = _failed_execution_evidence(card)
+    evidence_sha256 = str(evidence.get("evidence_sha256") or "")
+    latest_manual_review = dict(payload.get("latest_manual_review") or {})
+    if str(latest_manual_review.get("failed_execution_fingerprint") or "") == evidence_sha256:
+        return None
+
+    captured_at = datetime.now(timezone.utc).isoformat()
+    recovery_history = _failed_execution_recovery_history(
+        card,
+        evidence=evidence,
+        retry_count=retry_count,
+        retry_limit=retry_limit,
+        captured_at=captured_at,
+    )
+    contract_assessment = _completion_contract_assessment(card)
+    assessment_summary = (
+        _contract_assessment_summary(contract_assessment)
+        if isinstance(contract_assessment, dict)
+        else "The failed execution did not produce a completion receipt."
+    )
+    error_summary = str(evidence.get("executor_last_error") or "").strip()
+    failure_summary = f" Last failure: {error_summary[:240]}" if error_summary else ""
+    shared = {
+        "contract_assessment": contract_assessment,
+        "failed_execution_fingerprint": evidence_sha256,
+        "failed_execution_gate_intent_hash": str(gate.get("intent_hash") or "") or None,
+        "failed_execution_recovery_history": recovery_history,
+        "failed_execution_retry_limit": retry_limit,
+        "failed_execution_recovery_schema_version": FAILED_EXECUTION_RECOVERY_SCHEMA_VERSION,
+    }
+
+    if retry_count >= retry_limit:
+        return {
+            **shared,
+            "action": "blocked",
+            "rule": "failed_execution_retry_exhausted",
+            "reason": (
+                f"Codex kept this execution failed for manager attention because its bounded automatic retry limit "
+                f"of {retry_limit} was exhausted. {assessment_summary}{failure_summary}"
+            ),
+            "worker_action": "escalate_for_attention",
+            "contract_auto_return_count": retry_count,
+        }
+
+    return {
+        **shared,
+        "action": "return",
+        "rule": "failed_execution_return_for_retry",
+        "reason": (
+            f"Codex returned this failed safe internal execution for bounded retry {retry_count + 1} of "
+            f"{retry_limit}. {assessment_summary}{failure_summary}"
+        ),
+        "worker_action": "return_to_execution",
+        "contract_auto_return_count": retry_count + 1,
+    }
+
+
+def _build_failed_execution_progression_update(
+    card: PMCard,
+    *,
+    progression: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    if progression.get("action") == "return":
+        status, payload = build_card_action_update(
+            card,
+            action="return",
+            requested_by=AUTO_PROGRESS_REQUESTED_BY,
+            reason=progression["reason"],
+        )
+        latest_manual_review = dict(payload.get("latest_manual_review") or {})
+        latest_manual_review.update(
+            {
+                "auto_progressed": True,
+                "policy_rule": progression["rule"],
+                "worker_action": progression["worker_action"],
+                "worker_id": AUTO_PROGRESS_REQUESTED_BY,
+                "contract_assessment": progression.get("contract_assessment"),
+                "contract_auto_return_count": progression.get("contract_auto_return_count"),
+                "failed_execution_fingerprint": progression.get("failed_execution_fingerprint"),
+                "failed_execution_recovery_history": progression.get("failed_execution_recovery_history") or [],
+                "failed_execution_retry_limit": progression.get("failed_execution_retry_limit"),
+                "failed_execution_recovery_schema_version": progression.get(
+                    "failed_execution_recovery_schema_version"
+                ),
+            }
+        )
+        payload["latest_manual_review"] = latest_manual_review
+        return status, payload
+
+    payload = dict(card.payload or {})
+    execution = dict(_execution_payload(card) or {})
+    now = datetime.now(timezone.utc).isoformat()
+    history = list(execution.get("history") or [])
+    history.append(
+        {
+            "event": "failed_execution_retry_exhausted",
+            "state": "failed",
+            "requested_by": AUTO_PROGRESS_REQUESTED_BY,
+            "at": now,
+            "evidence_sha256": progression.get("failed_execution_fingerprint"),
+            "retry_count": progression.get("contract_auto_return_count"),
+            "retry_limit": progression.get("failed_execution_retry_limit"),
+        }
+    )
+    execution.update(
+        {
+            "state": "failed",
+            "executor_status": "failed",
+            "manager_attention_required": True,
+            "reason": progression["reason"],
+            "failed_execution_retry_exhausted_at": now,
+            "history": history[-12:],
+        }
+    )
+    payload["execution"] = execution
+    latest_manual_review = dict(payload.get("latest_manual_review") or {})
+    latest_manual_review.update(
+        {
+            "action": "blocked",
+            "reviewed_at": now,
+            "reviewed_by": AUTO_PROGRESS_REQUESTED_BY,
+            "from_lane": "failed",
+            "auto_progressed": True,
+            "policy_rule": progression["rule"],
+            "worker_action": progression["worker_action"],
+            "worker_id": AUTO_PROGRESS_REQUESTED_BY,
+            "contract_assessment": progression.get("contract_assessment"),
+            "contract_auto_return_count": progression.get("contract_auto_return_count"),
+            "failed_execution_fingerprint": progression.get("failed_execution_fingerprint"),
+            "failed_execution_recovery_history": progression.get("failed_execution_recovery_history") or [],
+            "failed_execution_retry_limit": progression.get("failed_execution_retry_limit"),
+            "failed_execution_recovery_schema_version": progression.get(
+                "failed_execution_recovery_schema_version"
+            ),
+            "reason": progression["reason"],
+        }
+    )
+    payload["latest_manual_review"] = latest_manual_review
+    return str(card.status or "in_progress"), payload
+
+
+def _failed_execution_progression_result(
+    updated: PMCard,
+    *,
+    progression: dict[str, Any],
+) -> tuple[dict[str, Any], PMCardActionResult]:
+    action = str(progression.get("action") or "return")
+    action_result = PMCardActionResult(
+        card=updated,
+        queue_entry=build_execution_queue_entry(updated),
+        successor_card=None,
+    )
+    return (
+        {
+            "card_id": updated.id,
+            "title": updated.title,
+            "workspace_key": _workspace_key_from_card(updated),
+            "action": action,
+            "resolution_mode": None,
+            "rule": progression["rule"],
+            "reason": progression["reason"],
+            "successor_card_id": None,
+            "successor_card_title": None,
+            "host_action_card_id": None,
+            "host_action_card_title": None,
+        },
+        action_result,
+    )
+
+
+def _commit_autonomous_failed_execution_progression(
+    card: PMCard,
+    *,
+    expected_progression: dict[str, Any],
+) -> tuple[dict[str, Any], PMCardActionResult] | None:
+    """Commit one failed-result transition only from the exact selected row.
+
+    The PM review worker starts from a detached list snapshot.  A generic
+    ``update_card`` here would replace the complete JSON payload even when an
+    owner action, a newer result, or a gate change had landed since selection.
+    Lock and re-read the authoritative row, require the exact timestamp,
+    failure identity, and current signed gate selected by the worker, then
+    build the transition from that locked row.  A mismatch is an intentional
+    no-op; the next worker pass may evaluate the newer state.
+    """
+
+    expected_updated_at = card.updated_at
+    expected_fingerprint = str(expected_progression.get("failed_execution_fingerprint") or "")
+    expected_gate_intent_hash = str(expected_progression.get("failed_execution_gate_intent_hash") or "")
+    if expected_updated_at is None or not expected_fingerprint or not expected_gate_intent_hash:
+        return None
+
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                FROM pm_cards
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (card.id,),
+            )
+            row = cur.fetchone()
+            if row is None or row.get("updated_at") != expected_updated_at:
+                conn.rollback()
+                return None
+
+            current_card = _row_to_card(row)
+            current_gate = _execution_gate_for_card(current_card)
+            current_progression = _autonomous_failed_execution_progression(
+                current_card,
+                gate=current_gate,
+            )
+            if current_progression is None:
+                conn.rollback()
+                return None
+            if (
+                str(current_progression.get("failed_execution_fingerprint") or "")
+                != expected_fingerprint
+                or str(current_progression.get("failed_execution_gate_intent_hash") or "")
+                != expected_gate_intent_hash
+                or str(current_progression.get("action") or "")
+                != str(expected_progression.get("action") or "")
+                or str(current_progression.get("rule") or "")
+                != str(expected_progression.get("rule") or "")
+                or int(current_progression.get("contract_auto_return_count") or 0)
+                != int(expected_progression.get("contract_auto_return_count") or 0)
+                or int(current_progression.get("failed_execution_retry_limit") or 0)
+                != int(expected_progression.get("failed_execution_retry_limit") or 0)
+            ):
+                conn.rollback()
+                return None
+
+            next_status, next_payload = _build_failed_execution_progression_update(
+                current_card,
+                progression=current_progression,
+            )
+            next_payload = apply_execution_gate(
+                card_id=current_card.id,
+                title=current_card.title,
+                source=current_card.source,
+                workspace_key=_workspace_key_from_card(current_card),
+                payload=next_payload,
+            )
+            signed_payload = sign_execution_payload(current_card.id, next_payload)
+            cur.execute(
+                """
+                UPDATE pm_cards
+                SET status = %s,
+                    payload = %s,
+                    updated_at = clock_timestamp()
+                WHERE id = %s
+                  AND updated_at = %s
+                  AND (
+                    LOWER(COALESCE(status, '')) = 'failed'
+                    OR LOWER(COALESCE(payload->'execution'->>'state', '')) = 'failed'
+                    OR LOWER(COALESCE(payload->'execution'->>'executor_status', '')) = 'failed'
+                  )
+                RETURNING id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                """,
+                (
+                    next_status,
+                    Json(signed_payload),
+                    current_card.id,
+                    row["updated_at"],
+                ),
+            )
+            updated_row = cur.fetchone()
+        if updated_row is None:
+            conn.rollback()
+            return None
+        conn.commit()
+
+    updated = _row_to_card(updated_row)
+    return _failed_execution_progression_result(
+        updated,
+        progression=current_progression,
+    )
+
+
 def _auto_progress_single_card(
     card: PMCard,
     *,
@@ -2485,10 +4770,18 @@ def _auto_progress_single_card(
             result,
         )
 
-    if not _execution_gate_authorizes_card(card):
+    gate = _execution_gate_for_card(card)
+    if not _execution_gate_authorizes_card(card, gate=gate):
         return None
 
-    stale_policy = _auto_resolve_review_policy(card)
+    progression = _autonomous_failed_execution_progression(card, gate=gate)
+    if progression is not None:
+        return _commit_autonomous_failed_execution_progression(
+            card,
+            expected_progression=progression,
+        )
+
+    stale_policy = _auto_resolve_review_policy(card) if progression is None else None
     if stale_policy is not None:
         result = _apply_card_action(
             card,
@@ -2523,9 +4816,10 @@ def _auto_progress_single_card(
             result,
         )
 
-    progression = _autonomous_returned_host_action_progression(card)
     if progression is None:
-        progression = _autonomous_review_progression(card)
+        progression = _autonomous_returned_host_action_progression(card)
+        if progression is None:
+            progression = _autonomous_review_progression(card)
     if progression is None:
         return None
     action = str(progression.get("action") or "approve")
@@ -2540,6 +4834,14 @@ def _auto_progress_single_card(
         review_metadata["contract_assessment"] = contract_assessment
     if progression.get("contract_auto_return_count") is not None:
         review_metadata["contract_auto_return_count"] = progression.get("contract_auto_return_count")
+    for metadata_key in (
+        "failed_execution_fingerprint",
+        "failed_execution_recovery_history",
+        "failed_execution_retry_limit",
+        "failed_execution_recovery_schema_version",
+    ):
+        if progression.get(metadata_key) is not None:
+            review_metadata[metadata_key] = progression.get(metadata_key)
     result = _apply_card_action(
         card,
         action=action,
@@ -2573,13 +4875,17 @@ def _auto_progress_single_card(
                 "created_at": _datetime_to_iso(host_action_card.created_at),
                 "workspace_key": _workspace_key_from_card(host_action_card),
             }
-            refreshed = update_card(result.card.id, PMCardUpdate(status=result.card.status, payload=updated_payload))
-            if refreshed is not None:
-                result = PMCardActionResult(
-                    card=refreshed,
-                    queue_entry=build_execution_queue_entry(refreshed),
-                    successor_card=result.successor_card,
-                )
+            refreshed = _persist_status_payload_update(
+                result.card,
+                operation="autonomous host-action successor link receipt",
+                status=result.card.status,
+                payload=updated_payload,
+            )
+            result = PMCardActionResult(
+                card=refreshed,
+                queue_entry=build_execution_queue_entry(refreshed),
+                successor_card=result.successor_card,
+            )
     return (
         {
             "card_id": result.card.id,
@@ -2618,7 +4924,7 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
     host_action_required = _extract_host_action_required(card)
     contract_assessment = _completion_contract_assessment(card, host_action_required=host_action_required)
     if contract_assessment is not None and not bool(contract_assessment.get("satisfied")):
-        retry_limit = int(contract_assessment.get("auto_return_limit") or AUTO_CONTRACT_RETRY_LIMIT)
+        retry_limit = _bounded_completion_contract_retry_limit(contract_assessment.get("auto_return_limit"))
         current_retry_count = _completion_contract_auto_retry_count(card)
         assessment_summary = _contract_assessment_summary(contract_assessment)
         if current_retry_count >= retry_limit:
@@ -2714,7 +5020,10 @@ def _autonomous_returned_host_action_progression(card: PMCard) -> dict[str, Any]
         return None
 
     payload = dict(card.payload or {})
-    if _payload_contract_source(payload) != "post_sync_dispatch":
+    if _payload_contract_source(payload) not in {
+        "standup_promotion",
+        "post_sync_dispatch",
+    }:
         return None
 
     latest_manual_review = dict(payload.get("latest_manual_review") or {})
@@ -2746,6 +5055,16 @@ def _autonomous_returned_host_action_progression(card: PMCard) -> dict[str, Any]
         "contract_assessment": contract_assessment,
         "host_action_required": host_action_required,
     }
+
+
+def _bounded_completion_contract_retry_limit(value: Any) -> int:
+    if value is None or str(value).strip() == "":
+        return AUTO_CONTRACT_RETRY_LIMIT
+    try:
+        requested_limit = int(value)
+    except (TypeError, ValueError):
+        return AUTO_CONTRACT_RETRY_LIMIT
+    return max(0, min(requested_limit, AUTO_CONTRACT_RETRY_LIMIT))
 
 
 def _completion_contract_assessment(
@@ -2813,7 +5132,7 @@ def _completion_contract_assessment(
         "done_when": done_when,
         "summary": summary,
         "status": status,
-        "auto_return_limit": max(0, int(contract.get("auto_return_limit") or AUTO_CONTRACT_RETRY_LIMIT)),
+        "auto_return_limit": _bounded_completion_contract_retry_limit(contract.get("auto_return_limit")),
     }
 
 
@@ -3538,8 +5857,36 @@ def repair_execution_contracts(
         patched_payload = _build_missing_execution_contract_payload(card)
         if patched_payload is None:
             continue
-        updated = update_card(card.id, PMCardUpdate(payload=patched_payload))
-        effective = updated or card.model_copy(update={"payload": patched_payload})
+        expected_contract_source = _execution_contract_source(card)
+
+        def contract_repair_is_committed(current: PMCard) -> bool:
+            current_payload = dict(current.payload or {})
+            return bool(
+                not _is_closed_pm_status(current.status)
+                and _execution_contract_source(current) == expected_contract_source
+                and _payload_contract_source(current_payload) == expected_contract_source
+                and isinstance(current_payload.get("completion_contract"), dict)
+                and bool(current_payload.get("completion_contract"))
+                and isinstance(current_payload.get("execution"), dict)
+                and bool(current_payload.get("execution"))
+                and _build_missing_execution_contract_payload(current) is None
+            )
+
+        def build_contract_repair(current: PMCard) -> PMCardUpdate | None:
+            if (
+                _is_closed_pm_status(current.status)
+                or _execution_contract_source(current) != expected_contract_source
+            ):
+                return None
+            current_patch = _build_missing_execution_contract_payload(current)
+            return PMCardUpdate(payload=current_patch) if current_patch is not None else None
+
+        effective = _persist_reconciled_card_update(
+            card,
+            operation="PM execution-contract repair",
+            build_update=build_contract_repair,
+            is_committed=contract_repair_is_committed,
+        )
         repaired.append(
             {
                 "card_id": effective.id,
@@ -3567,13 +5914,11 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
     requested_by = "PM Host Action Repair"
 
     def apply_card_update(card: PMCard, *, status: str | None = None, payload: dict[str, Any] | None = None) -> PMCard:
-        updated = update_card(card.id, PMCardUpdate(status=status, payload=payload))
-        effective = updated or card.model_copy(
-            update={
-                "status": status if status is not None else card.status,
-                "payload": payload if payload is not None else dict(card.payload or {}),
-                "updated_at": datetime.now(timezone.utc),
-            }
+        effective = _persist_status_payload_update(
+            card,
+            operation="legacy host-action repair",
+            status=status,
+            payload=payload,
         )
         cards_by_id[effective.id] = effective
         return effective
@@ -4046,8 +6391,12 @@ def _dedupe_active_pm_review_resolution_cards(cards: list[PMCard]) -> list[dict[
                 "closed_at": datetime.now(timezone.utc).isoformat(),
                 "reason": "Closed duplicate pm_review_resolution lane because an equivalent active successor card already exists.",
             }
-            updated = update_card(duplicate.id, PMCardUpdate(status="done", payload=payload))
-            effective = updated or duplicate.model_copy(update={"status": "done", "payload": payload})
+            effective = _persist_status_payload_update(
+                duplicate,
+                operation="duplicate PM review-resolution closure",
+                status="done",
+                payload=payload,
+            )
             deduped.append(
                 {
                     "card_id": effective.id,
@@ -4853,6 +7202,19 @@ def _fallback_execution_entry(card: PMCard) -> ExecutionQueueEntry:
 
 def _normalize_card_create_payload(payload: PMCardCreate) -> PMCardCreate:
     card_payload = dict(payload.payload or {})
+    if "owner_decision_resolution" in card_payload:
+        raise ValueError(
+            "Generic PM card creation cannot write canonical owner-decision authority; "
+            "use the locked canonical decision reconciler."
+        )
+    if "execution_approval" in card_payload:
+        raise ValueError(
+            "Generic PM card creation cannot write execution-approval authority; "
+            "use a governed PM approval action."
+        )
+    # No existing governed scheduler writer owns this field. Generic PM create
+    # payloads cannot mint authority merely by supplying a receipt-shaped map.
+    card_payload.pop("scheduler_receipt", None)
     execution = dict(card_payload.get("execution") or {})
     source = str(payload.source or "").strip() or None
     workspace_key = _payload_value(card_payload, "workspace_key") or "shared_ops"

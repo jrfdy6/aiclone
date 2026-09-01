@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const ts = require('typescript');
+const React = require('react');
+const { renderToStaticMarkup } = require('react-dom/server');
 
 const component = fs.readFileSync(path.join(__dirname, '../app/workspace/OpsStandupSummary.tsx'), 'utf8');
 const workspace = fs.readFileSync(path.join(__dirname, '../app/workspace/WorkspaceClient.tsx'), 'utf8');
@@ -17,10 +19,34 @@ new Function('module', 'exports', decisionProjectionCompiled)(
 );
 const { opsCanonicalDecisionDisplay } = decisionProjectionModule.exports;
 
+function compileOpsSummaryComponent() {
+  const compiled = ts.transpileModule(component, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
+    },
+  }).outputText;
+  const module = { exports: {} };
+  const localRequire = (id) => {
+    if (id === 'react' || id === 'react/jsx-runtime') return require(id);
+    if (id === '@/lib/control-api') return { controlApiGet: async () => ({}) };
+    if (id === '@/lib/display-privacy') return { safeExternalHttpsUrl: () => null };
+    if (id === '@/lib/ops-canonical-decision') {
+      return { opsCanonicalDecisionDisplay: () => ({ title: 'Decision', status: null, stateVersion: null, resolvedChoice: null }) };
+    }
+    throw new Error(`Unexpected Ops summary dependency: ${id}`);
+  };
+  new Function('require', 'module', 'exports', compiled)(localRequire, module, module.exports);
+  return module.exports;
+}
+
 test('workspace renders the canonical final Ops artifact from its bounded API', () => {
   assert.match(workspace, /<OpsStandupSummary \/>/);
   assert.match(component, /Ops Standup Summary and Conclusion/);
   assert.match(component, /\/api\/workspace\/ops-standup/);
+  assert.match(component, /conclusion attempt \$\{data\.ops_conclusion_attempt_number/);
 });
 
 test('Ops panel exposes required decisions, owner calls, health, and degraded state', () => {
@@ -34,6 +60,79 @@ test('Ops panel exposes required decisions, owner calls, health, and degraded st
   assert.match(component, /role="alert"/);
   assert.match(component, /evidenceUrl/);
   assert.match(component, /target="_blank"/);
+});
+
+test('unrelated subsystem warnings remain visible while canonical decisions are ready', () => {
+  assert.match(component, /data && data\.degraded_system_warnings\.length > 0/);
+  assert.match(component, /data-ops-subsystem-warnings="visible"/);
+  assert.match(component, /<strong>Subsystem warnings<\/strong>/);
+  assert.match(component, /data\.degraded_system_warnings\.map/);
+  assert.doesNotMatch(
+    component,
+    /\(data\.state === 'degraded' \|\| data\.state === 'error'\)[^?]+\?[^:]+data\.degraded_system_warnings/,
+  );
+  assert.match(component, /decision_readiness\?\.state === 'ready'/);
+});
+
+test('Ops panel renders bounded workspace recursion truth and structured recommendation resolutions', () => {
+  assert.match(component, /type WorkspaceRecursion = \{/);
+  assert.match(component, /display_name: string/);
+  assert.match(component, /workspace_recursion: WorkspaceRecursion\[\]/);
+  assert.match(component, /shared_ops_reconciliation\?: SharedOpsReconciliation \| null/);
+  assert.match(component, /recommended_next_actions: Item\[\]/);
+  assert.match(component, /<WorkspaceRecursionList items=\{data\.workspace_recursion \?\? \[\]\} \/>/);
+  assert.match(component, /\{workspace\.display_name \|\| workspace\.workspace_key\}/);
+  for (const label of [
+    'Goal',
+    'What changed',
+    'AI Clone decided',
+    'AI Clone did',
+    'Completed',
+    'Failed',
+    'Carried forward',
+    'Needs owner',
+    'Blocked',
+    'No eligible change',
+    'AI Clone recommends',
+    'Reference only',
+    'Next-cycle input',
+    'Recommendation resolution',
+  ]) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /title="No eligible change"[\s\S]*detailKeys=\{\['trigger'\]\}/);
+  assert.match(component, /title="Recommendation resolution"[\s\S]*detailKeys=\{\['state', 'explanation', 'future_trigger'\]\}/);
+  assert.match(component, /<ItemList title="Recommended next actions" items=\{data\.recommended_next_actions \?\? \[\]\}/);
+  assert.doesNotMatch(component, /recommended_next_actions\.map\(\(item\) => <li key=\{item\}>/);
+});
+
+test('Shared Ops renders as a read-only reconciler summary, not a seventh project row', () => {
+  const { SharedOpsReconciliationSummary } = compileOpsSummaryComponent();
+  const html = renderToStaticMarkup(React.createElement(SharedOpsReconciliationSummary, {
+    summary: {
+      display_name: 'Executive Standup',
+      role: 'portfolio_reconciler',
+      summary: 'Reconciled all six project conclusions.',
+      goal: { goal: 'Keep the active portfolio legible.' },
+      evaluated: [{ summary: 'Six project conclusions.' }],
+      system_decisions: [{ summary: 'Preserve project ownership.' }],
+      actions_taken: [{ summary: 'Reconciled dependencies.' }],
+      owner_calls: [],
+      blocked: [],
+      no_action: [],
+      recommendations: [{ summary: 'Review one bounded conflict.' }],
+      reference_only: [{ summary: 'Prior static plan.' }],
+      next_cycle_inputs: [{ summary: 'Later Dream reads the receipt.' }],
+    },
+  }));
+
+  assert.match(html, /Shared Ops reconciliation/);
+  assert.match(html, /data-shared-ops-role="portfolio_reconciler"/);
+  assert.match(html, /AI Clone recommends/);
+  assert.match(html, /Reference only/);
+  assert.match(html, /Next Dream consumes/);
+  assert.match(html, /does not execute project work or become a seventh project workspace/);
+  assert.doesNotMatch(html, /recursion-shared_ops/);
 });
 
 test('canonical decisions show only bounded status, version, and resolved choice beneath the title', () => {

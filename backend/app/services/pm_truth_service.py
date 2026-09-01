@@ -31,36 +31,69 @@ def _parse_datetime(value: Any) -> datetime | None:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
+    # A timestamp without an offset has no evidenced relationship to the
+    # canonical ai_clone_utc clock.  Never reinterpret host-local wall time as
+    # UTC merely to make a card look fresh.
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
 
 
-def _evidence_at(card: PMCard) -> datetime:
+def _has_timestamp_value(value: Any) -> bool:
+    if isinstance(value, datetime):
+        return True
+    return bool(_text(value))
+
+
+def _evidence_at(card: PMCard) -> tuple[datetime | None, str | None]:
     payload = _dict(card.payload)
     execution = _dict(payload.get("execution"))
     latest_result = _dict(payload.get("latest_execution_result"))
     candidates = (
-        execution.get("last_transition_at"),
-        latest_result.get("created_at"),
-        latest_result.get("completed_at"),
-        payload.get("source_created_at"),
-        payload.get("captured_at"),
-        payload.get("scheduled_for"),
-        getattr(card, "created_at", None),
+        ("execution.last_transition_at", execution.get("last_transition_at")),
+        ("latest_execution_result.created_at", latest_result.get("created_at")),
+        ("latest_execution_result.completed_at", latest_result.get("completed_at")),
+        ("source_created_at", payload.get("source_created_at")),
+        ("captured_at", payload.get("captured_at")),
+        ("scheduled_for", payload.get("scheduled_for")),
+        ("created_at", getattr(card, "created_at", None)),
     )
-    for candidate in candidates:
+    for field, candidate in candidates:
+        if not _has_timestamp_value(candidate):
+            continue
         parsed = _parse_datetime(candidate)
-        if parsed is not None:
-            return parsed
-    fallback = _parse_datetime(getattr(card, "updated_at", None)) or datetime.now(timezone.utc)
-    return fallback
+        if parsed is None:
+            return None, f"invalid_semantic_timestamp:{field}"
+        return parsed, None
+    updated_at = getattr(card, "updated_at", None)
+    if _has_timestamp_value(updated_at):
+        parsed = _parse_datetime(updated_at)
+        if parsed is None:
+            return None, "invalid_semantic_timestamp:updated_at"
+        return parsed, None
+    return None, "missing_semantic_timestamp"
+
+
+def _first_semantic_timestamp(
+    candidates: tuple[tuple[str, Any], ...],
+) -> tuple[datetime | None, str | None]:
+    for field, candidate in candidates:
+        if not _has_timestamp_value(candidate):
+            continue
+        parsed = _parse_datetime(candidate)
+        if parsed is None:
+            return None, f"invalid_semantic_timestamp:{field}"
+        return parsed, None
+    return None, None
 
 
 def classify_pm_card(card: PMCard, *, now: datetime | None = None) -> dict[str, Any]:
     """Build a non-mutating operator truth view for one PM card."""
 
-    current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None or current_time.utcoffset() is None:
+        raise ValueError("PM truth observation must include a timezone offset.")
+    current_time = current_time.astimezone(timezone.utc)
     payload = _dict(card.payload)
     policy = _dict(payload.get("pm_review_policy"))
     execution = _dict(payload.get("execution"))
@@ -123,16 +156,28 @@ def classify_pm_card(card: PMCard, *, now: datetime | None = None) -> dict[str, 
 
     host_action = _dict(payload.get("host_action_required"))
     host_follow_up = _dict(payload.get("host_action_followup"))
-    due_at = (
-        _parse_datetime(getattr(card, "due_at", None))
-        or _parse_datetime(payload.get("scheduled_for"))
-        or _parse_datetime(host_action.get("scheduled_for"))
-        or _parse_datetime(host_action.get("due_at"))
-        or _parse_datetime(host_follow_up.get("due_at"))
+    due_at, due_error = _first_semantic_timestamp(
+        (
+            ("due_at", getattr(card, "due_at", None)),
+            ("scheduled_for", payload.get("scheduled_for")),
+            ("host_action_required.scheduled_for", host_action.get("scheduled_for")),
+            ("host_action_required.due_at", host_action.get("due_at")),
+            ("host_action_followup.due_at", host_follow_up.get("due_at")),
+        )
     )
-    evidence_at = _evidence_at(card)
-    age_hours = max(0.0, (current_time - evidence_at).total_seconds() / 3600)
-    if resolution != "active":
+    evidence_at, evidence_error = _evidence_at(card)
+    timestamp_error = due_error or evidence_error
+    age_hours = (
+        max(0.0, (current_time - evidence_at).total_seconds() / 3600)
+        if evidence_at is not None
+        else None
+    )
+    if timestamp_error:
+        # Invalid/missing semantic time stays visible to Dream/portfolio
+        # consumers as an integrity problem.  It is never silently promoted to
+        # current or demoted to harmless historical recovery.
+        freshness = "invalid"
+    elif resolution != "active":
         freshness = "historical"
     elif activation_state == "waiting_on_prerequisite":
         freshness = "waiting"
@@ -140,9 +185,9 @@ def classify_pm_card(card: PMCard, *, now: datetime | None = None) -> dict[str, 
         freshness = "expired"
     elif due_at is not None and (due_at - current_time).total_seconds() <= 86_400:
         freshness = "due"
-    elif age_hours <= 72:
+    elif age_hours is not None and age_hours <= 72:
         freshness = "current"
-    elif age_hours <= 336:
+    elif age_hours is not None and age_hours <= 336:
         freshness = "aging"
     else:
         freshness = "stale"
@@ -166,8 +211,9 @@ def classify_pm_card(card: PMCard, *, now: datetime | None = None) -> dict[str, 
         "execution_state": execution_state or None,
         "result_status": result_status or None,
         "freshness": freshness,
-        "evidence_at": evidence_at.isoformat().replace("+00:00", "Z"),
-        "age_hours": round(age_hours, 1),
+        "evidence_at": evidence_at.isoformat().replace("+00:00", "Z") if evidence_at else None,
+        "age_hours": round(age_hours, 1) if age_hours is not None else None,
+        "freshness_error": timestamp_error,
         "resolution": resolution,
         "state_mismatch": mismatch,
         "legacy_instruction": legacy_instruction,

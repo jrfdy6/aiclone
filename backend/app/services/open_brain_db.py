@@ -131,13 +131,23 @@ _BASE_SCHEMA_STATEMENTS = (
         source TEXT,
         link_type TEXT,
         link_id UUID,
+        recommendation_coordination_record_id UUID,
+        recommendation_request_sha256 TEXT,
         due_at TIMESTAMPTZ,
         payload JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
+    "ALTER TABLE pm_cards ADD COLUMN IF NOT EXISTS recommendation_coordination_record_id UUID",
+    "ALTER TABLE pm_cards ADD COLUMN IF NOT EXISTS recommendation_request_sha256 TEXT",
     "CREATE INDEX IF NOT EXISTS pm_cards_status_idx ON pm_cards(status)",
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS pm_cards_coordination_recommendation_uidx
+    ON pm_cards(recommendation_coordination_record_id, recommendation_request_sha256)
+    WHERE recommendation_coordination_record_id IS NOT NULL
+      AND recommendation_request_sha256 IS NOT NULL
+    """,
     """
     CREATE TABLE IF NOT EXISTS pm_worker_heartbeats (
         worker_id TEXT PRIMARY KEY

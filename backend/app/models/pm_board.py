@@ -78,12 +78,22 @@ class PMExecutionResultCommitRequest(BaseModel):
     result_path: PMExecutionArtifactPath
     memo_path: PMExecutionArtifactPath
     work_order_path: PMExecutionArtifactPath
+    execution_packet_sha256: str = Field(
+        pattern=r"^sha256:[0-9a-f]{64}$",
+        description="SHA-256 identity of the exact work-order bytes bound when the PM claim was acquired.",
+    )
     workspace_result_path: PMExecutionArtifactPath | None = None
 
     @model_validator(mode="after")
     def validate_commit(self) -> "PMExecutionResultCommitRequest":
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise ValueError("created_at must be timezone-aware.")
+        if self.status == "blocked" and not self.blockers:
+            raise ValueError("A blocked execution result requires at least one bounded blocker.")
+        if self.status == "done" and self.blockers:
+            raise ValueError(
+                "A done execution result cannot retain active blockers; use review or blocked."
+            )
         if len(self.model_dump_json().encode("utf-8")) > 768 * 1024:
             raise ValueError("Execution result commit exceeds the 768 KB limit.")
         return self
@@ -102,11 +112,38 @@ class PMExecutionClaimRequest(BaseModel):
     execution_mode: str = Field(min_length=1, max_length=120)
     target_agent: str = Field(min_length=1, max_length=200)
     execution_packet_path: PMExecutionArtifactPath
+    execution_packet_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
 class PMExecutionClaimResult(BaseModel):
     card: PMCard
     disposition: Literal["claimed", "already_claimed"]
+
+
+class PMExecutionClaimFailureRequest(BaseModel):
+    """Exact claimed execution failure a local runner may record atomically."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["pm_execution_claim_failure/v1"] = "pm_execution_claim_failure/v1"
+    card_id: UUID
+    claim_id: UUID
+    failure_id: UUID
+    worker_id: str = Field(min_length=1, max_length=200)
+    runner_id: Literal["codex-workspace-execution"] = "codex-workspace-execution"
+    expected_updated_at: datetime
+    error_message: str = Field(min_length=1, max_length=4_000)
+
+    @model_validator(mode="after")
+    def validate_failure_clock(self) -> "PMExecutionClaimFailureRequest":
+        if self.expected_updated_at.tzinfo is None or self.expected_updated_at.utcoffset() is None:
+            raise ValueError("expected_updated_at must be timezone-aware.")
+        return self
+
+
+class PMExecutionClaimFailureResult(BaseModel):
+    card: PMCard
+    disposition: Literal["failed", "already_failed"]
 
 
 class PMExecutionResultCommitResult(BaseModel):

@@ -25,8 +25,13 @@ from app.services import persona_delta_service, pm_card_service, standup_service
 from app.services.brain_system_route_service import validate_brain_pm_route
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.workspace_snapshot_store import get_snapshot_payload, list_snapshot_payloads
-from app.services.workspace_runtime_contract_service import default_standup_kind_for_workspace, standup_participants_for
+from app.services.workspace_runtime_contract_service import (
+    canonical_standup_kind_for_workspace,
+    standup_participants_for,
+    standup_relevance_required_for,
+)
 from app.services.workspace_registry_service import REPO_ROOT, canonicalize_workspace_key
+from app.utils.ai_clone_clock import as_utc, clock_receipt, utc_iso
 
 
 ROOT = REPO_ROOT
@@ -641,6 +646,7 @@ def _route_signal_unlocked(
                     workspace_key=workspace_key,
                     summary=summary,
                     requested_kind=payload.standup_kind,
+                    observed_at=now,
                 )
                 route_result["standup"] = standup.model_dump(mode="json")
         elif payload.route == "pm":
@@ -715,6 +721,7 @@ def build_signal_route_effect(
             summary=summary,
             requested_kind=payload.standup_kind,
             action_card_id=action_card_id,
+            observed_at=_now(),
         )
         return {"standup": standup.model_dump(mode="json"), "reused": False}
     if payload.route == "pm":
@@ -777,24 +784,49 @@ def _create_signal_standup(
     summary: str,
     requested_kind: str,
     action_card_id: str | None = None,
+    observed_at: datetime | None = None,
 ) -> Any:
-    standup_kind = requested_kind if requested_kind and requested_kind != "auto" else default_standup_kind_for_workspace(workspace_key)
+    standup_kind = canonical_standup_kind_for_workspace(
+        workspace_key,
+        requested_kind,
+    )
     participants = standup_participants_for(workspace_key, standup_kind)
+    routed_at = as_utc(observed_at or _now())
+    relevance_pending = standup_relevance_required_for(workspace_key)
+    participant_claims: dict[str, Any] = {"participants": participants}
+    if relevance_pending:
+        participant_claims.update(
+            {
+                "participants": [],
+                "participant_selection_state": "pending_standup_prep_relevance",
+                "participant_selection_authority": "standup_relevance/v1",
+                "participant_selection_next_step": "standup_prep",
+                "canonical_pm_execution_authority": "Jean-Claude",
+                "pm_execution_authority_transferred": False,
+            }
+        )
+    review_label = (
+        "governed FEEZIE relevance evaluation"
+        if relevance_pending
+        else "meeting review"
+    )
     return standup_service.create_standup(
         StandupCreate(
             owner="Jean-Claude",
             workspace_key=workspace_key,
             status="queued",
-            needs=[f"Brain Signal routed for meeting review: {signal.raw_summary}"],
+            needs=[f"Brain Signal routed for {review_label}: {signal.raw_summary}"],
             source="brain_signal",
             payload={
                 "standup_kind": standup_kind,
+                "observed_at": utc_iso(routed_at),
+                "clock": clock_receipt(routed_at),
                 "summary": summary,
                 "agenda": [
                     f"Review Brain Signal: {signal.raw_summary}",
                     "Decide whether this stays source-only, becomes memory, becomes PM work, or remains workspace-local.",
                 ],
-                "participants": participants,
+                **participant_claims,
                 "brain_signal_id": signal.id,
                 "brain_local_action_card_id": action_card_id,
                 "source_kind": signal.source_kind,

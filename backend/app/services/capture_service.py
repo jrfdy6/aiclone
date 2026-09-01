@@ -7,6 +7,7 @@ from typing import List, Tuple
 from app.models.core import CaptureRequest, CaptureResponse
 from app.services import embedders
 from app.services import open_brain_repository as repo
+from app.utils.ai_clone_clock import as_utc, utc_now
 
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 120
@@ -30,13 +31,19 @@ def _chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = 
     return chunks or [normalized]
 
 
-def _compute_expiry(importance: int, expires_in_hours: int | None) -> datetime | None:
+def _compute_expiry(
+    importance: int,
+    expires_in_hours: int | None,
+    *,
+    observed_at: datetime,
+) -> datetime | None:
+    observation = as_utc(observed_at)
     if expires_in_hours:
-        return datetime.utcnow() + timedelta(hours=expires_in_hours)
+        return observation + timedelta(hours=expires_in_hours)
     if importance <= 1:
-        return datetime.utcnow() + timedelta(days=1)
+        return observation + timedelta(days=1)
     if importance == 2:
-        return datetime.utcnow() + timedelta(days=7)
+        return observation + timedelta(days=7)
     return None
 
 
@@ -46,10 +53,25 @@ def build_chunk_records(
     text: str,
     importance: int,
     expires_in_hours: int | None = None,
+    observed_at: datetime | None = None,
+    canonical_expires_at: datetime | None = None,
+    preserve_canonical_expiry: bool = False,
 ) -> Tuple[List[dict], datetime | None]:
+    observation = as_utc(observed_at) if observed_at is not None else utc_now()
     chunks = _chunk_text(text)
     embeddings = embedders.embed_texts(chunks)
-    expires_at = _compute_expiry(importance, expires_in_hours)
+    if preserve_canonical_expiry:
+        expires_at = (
+            as_utc(canonical_expires_at)
+            if canonical_expires_at is not None
+            else None
+        )
+    else:
+        expires_at = _compute_expiry(
+            importance,
+            expires_in_hours,
+            observed_at=observation,
+        )
 
     records = []
     for index, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
@@ -65,9 +87,15 @@ def build_chunk_records(
     return records, expires_at
 
 
-def create_capture(payload: CaptureRequest) -> CaptureResponse:
+def create_capture(
+    payload: CaptureRequest,
+    *,
+    observed_at: datetime | None = None,
+) -> CaptureResponse:
     if not payload.text or not payload.text.strip():
         raise ValueError("Capture text is required")
+
+    observation = as_utc(observed_at) if observed_at is not None else utc_now()
 
     capture_id, reused_capture = repo.upsert_capture(
         source=payload.source,
@@ -86,6 +114,7 @@ def create_capture(payload: CaptureRequest) -> CaptureResponse:
         text=payload.text,
         importance=payload.importance,
         expires_in_hours=payload.expires_in_hours,
+        observed_at=observation,
     )
 
     chunk_ids = repo.insert_vector_chunks(chunk_records)

@@ -173,10 +173,25 @@ cp -R "$PUBLIC_CANDIDATE/backend/." "$PUBLIC_BACKEND_SERVICE_ROOT/"
 
 "${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_CANDIDATE/backend" "$PUBLIC_PYTHON" -m pytest -q \
   "$PUBLIC_CANDIDATE/backend/tests/test_public_release_builder.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_ai_clone_clock.py" \
   "$PUBLIC_CANDIDATE/backend/tests/test_local_codex_context_cache_service.py" \
   "$PUBLIC_CANDIDATE/backend/tests/test_public_social_feed_runtime.py" \
   "$PUBLIC_CANDIDATE/backend/tests/test_feezie_runtime_context_service.py" \
-  "$PUBLIC_CANDIDATE/backend/tests/test_feezie_public_lifecycle_smoke.py"
+  "$PUBLIC_CANDIDATE/backend/tests/test_feezie_public_lifecycle_smoke.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_standup_truth_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_standup_meeting_integrity.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_pm_owner_decision_authority_guard.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_pm_cas_caller_truth.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_pm_execution_claim_failure.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_automation_run_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_daily_portfolio_coordinator_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_portfolio_cycle_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_ops_standup_projection_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_workspace_snapshot_store.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_portfolio_workspace_snapshot_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_executive_decision_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_timeline_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_work_lifecycle_service.py"
 
 run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" ci
 run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" test

@@ -92,18 +92,16 @@ SAFE_HOST_AUTOMATION_CAPABILITIES = {
 
 TRUSTED_CONTRACT_SOURCES = frozenset(
     {
-        "accountability_sweep",
         "brain_triage",
         "codex_native_remote_queue",
         "owner_review_followup",
         "pm_review_resolution",
-        "post_sync_dispatch",
         "standup_promotion",
     }
 )
 
 TRUSTED_SOURCE_PREFIXES = (
-    "accountability_sweep",
+    "accountability_sweep:executive_followup",
     "brain-triage:",
     "brain_local_action:",
     "codex_native:",
@@ -126,15 +124,19 @@ _DYNAMIC_EXECUTION_FIELDS = frozenset(
         "assigned_runner",
         "briefing_path",
         "claim_id",
+        "claimed_execution_gate_intent_hash",
         "executor_finished_at",
         "executor_last_error",
         "executor_started_at",
         "executor_status",
         "executor_worker_id",
         "execution_packet_path",
+        "execution_packet_sha256",
         "history",
         "last_transition_at",
         "manager_attention_required",
+        "result_author_agent",
+        "result_runner_id",
         "queued_at",
         "sop_path",
         "state",
@@ -146,10 +148,23 @@ _DYNAMIC_EXECUTION_FIELDS = frozenset(
 _IGNORED_PAYLOAD_FIELDS = frozenset(
     {
         AUTH_FIELD,
+        "carry_forward_action",
+        "carry_forward_card_id",
+        "carry_forward_card_title",
+        "carry_forward_history",
+        "carry_forward_required",
+        "carry_forward_resolution_rule",
+        "carry_forward_standup_ids",
+        "carry_forward_status",
+        "carry_forward_summary",
         "execution_approval",
         "execution_gate",
         "latest_execution_result",
+        "latest_carry_forward_prep_id",
+        "latest_carry_forward_replacement_title",
+        "latest_carry_forward_standup_id",
         "latest_manual_review",
+        "owner_decision_resolution",
         "pm_review_policy",
     }
 )

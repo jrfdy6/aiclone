@@ -500,9 +500,11 @@ def build_feezie_collection_failure_receipts(
     receipt = _receipt(
         code=f"feezie_{safe_component or 'exception'}_collection_unavailable",
         title="A FEEZIE exception source is unavailable",
-        # None is deliberate: active_exception makes this current while keeping
-        # the fingerprint stable across repeated wake checks.
-        observed_at=None,
+        # This is the time the collection failure itself was observed, not a
+        # fabricated source-publication time.  The receipt identity remains
+        # stable because `_receipt` deliberately excludes observation time from
+        # its identity hash; exact-cycle replay still receives the same value.
+        observed_at=_iso(evaluated_at),
         source_ids=[f"exception-source:{safe_component or 'unknown'}"],
         agenda_tags=["pipeline_health"],
         severity="yellow",

@@ -74,13 +74,20 @@ class StandupPromotionRequest(BaseModel):
     source_paths: List[str] = Field(default_factory=list)
     memory_promotions: List[str] = Field(default_factory=list)
     pm_snapshot: dict = Field(default_factory=dict)
+    strategy_context: dict = Field(default_factory=dict)
     participants: List[str] = Field(default_factory=list)
     standup_relevance: dict = Field(default_factory=dict)
     discussion_rounds: List[dict] = Field(default_factory=list)
+    meeting_evidence: dict = Field(default_factory=dict)
     jean_claude_note: Optional[str] = None
     neo_note: Optional[str] = None
     yoda_note: Optional[str] = None
     prep_id: Optional[str] = None
+    cycle_id: Optional[str] = None
+    meeting_id: Optional[str] = None
+    prior_standup: dict = Field(default_factory=dict)
+    continuity: dict = Field(default_factory=dict)
+    recursion: dict = Field(default_factory=dict)
     recommendation_path: Optional[str] = None
     pm_updates: List[StandupPromotionPMUpdate] = Field(default_factory=list)
 

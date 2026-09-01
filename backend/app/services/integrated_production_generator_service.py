@@ -1525,7 +1525,7 @@ def _output_schema() -> dict[str, Any]:
     }
 
 
-def _load_codex_subprocess_contract() -> tuple[Any, Any]:
+def _load_codex_subprocess_contract() -> tuple[Any, Any, Any]:
     contract_path = Path(__file__).resolve().parents[3] / "scripts" / "codex_subprocess_env.py"
     spec = importlib.util.spec_from_file_location(
         "integrated_codex_subprocess_env", contract_path
@@ -1534,7 +1534,11 @@ def _load_codex_subprocess_contract() -> tuple[Any, Any]:
         raise CodexRemoteGenerationError("Codex subprocess security contract is unavailable")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.codex_worker_security_args, module.minimal_codex_env
+    return (
+        module.resolve_codex_executable,
+        module.codex_worker_security_args,
+        module.minimal_codex_env,
+    )
 
 
 def _subprocess_contract_receipt() -> dict[str, Any]:
@@ -1563,7 +1567,7 @@ def _run_codex_remote_safe(packet: Mapping[str, Any]) -> tuple[str, dict[str, An
 
     _validate_remote_packet(packet)
     prompt = _prompt_for_packet(packet)
-    security_args, minimal_env = _load_codex_subprocess_contract()
+    resolve_executable, security_args, minimal_env = _load_codex_subprocess_contract()
     with tempfile.TemporaryDirectory(prefix="ai-clone-integrated-codex-") as temp_dir:
         root = Path(temp_dir)
         isolated = root / "isolated-context"
@@ -1572,7 +1576,7 @@ def _run_codex_remote_safe(packet: Mapping[str, Any]) -> tuple[str, dict[str, An
         output_path = root / "output.json"
         schema_path.write_text(json.dumps(_output_schema(), sort_keys=True), encoding="utf-8")
         command = [
-            "codex",
+            resolve_executable(),
             "exec",
             *security_args(allow_workspace_writes=False),
             "-c",

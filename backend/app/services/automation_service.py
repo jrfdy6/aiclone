@@ -22,6 +22,7 @@ SUPPORTED_RUN_SOURCES = {CODEX_REGISTRY_SOURCE, "local_launchd_registry"}
 # these configured definitions to `active` in the registry response.
 CONFIGURED_LAUNCHD_AUTOMATION_IDS = frozenset(
     {
+        "accountability_sweep",
         "brain_canonical_memory_sync",
         "codex_chronicle_sync",
         "codex_memory_sync",
@@ -427,8 +428,8 @@ def _local_launchd_automations() -> List[Automation]:
         ),
         Automation(
             id="post_sync_dispatch",
-            name="Post-Sync Dispatch",
-            description="Scans completed standups and ensures they leave behind concrete PM artifacts and dispatch metadata.",
+            name="Post-Sync Resolution Audit",
+            description="Read-only audit of exact canonical PM resolutions produced by governed standup promotion.",
             type="scheduled",
             status="active",
             schedule="Every 30 minutes",
@@ -447,11 +448,11 @@ def _local_launchd_automations() -> List[Automation]:
                 "cadence_seconds": "1800",
             },
             instructions=_instructions(
-                "Read recently completed standups",
-                "Create missing PM cards for actionable commitments",
-                "Annotate the originating standup with dispatch results",
+                "Admit only independently verified meeting records",
+                "Compare exact recommendation requests and resolutions with existing canonical PM cards",
+                "Report withheld, blocked, resolved, or governed-promotion-retry states without mutating PM or standups",
             ),
-            notes="Local-machine launchd automation that converts meeting commitments into executable PM truth.",
+            notes="Local-machine launchd audit. Standup promotion remains the sole writer for meeting-derived PM truth.",
         ),
         Automation(
             id="accountability_sweep",

@@ -17,6 +17,13 @@ public_release = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = public_release
 SPEC.loader.exec_module(public_release)
 PUBLIC_TEST_NOREPLY_EMAIL = "public-test" + "@" + "users.noreply.github.com"
+APPROVED_PUBLIC_WORKSPACE_REFERENCE_LITERALS = {
+    "SOURCE_OF_TRUTH.md",
+    "backend/app/services/workspace_registry_service.py",
+    "workspaces/linkedin-content-os/README.md",
+    "workspaces/linkedin-content-os/docs/editorial_mix.md",
+    "workspaces/linkedin-content-os/docs/positioning_contract.md",
+}
 
 
 def _write_manifest(
@@ -143,6 +150,43 @@ def _policy_payload(kind: str) -> str:
     if kind == "database_url":
         return "postgres" + "ql://operator:" + ("A" * 24) + "@database:5432/app"
     raise AssertionError(f"unknown fixture kind: {kind}")
+
+
+def test_canonical_public_source_excludes_private_workspace_goal_authority() -> None:
+    manifest_path = REPO_ROOT / "release" / "public_source_manifest.json"
+    manifest, _manifest_sha, _raw = public_release.load_manifest(manifest_path)
+    private_authority_path = REPO_ROOT / "workspaces" / "shared-ops" / "workspace_goal_contracts.json"
+    assert all(not include.startswith("workspaces/") for include in manifest["includes"])
+    if not private_authority_path.is_file():
+        # Sanitized public checkout: absence is the expected source boundary.
+        return
+
+    authority = json.loads(private_authority_path.read_text(encoding="utf-8"))
+    collected = public_release.collect_source_files(
+        REPO_ROOT,
+        manifest,
+        private_literals=("f00d" * 8,),
+    )
+    public_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path, _record in collected.values()
+    )
+    for contract in authority["contracts"].values():
+        private_values = [
+            contract["goal"],
+            contract["phase_gate"],
+            contract["no_action_trigger"],
+            *contract["progress_signals"],
+            *contract["safe_internal_boundary"],
+            *contract["owner_required_boundary"],
+            *[
+                ref
+                for ref in contract["authority_refs"]
+                if ref not in APPROVED_PUBLIC_WORKSPACE_REFERENCE_LITERALS
+            ],
+        ]
+        for private_value in private_values:
+            assert private_value not in public_text
 
 
 def test_build_and_verify_preserve_relative_paths_and_lockfile_metadata(tmp_path: Path) -> None:

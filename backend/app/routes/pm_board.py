@@ -19,6 +19,8 @@ from app.models import (
     PMExecutionClaimResult,
     PMExecutionGateBackfillRequest,
     PMExecutionGateBackfillResult,
+    PMExecutionClaimFailureRequest,
+    PMExecutionClaimFailureResult,
     PMExecutionResultCommitRequest,
     PMExecutionResultCommitResult,
     PMStaleExecutionClaimRecoveryRequest,
@@ -126,7 +128,11 @@ async def create_card(payload: PMCardCreate, legacy_compatibility: bool = False)
                 }
             }
         )
-    return pm_card_service.decorate_card_for_client(pm_card_service.create_card(payload))
+    try:
+        card = pm_card_service.create_card(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return pm_card_service.decorate_card_for_client(card)
 
 
 @router.post("/request-work", response_model=PMWorkRequestResult)
@@ -301,6 +307,25 @@ async def claim_execution(card_id: UUID, payload: PMExecutionClaimRequest, legac
     return PMExecutionClaimResult(card=card, disposition=disposition)
 
 
+@router.post("/cards/{card_id}/fail-execution-claim", response_model=PMExecutionClaimFailureResult)
+async def fail_execution_claim(
+    card_id: UUID,
+    payload: PMExecutionClaimFailureRequest,
+    legacy_compatibility: bool = False,
+):
+    try:
+        compatibility_kwargs = (
+            {"legacy_owner_review_compatibility": True} if legacy_compatibility is True else {}
+        )
+        failed = pm_card_service.fail_execution_claim(str(card_id), payload, **compatibility_kwargs)
+    except pm_card_service.PMExecutionClaimFailureConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if failed is None:
+        raise HTTPException(status_code=404, detail="PM card not found")
+    card, disposition = failed
+    return PMExecutionClaimFailureResult(card=card, disposition=disposition)
+
+
 @router.post("/execution-claims/recover-stale", response_model=PMStaleExecutionClaimRecoveryResult)
 async def recover_stale_execution_claims(
     payload: PMStaleExecutionClaimRecoveryRequest,
@@ -410,7 +435,10 @@ async def update_card(card_id: UUID, payload: PMCardUpdate, legacy_compatibility
                 }
             }
         )
-    card = pm_card_service.update_card(str(card_id), payload)
+    try:
+        card = pm_card_service.update_card(str(card_id), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not card:
         raise HTTPException(status_code=404, detail="PM card not found")
     return pm_card_service.decorate_card_for_client(card)

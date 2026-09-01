@@ -18,17 +18,28 @@ async def list_entries(owner: Optional[str] = None, workspace_key: Optional[str]
 
 @router.post("/", response_model=StandupEntry)
 async def create_entry(payload: StandupCreate):
-    return standup_service.public_standup_entry(standup_service.create_standup(payload))
+    try:
+        entry = standup_service.create_standup(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return standup_service.public_standup_entry(entry)
 
 
 @router.post("/promote", response_model=StandupPromotionResult)
 async def promote_entry(payload: StandupPromotionRequest):
-    return standup_service.public_standup_promotion(standup_service.promote_standup(payload))
+    try:
+        result = standup_service.promote_standup(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return standup_service.public_standup_promotion(result)
 
 
 @router.patch("/{entry_id}", response_model=StandupEntry)
 async def update_entry(entry_id: str, payload: StandupUpdate):
-    entry = standup_service.update_standup(entry_id, payload)
+    try:
+        entry = standup_service.update_standup(entry_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not entry:
         raise HTTPException(status_code=404, detail="Standup entry not found")
     return standup_service.public_standup_entry(entry)
