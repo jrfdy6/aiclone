@@ -184,6 +184,8 @@ _OPS_STANDUP_LEGACY_UTC_TIMESTAMP_RE = re.compile(
 
 def _validated_ops_legacy_migration_candidate(
     payload: Any,
+    *,
+    target_projection: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Admit only an exact, bounded v1/v2 writer payload for migration.
 
@@ -238,6 +240,28 @@ def _validated_ops_legacy_migration_candidate(
     parsed_times: dict[str, datetime] = {}
     for timestamp_field in ("generated_at", "observed_at"):
         timestamp = exact_payload.get(timestamp_field)
+        if timestamp_field == "observed_at" and timestamp is None:
+            target = target_projection if isinstance(target_projection, dict) else {}
+            target_timestamp = target.get("observed_at")
+            try:
+                target_observed = datetime.fromisoformat(
+                    str(target_timestamp or "").replace("Z", "+00:00")
+                )
+            except ValueError:
+                return None
+            if (
+                target.get("ops_conclusion_attempt_number") != 2
+                or target.get("ops_conclusion_id")
+                != exact_payload.get("ops_conclusion_id")
+                or target.get("portfolio_cycle_id")
+                != exact_payload.get("portfolio_cycle_id")
+                or target_observed.tzinfo is None
+                or target_observed.utcoffset() != timedelta(0)
+                or target_observed.date().isoformat() != cycle_date
+            ):
+                return None
+            parsed_times[timestamp_field] = target_observed.astimezone(timezone.utc)
+            continue
         if (
             not isinstance(timestamp, str)
             or not timestamp
@@ -1084,7 +1108,8 @@ def publish_ops_standup_projection(payload: OpsStandupProjectionSyncRequest):
                 detail="Ops standup projection storage is unavailable.",
             ) from exc
         legacy_candidate = _validated_ops_legacy_migration_candidate(
-            legacy_snapshot_payload
+            legacy_snapshot_payload,
+            target_projection=projection,
         )
     legacy_migration_kwargs = (
         {
