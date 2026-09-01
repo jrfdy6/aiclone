@@ -203,7 +203,14 @@ def _validated_ops_legacy_migration_candidate(
         return None
     schema = payload.get("schema_version")
     expected_fields = _OPS_STANDUP_LEGACY_MIGRATION_SCHEMAS.get(schema)
-    if expected_fields is None or set(payload) != set(expected_fields):
+    if expected_fields is None:
+        return None
+    payload_fields = set(payload)
+    expected_field_set = set(expected_fields)
+    if payload_fields not in (
+        expected_field_set,
+        expected_field_set - {"observed_at"},
+    ):
         return None
     try:
         serialized = json.dumps(
