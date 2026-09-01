@@ -666,12 +666,10 @@ def _verify_content(content: dict[str, Any]) -> dict[str, Any]:
         _require(opportunity_id and opportunity_id not in opportunity_by_id, "opportunity identity is missing or duplicated")
         opportunity_by_id[opportunity_id] = opportunity
         lineage = opportunity.get("lineage") or {}
-        _require(_string_set(lineage.get("source_ids")) <= source_ids, "opportunity references an unknown source")
-        _require(_string_set(lineage.get("evidence_ids")) <= evidence_ids, "opportunity references unknown evidence")
-        _require(
-            _string_set(lineage.get("interpretation_ids")) <= interpretation_ids,
-            "opportunity references an unknown interpretation",
-        )
+        # Sources are a bounded recent sample, while opportunities retain
+        # canonical SQL identities for lineage that may fall outside that
+        # sample. Requiring those identities to appear in the browser sample
+        # incorrectly treats the bounded projection as the complete store.
         _require(_string_set(lineage.get("source_ids")), "opportunity has no source lineage")
         _require(_string_set(lineage.get("evidence_ids")), "opportunity has no evidence lineage")
         _require(_string_set(lineage.get("interpretation_ids")), "opportunity has no interpretation lineage")
