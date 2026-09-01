@@ -180,6 +180,39 @@ _OPS_STANDUP_DATA_POLICY = {
 _OPS_STANDUP_LEGACY_UTC_TIMESTAMP_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)"
 )
+_OPS_STANDUP_LEGACY_PROCESS_KEYS = {
+    "memory_readiness",
+    "morning_brief_ref",
+}
+_OPS_STANDUP_LEGACY_MEMORY_READINESS_KEYS = {
+    "attempt_number",
+    "consolidation",
+    "consolidation_id",
+    "cycle_id",
+    "degraded_policy",
+    "failed_component",
+    "failure_reason",
+    "last_verified_memory_at",
+    "recall_probes",
+    "receipt_payload_sha256",
+    "retrieval_readiness",
+    "retrieval_refresh",
+    "schema_version",
+    "status",
+    "supersedes_status",
+    "trusted_consolidation_id",
+}
+_OPS_STANDUP_LEGACY_HEALTH_KEYS = {
+    "backup_recovery",
+    "content_drafting",
+    "control_plane_standup_read",
+    "feezie_dream_context",
+    "memory_readiness",
+    "morning_brief",
+    "persona_promotion",
+    "source_content_intelligence",
+    "workspace_standup_execution",
+}
 
 
 def _validated_ops_legacy_migration_candidate(
@@ -327,8 +360,6 @@ def _validated_ops_legacy_migration_candidate(
         "status",
         "workspace_updates",
         "workspace_cycle_evaluations",
-        "ai_clone_process_updates",
-        "endpoint_and_subsystem_health",
         "work_underway",
         "completed_work",
         "blockers",
@@ -344,6 +375,34 @@ def _validated_ops_legacy_migration_candidate(
     )
     if any(upgraded.get(field) != exact_payload.get(field) for field in lossless_fields):
         return None
+    raw_process_updates = exact_payload.get("ai_clone_process_updates")
+    upgraded_process_updates = upgraded.get("ai_clone_process_updates")
+    if raw_process_updates != upgraded_process_updates:
+        if (
+            not isinstance(raw_process_updates, dict)
+            or set(raw_process_updates) != _OPS_STANDUP_LEGACY_PROCESS_KEYS
+            or not isinstance(raw_process_updates.get("memory_readiness"), dict)
+            or set(raw_process_updates["memory_readiness"])
+            != _OPS_STANDUP_LEGACY_MEMORY_READINESS_KEYS
+            or not isinstance(raw_process_updates.get("morning_brief_ref"), str)
+            or not isinstance(upgraded_process_updates, dict)
+            or set(upgraded_process_updates) != set(raw_process_updates)
+        ):
+            return None
+    raw_health = exact_payload.get("endpoint_and_subsystem_health")
+    upgraded_health = upgraded.get("endpoint_and_subsystem_health")
+    if raw_health != upgraded_health:
+        if (
+            not isinstance(raw_health, dict)
+            or set(raw_health) != _OPS_STANDUP_LEGACY_HEALTH_KEYS
+            or any(
+                not isinstance(value, str) or len(value) > 1000
+                for value in raw_health.values()
+            )
+            or not isinstance(upgraded_health, dict)
+            or set(upgraded_health) != set(raw_health)
+        ):
+            return None
     if schema == OPS_STANDUP_PRE_CLOCK_SCHEMA and (
         upgraded.get("workspace_recursion")
         != exact_payload.get("workspace_recursion")
