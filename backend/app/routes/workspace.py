@@ -31,6 +31,7 @@ from app.services.brain_local_action_queue_service import (
     get_integrated_content_owner_action_job,
     get_integrated_persona_action_job,
     get_canonical_decision_job,
+    validate_owner_mutable_canonical_decision_type,
 )
 from app.services import social_feed_refresh_service
 from app.services.linkedin_owner_review_service import (
@@ -98,6 +99,9 @@ _OWNER_ACTION_ERROR_MESSAGES = {
     "variant_parent_not_found": "The requested parent revision is not available.",
     "variant_parent_readiness_unavailable": (
         "Variant generation is unavailable until current revision safety can be verified."
+    ),
+    "canonical_decision_owner_authority_unverified": (
+        "This record is not verified as an owner decision on both canonical views. No owner action was queued."
     ),
 }
 
@@ -214,6 +218,69 @@ def _projected_variant_parent_eligibility(
             status_code=409,
         )
     return eligibility
+
+
+def _projected_owner_mutable_canonical_decision_type(
+    *, decision_id: str, expected_version: int
+) -> str:
+    """Verify one owner decision against both bounded canonical projections."""
+
+    try:
+        content = get_snapshot_payload(
+            INTEGRATED_CONTENT_WORKSPACE_KEY,
+            INTEGRATED_CONTENT_SNAPSHOT_TYPE,
+        )
+        ops = get_snapshot_payload(OPS_STANDUP_WORKSPACE_KEY, OPS_STANDUP_SNAPSHOT_TYPE)
+        if _local_canonical_projection_enabled():
+            content = content or build_integrated_content_projection()
+            ops = ops or build_ops_standup_projection()
+        if content is None or ops is None:
+            raise ValueError("canonical decision projections are unavailable")
+        content = validate_integrated_content_projection(content)
+        ops = validate_ops_standup_projection(ops)
+        content_rows = (
+            ((content.get("activity_summary") or {}).get("decisions") or {}).get("recent")
+            or []
+        )
+        ops_rows = ops.get("canonical_decisions") or []
+        matches: list[dict] = []
+        for rows in (content_rows, ops_rows):
+            candidates = [
+                item
+                for item in rows
+                if isinstance(item, dict)
+                and str(item.get("decision_id") or "").strip() == decision_id
+            ]
+            if len(candidates) != 1:
+                raise ValueError("canonical decision is not exact on both projections")
+            matches.append(candidates[0])
+        content_decision, ops_decision = matches
+        content_type = validate_owner_mutable_canonical_decision_type(
+            content_decision.get("decision_type")
+        )
+        ops_type = validate_owner_mutable_canonical_decision_type(
+            ops_decision.get("decision_type")
+        )
+        if content_type != ops_type:
+            raise ValueError("canonical decision types conflict")
+        for item in matches:
+            state_version = item.get("state_version")
+            if (
+                not isinstance(state_version, int)
+                or isinstance(state_version, bool)
+                or state_version != expected_version
+            ):
+                raise ValueError("canonical decision version is not current")
+        if content_decision.get("status") != ops_decision.get("status"):
+            raise ValueError("canonical decision states conflict")
+        return content_type
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _owner_action_http_error(
+            "canonical_decision_owner_authority_unverified",
+            status_code=409,
+        ) from exc
 
 
 def _local_canonical_projection_enabled() -> bool:
@@ -703,10 +770,16 @@ def request_canonical_decision_action(
             "invalid_owner_action_request",
             status_code=400,
         )
+    normalized_decision_id = decision_id.strip()
+    expected_decision_type = _projected_owner_mutable_canonical_decision_type(
+        decision_id=normalized_decision_id,
+        expected_version=payload.expected_version,
+    )
     card, disposition = _enqueue_integrated_owner_action(
         "canonical_decision_transition",
         {
-            "decision_id": decision_id.strip(),
+            "decision_id": normalized_decision_id,
+            "expected_decision_type": expected_decision_type,
             "request": payload.model_dump(mode="json", exclude_none=True),
         },
     )

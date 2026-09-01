@@ -10,7 +10,7 @@ from typing import Any
 from app.services import pm_card_service, standup_service
 from app.services.brain_response_privacy_service import sanitize_brain_payload, sanitize_brain_text
 from app.services.pm_truth_service import classify_pm_card
-from app.services.standup_truth_service import classify_standup
+from app.services.standup_truth_service import classify_standup, is_verified_meeting_record
 from app.services.workspace_registry_service import (
     canonicalize_workspace_key,
     workspace_registry_entries,
@@ -18,7 +18,7 @@ from app.services.workspace_registry_service import (
     workspace_root_slug,
 )
 from app.services.workspace_snapshot_store import list_snapshot_payloads
-from app.utils.ai_clone_clock import clock_receipt, utc_iso, utc_now
+from app.utils.ai_clone_clock import as_utc, clock_receipt, utc_iso, utc_now
 
 
 PACK_FILES = ("CHARTER.md", "IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md")
@@ -269,7 +269,7 @@ def _safe_pm_cards(
     limit: int,
     observed_at: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    freshness_reference = (observed_at or utc_now()).astimezone(timezone.utc)
+    freshness_reference = as_utc(observed_at or utc_now())
     cards: list[Any] = []
     seen: set[str] = set()
     try:
@@ -320,11 +320,20 @@ def _safe_standups(
     observed_at: datetime | None = None,
     root_exists: bool = False,
 ) -> list[dict[str, Any]]:
-    freshness_reference = (observed_at or utc_now()).astimezone(timezone.utc)
+    freshness_reference = as_utc(observed_at or utc_now())
     rows: list[Any] = []
     seen: set[str] = set()
     try:
-        rows = list(standup_service.list_standups(workspace_key=workspace_key, limit=limit))
+        # Fetch a bounded cushion so cycle plans and legacy meeting-shaped rows
+        # cannot crowd the latest verified meeting out of this projection.
+        # Non-meeting continuity remains available through the cycle/Ops lanes;
+        # this field is deliberately restricted to verified standups.
+        rows = list(
+            standup_service.list_standups(
+                workspace_key=workspace_key,
+                limit=min(max(limit * 4, limit), 200),
+            )
+        )
     except Exception:
         rows = []
     compacted: list[dict[str, Any]] = []
@@ -334,6 +343,12 @@ def _safe_standups(
             continue
         seen.add(standup_id)
         payload = getattr(standup, "payload", {}) or {}
+        if not is_verified_meeting_record(
+            payload,
+            source=getattr(standup, "source", None),
+            workspace_key=getattr(standup, "workspace_key", workspace_key),
+        ):
+            continue
         blockers = _filter_resolved_workspace_root_blockers(
             list(getattr(standup, "blockers", []) or []),
             root_exists=root_exists,
@@ -359,9 +374,41 @@ def _safe_standups(
                 "blockers": blockers,
                 "needs": list(getattr(standup, "needs", []) or [])[:4],
                 "created_at": getattr(standup, "created_at", None).isoformat() if getattr(standup, "created_at", None) else None,
+                "observed_at": truth.get("observed_at"),
                 "truth": truth,
             }
         )
+    # The API read is ordered by persistence time, but a delayed replay may
+    # store an older cycle after a newer one.  Consumers use index zero as the
+    # current meeting, so rank by the semantic ai_clone_utc observation and
+    # never let a legacy/invalid persistence timestamp shadow valid evidence.
+    def semantic_order(item: dict[str, Any]) -> tuple[int, datetime, datetime]:
+        truth = item.get("truth") if isinstance(item.get("truth"), dict) else {}
+        source = str(truth.get("freshness_clock") or "")
+        priority = (
+            2
+            if source in {"semantic_observed_at", "semantic_cycle_observation"}
+            else 1
+            if source == "legacy_created_at_fallback"
+            else 0
+        )
+        floor = datetime.min.replace(tzinfo=timezone.utc)
+
+        def parsed(value: object) -> datetime:
+            text = str(value or "").strip()
+            if not text:
+                return floor
+            try:
+                result = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return floor
+            if result.tzinfo is None or result.utcoffset() is None:
+                return floor
+            return result.astimezone(timezone.utc)
+
+        return priority, parsed(truth.get("observed_at")), parsed(item.get("created_at"))
+
+    compacted.sort(key=semantic_order, reverse=True)
     return compacted[:limit]
 
 
@@ -614,6 +661,14 @@ def _readiness_summary(
         reasons.append("No standup has been recorded for this workspace.")
     elif latest_truth.get("freshness") == "stale":
         reasons.append("The latest standup is outside its freshness window.")
+    elif latest_truth.get("freshness") == "degraded":
+        reasons.append(
+            "The latest verified meeting lacks a semantic ai_clone_utc observation; its persistence time is reference-only."
+        )
+    elif latest_truth.get("freshness") == "invalid":
+        reasons.append(
+            "The latest verified meeting has a missing, conflicting, or non-authoritative ai_clone_utc observation."
+        )
     if latest_truth.get("quality") in {"ceremonial", "empty", "unrouted_blocker"}:
         reasons.append(str(latest_truth.get("quality_reason") or "The latest standup did not produce a decision handoff."))
 
@@ -790,6 +845,7 @@ def _build_workspace_summary(
         "execution_mode": entry.get("execution_mode"),
         "default_standup_kind": entry.get("default_standup_kind"),
         "workspace_sync_participants": entry.get("workspace_sync_participants") or [],
+        "standup_relevance_required": bool(entry.get("standup_relevance_required")),
         "capability_keys": entry.get("capability_keys") or [],
         "capabilities": entry.get("capabilities") or [],
         "pack_status": _pack_status(root, repo_root),
@@ -855,7 +911,7 @@ def build_portfolio_workspace_snapshot(
     standup_limit: int = 5,
     observed_at: datetime | None = None,
 ) -> dict[str, Any]:
-    checked_at = (observed_at or utc_now()).astimezone(timezone.utc)
+    checked_at = as_utc(observed_at or utc_now())
     workspaces = [
         _build_workspace_summary(
             entry,

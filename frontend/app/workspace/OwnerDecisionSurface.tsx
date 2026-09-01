@@ -8,7 +8,8 @@ import {
   CanonicalDecisionJobStatus,
   canonicalDecisionActionEndpoint,
   canonicalDecisionActionRequest,
-  reconcileCanonicalDecisionViews,
+  PM_OWNER_DECISION_CHOICES,
+  reconcileCanonicalOwnerDecisionViews,
   ReconciledCanonicalDecision,
   waitForCanonicalDecisionJob,
 } from '@/lib/canonical-decisions';
@@ -74,7 +75,11 @@ function projectionReadIsCurrent(
 
 function opsDecisionReadIsCurrent(projection: OpsDecisionProjection) {
   const readiness = projection.decision_readiness;
-  return projection.schema_version === 'ops_standup_summary_conclusion/v1'
+  return (
+    projection.schema_version === 'ops_standup_summary_conclusion/v1'
+      || projection.schema_version === 'ops_standup_summary_conclusion/v2'
+      || projection.schema_version === 'ops_standup_summary_conclusion/v3'
+  )
     && (projection.state === 'ready' || projection.state === 'empty' || projection.state === 'degraded')
     && readiness?.schema_version === 'canonical_decision_projection_readiness/v1'
     && readiness.state === 'ready'
@@ -147,7 +152,7 @@ export default function OwnerDecisionSurface() {
         ? content.activity_summary.decisions.recent
         : [];
       const opsDecisions = Array.isArray(ops.canonical_decisions) ? ops.canonical_decisions : [];
-      const reconciled = reconcileCanonicalDecisionViews(contentDecisions, opsDecisions);
+      const reconciled = reconcileCanonicalOwnerDecisionViews(contentDecisions, opsDecisions);
       currentDecisionsRef.current = new Map(reconciled.map((decision) => [decision.decision_id, decision]));
       setDecisions(reconciled);
 
@@ -364,6 +369,7 @@ export default function OwnerDecisionSurface() {
     <div style={{ display: 'grid', gap: '10px' }}>
       {decisions.map((decision) => {
         const isTerminal = terminal.has(decision.status);
+        const isPmOwnerDecision = decision.decision_type === 'pm_owner_decision';
         const mayResolve = decision.interaction_mode === 'simple' || decision.status === 'in_session';
         const decisionPendingJob = pendingJobByDecisionId[decision.decision_id];
         const decisionControlsDisabled = !controlsReady || decision.projection_conflict || Boolean(decisionPendingJob);
@@ -383,14 +389,21 @@ export default function OwnerDecisionSurface() {
           {decision.projection_conflict ? <p role="alert" style={warningStyle}>Content and Ops do not agree on this record yet. Actions are disabled until a refresh shows the same status and version in both views.</p> : null}
           {Object.keys(decision.resolution ?? {}).length ? <p style={helperStyle}>Resolution: {String(decision.resolution.choice ?? JSON.stringify(decision.resolution))}</p> : null}
           {!isTerminal ? <>
-            {mayResolve ? <label style={fieldStyle}>Canonical resolution
+            {mayResolve && isPmOwnerDecision ? <label style={fieldStyle}>Bounded PM outcome
+              <select value={resolutionById[decision.decision_id] ?? ''} disabled={decisionControlsDisabled} onChange={(event) => setResolutionById((current) => ({ ...current, [decision.decision_id]: event.target.value }))} style={inputStyle}>
+                <option value="">Choose one outcome…</option>
+                {PM_OWNER_DECISION_CHOICES.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+              </select>
+              <small style={helperStyle}>Approval can queue only the unchanged signed bounded-internal PM intent. It never publishes, messages, schedules, spends, promotes Persona canon, or mutates a platform.</small>
+            </label> : null}
+            {mayResolve && !isPmOwnerDecision ? <label style={fieldStyle}>Canonical resolution
               <textarea value={resolutionById[decision.decision_id] ?? ''} disabled={decisionControlsDisabled} onChange={(event) => setResolutionById((current) => ({ ...current, [decision.decision_id]: event.target.value }))} placeholder="Record the exact owner call" style={{ ...inputStyle, minHeight: '72px' }} />
             </label> : null}
             <div style={pillRowStyle}>
-              {decision.interaction_mode === 'complex' && decision.status !== 'in_session' ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'begin_session')} style={buttonStyle}>Open shared decision session</button> : null}
-              {mayResolve ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'resolve')} style={buttonStyle}>Resolve canonical decision</button> : null}
-              {decision.status === 'blocked' ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'reopen')} style={secondaryButtonStyle}>Reopen in Ops</button> : <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'block')} style={secondaryButtonStyle}>Mark blocked</button>}
-              <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'cancel')} style={secondaryButtonStyle}>Cancel</button>
+              {!isPmOwnerDecision && decision.interaction_mode === 'complex' && decision.status !== 'in_session' ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'begin_session')} style={buttonStyle}>Open shared decision session</button> : null}
+              {mayResolve ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'resolve')} style={buttonStyle}>{isPmOwnerDecision ? 'Apply bounded PM choice' : 'Resolve canonical decision'}</button> : null}
+              {!isPmOwnerDecision && (decision.status === 'blocked' ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'reopen')} style={secondaryButtonStyle}>Reopen in Ops</button> : <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'block')} style={secondaryButtonStyle}>Mark blocked</button>)}
+              {!isPmOwnerDecision ? <button type="button" aria-busy={Boolean(decisionPendingJob)} disabled={decisionControlsDisabled} onClick={() => void applyAction(decision, 'cancel')} style={secondaryButtonStyle}>Cancel</button> : null}
             </div>
           </> : null}
           {statusById[decision.decision_id] ? <p role="status" style={helperStyle}>{statusById[decision.decision_id]}</p> : null}

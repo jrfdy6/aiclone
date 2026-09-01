@@ -96,9 +96,10 @@ GitHub Support determined on 2026-08-17 that rotation or revocation is
 sufficient and that no pull-ref purge or history rewrite is required. Ticket
 `#4669337` was updated but is not known closed, and the old GitHub-owned pull
 refs are not known purged; neither condition is a publishing,
-deployment-source-connection, or Release gate. GitHub-owned pull refs 1-4 remain
-truthful historical residue, so do not attest that every server-owned
-historical ref belongs to the approved single-root lineage. Before reconnecting
+deployment-source-connection, or Release gate. GitHub-owned pull refs 1–4 remain
+truthful historical residue, while refs 5–6 descend from the approved clean
+lineage. Do not attest that every server-owned historical ref belongs to the
+approved single-root lineage. Before reconnecting
 a GitHub deployment source or creating a `public-v*` tag or Release, require the
 exact sanitized tree/receipt, protected checks, current owner-controlled
 head/tag ancestry and secret scans, runtime-readiness gates, and explicit owner

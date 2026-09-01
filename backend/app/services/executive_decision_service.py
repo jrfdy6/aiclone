@@ -34,7 +34,9 @@ from app.services.automation_service import list_automations
 from app.services.brain_signal_service import list_signals
 from app.services.linkedin_owner_review_service import list_owner_review_items, record_owner_decision
 from app.services.persona_review_queue_service import prepare_for_brain_queue
+from app.services.standup_truth_service import is_verified_meeting_record
 from app.services.workspace_registry_service import canonicalize_workspace_key, workspace_registry_entries
+from app.utils.ai_clone_clock import resolve_payload_observation
 
 
 SOURCE_TYPES = (
@@ -131,7 +133,7 @@ def _aware_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=timezone.utc)
+        return None
     return value.astimezone(timezone.utc)
 
 
@@ -840,17 +842,61 @@ def _collect_standup_decisions(now: datetime) -> _CollectionResult:
         for entry in workspace_registry_entries()
         if isinstance(entry, dict)
     }
-    latest_by_workspace: dict[str, Any] = {}
+    candidates_by_workspace: dict[str, list[Any]] = {}
     for standup in standups:
         workspace_key = canonicalize_workspace_key(getattr(standup, "workspace_key", None), default="shared_ops")
-        current = latest_by_workspace.get(workspace_key)
-        if current is None or (_aware_utc(_parse_datetime(getattr(standup, "created_at", None))) or datetime.min.replace(tzinfo=timezone.utc)) > (
-            _aware_utc(_parse_datetime(getattr(current, "created_at", None))) or datetime.min.replace(tzinfo=timezone.utc)
+        payload = _payload_dict(getattr(standup, "payload", None))
+        evidence = payload.get("meeting_evidence")
+        # Daily workspace evaluations, synthetic role lenses, and async plans
+        # share the historical standups table, but they are not meetings and
+        # cannot create an owner-facing "standup exception".  Keep this cheap
+        # structural gate ahead of signed-report verification.
+        if not (
+            payload.get("record_kind") == "standup"
+            and payload.get("meeting_held") is True
+            and payload.get("evaluation_only") is False
+            and isinstance(evidence, dict)
         ):
-            latest_by_workspace[workspace_key] = standup
+            continue
+        candidates_by_workspace.setdefault(workspace_key, []).append(standup)
+
+    def semantic_order(standup: Any) -> tuple[int, datetime, datetime]:
+        payload = _payload_dict(getattr(standup, "payload", None))
+        observed_at, source = resolve_payload_observation(
+            payload,
+            created_at=getattr(standup, "created_at", None),
+        )
+        priority = (
+            2
+            if source in {"semantic_observed_at", "semantic_cycle_observation"}
+            else 1
+            if source == "legacy_created_at_fallback"
+            else 0
+        )
+        floor = datetime.min.replace(tzinfo=timezone.utc)
+        persisted_at = _aware_utc(_parse_datetime(getattr(standup, "created_at", None))) or floor
+        return priority, observed_at or floor, persisted_at
+
+    latest_by_workspace: dict[str, tuple[Any, datetime | None, str]] = {}
+    for workspace_key, candidates in candidates_by_workspace.items():
+        for candidate in sorted(candidates, key=semantic_order, reverse=True):
+            payload = _payload_dict(getattr(candidate, "payload", None))
+            if not is_verified_meeting_record(
+                payload,
+                source=getattr(candidate, "source", None),
+                workspace_key=workspace_key,
+            ):
+                continue
+            observed_at, source = resolve_payload_observation(
+                payload,
+                created_at=getattr(candidate, "created_at", None),
+            )
+            latest_by_workspace[workspace_key] = (candidate, observed_at, source)
+            break
 
     decisions: list[ExecutiveDecision] = []
-    for workspace_key, latest in latest_by_workspace.items():
+    degraded_clock_workspaces: list[str] = []
+    for workspace_key, (latest, meeting_observed_at, observation_source) in latest_by_workspace.items():
         blockers = [_clean_text(item) for item in getattr(latest, "blockers", []) or [] if _clean_text(item)]
         needs = [_clean_text(item) for item in getattr(latest, "needs", []) or [] if _clean_text(item)]
         if not blockers and not _needs_owner_decision(needs):
@@ -860,6 +906,13 @@ def _collect_standup_decisions(now: datetime) -> _CollectionResult:
             continue
         context_href = f"/ops?focus=standups&standup_id={quote(source_id, safe='')}"
         payload = _payload_dict(getattr(latest, "payload", None))
+        semantic_timestamp = (
+            meeting_observed_at
+            if observation_source in {"semantic_observed_at", "semantic_cycle_observation"}
+            else None
+        )
+        if semantic_timestamp is None:
+            degraded_clock_workspaces.append(workspace_key)
         base_score = 73 if blockers else 58
         base_score += min(8, max(0, len(blockers) - 1) * 2)
         decisions.append(
@@ -883,7 +936,10 @@ def _collect_standup_decisions(now: datetime) -> _CollectionResult:
                     else "Answer the named owner need in the standup context."
                 ),
                 base_score=base_score,
-                updated_at=_parse_datetime(getattr(latest, "created_at", None)),
+                # Persistence created_at is only storage metadata.  A legacy
+                # row may remain reviewable, but it must never look newly
+                # observed because it was replayed late.
+                updated_at=semantic_timestamp,
                 evidence=[
                     *[f"Blocker: {item}" for item in blockers],
                     *[f"Need: {item}" for item in needs],
@@ -898,14 +954,21 @@ def _collect_standup_decisions(now: datetime) -> _CollectionResult:
             )
         )
     truncated = len(standups) >= SOURCE_READ_LIMIT
+    errors: list[str] = []
+    if truncated:
+        errors.append(
+            f"Standups reached the {SOURCE_READ_LIMIT}-item read cap; older workspaces were not verified."
+        )
+    if degraded_clock_workspaces:
+        errors.append(
+            "Verified meeting exceptions without a valid semantic ai_clone_utc observation were retained with unknown freshness: "
+            + ", ".join(sorted(set(degraded_clock_workspaces)))
+            + "."
+        )
     return _CollectionResult(
         items=decisions,
-        status="degraded" if truncated else "ok",
-        errors=(
-            [f"Standups reached the {SOURCE_READ_LIMIT}-item read cap; older workspaces were not verified."]
-            if truncated
-            else []
-        ),
+        status="degraded" if errors else "ok",
+        errors=errors,
     )
 
 

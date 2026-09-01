@@ -62,7 +62,10 @@ from app.services.ops_standup_projection_service import (  # noqa: E402
 )
 from app.services.open_brain_db import close_pool  # noqa: E402
 from app.services.persona_learning_service import PersonaLearningService  # noqa: E402
-from app.services.portfolio_cycle_service import PortfolioCycleService  # noqa: E402
+from app.services.portfolio_cycle_service import (  # noqa: E402
+    PortfolioCycleService,
+    active_portfolio_workspaces,
+)
 from app.services.portfolio_selected_drafting_service import PortfolioSelectedDraftingService  # noqa: E402
 from app.services.source_evidence_interpretation_service import (  # noqa: E402
     InterpretationLensService,
@@ -74,6 +77,7 @@ from app.services.source_intake_contract_service import (  # noqa: E402
     SourceIntakeContractService,
 )
 from app.services.source_processing_service import SourceProcessingService  # noqa: E402
+from app.services.workspace_registry_service import workspace_registry_entries  # noqa: E402
 from codex_memory_index import search_index, sync_index  # noqa: E402
 from verify_integrated_production_projection import (  # noqa: E402
     verify as verify_production_projection_story,
@@ -500,23 +504,32 @@ def _build_scenario(
             sync_if_missing=False,
         )
 
+    pre_draft_observed_at = datetime.now(timezone.utc)
     pre_draft_readiness = IntegratedMemoryReadinessService(store).run_readiness(
-        cycle_id=f"{PREFIX}:pre-draft-memory",
+        cycle_id=f"{PREFIX}:portfolio",
         retrieval_refresh=pre_draft_retrieval_refresh,
         recall_search=pre_draft_recall_search,
-        now=datetime.now(timezone.utc),
+        now=pre_draft_observed_at,
     )
     if pre_draft_readiness["status"] != "ready":
         raise AcceptanceHarnessError(
             "pre-draft memory readiness did not pass before portfolio selection"
         )
     portfolio = PortfolioCycleService(store)
+    registry_entries = workspace_registry_entries()
+    expected_workspaces = active_portfolio_workspaces(registry_entries)
+    goals_by_workspace = {
+        str(entry["key"]): dict(entry["goal_contract"])
+        for entry in registry_entries
+        if str(entry.get("key") or "") in expected_workspaces
+    }
     portfolio.start_cycle(
         portfolio_cycle_id=f"{PREFIX}:portfolio",
-        cycle_date=date.today(),
-        expected_workspaces=["feezie-os"],
+        cycle_date=pre_draft_observed_at.date(),
+        expected_workspaces=expected_workspaces,
         readiness_id=str(pre_draft_readiness["readiness_id"]),
         morning_brief_ref=f"{NAMESPACE}:synthetic-morning-brief",
+        observed_at=pre_draft_observed_at,
     )
     selection = ContentPortfolioSelectionService(store).select(
         portfolio_cycle_id=f"{PREFIX}:portfolio",
@@ -758,18 +771,81 @@ def _build_scenario(
         provenance_kind="deterministic_policy",
         payload={
             "summary": f"{MARKER_TEXT}: source, content, learning, and memory lineage verified.",
+            "goal": goals_by_workspace["feezie-os"],
+            "changes_since_prior": [
+                {
+                    "type": "synthetic_acceptance_completed",
+                    "summary": "The isolated source-to-outcome story completed without external mutation.",
+                }
+            ],
+            "system_decisions": [
+                {
+                    "decision": "acknowledge_verified_synthetic_outcome",
+                    "summary": "Treat the isolated completion receipt as proof of mechanics only.",
+                }
+            ],
+            "actions_taken": [
+                {
+                    "summary": "Executed the isolated bounded content lifecycle fixture.",
+                    "result_id": f"{PREFIX}:synthetic-result",
+                    "result_status": "done",
+                }
+            ],
             "completed_work": [{"summary": "Synthetic acceptance story reconstructed"}],
             "decisions": [{"decision_id": decision["decision_id"], "route": "ops"}],
             "evidence_links": [{"url": SOURCE_URL, "label": "Synthetic source fixture"}],
+            "next_cycle_inputs": [
+                {
+                    "type": "synthetic_outcome_receipt",
+                    "summary": "Retain the isolated result as mechanical proof, never owner history.",
+                }
+            ],
         },
         idempotency_key=f"{PREFIX}:workspace-conclusion",
     )
+    for workspace_key in expected_workspaces:
+        if workspace_key == "feezie-os":
+            continue
+        goal = goals_by_workspace[workspace_key]
+        portfolio.record_workspace_conclusion(
+            portfolio_cycle_id=f"{PREFIX}:portfolio",
+            workspace_key=workspace_key,
+            conclusion_kind="healthy_no_change",
+            provenance_kind="deterministic_policy",
+            payload={
+                "summary": (
+                    f"{MARKER_TEXT}: {workspace_key} goal evaluated; this content-only "
+                    "fixture contains no eligible workspace-specific action."
+                ),
+                "goal": goal,
+                "system_decisions": [
+                    {
+                        "decision": "record_goal_scoped_no_action",
+                        "summary": "Do not turn unrelated synthetic content evidence into workspace work.",
+                    }
+                ],
+                "no_action": [
+                    {
+                        "selected": True,
+                        "reason": "The isolated fixture supplied no eligible evidence for this workspace goal.",
+                        "future_trigger": str(goal["no_action_trigger"]),
+                    }
+                ],
+                "next_cycle_inputs": [
+                    {
+                        "type": "no_action_trigger",
+                        "reason": "Await evidence scoped to this canonical workspace goal.",
+                        "future_trigger": str(goal["no_action_trigger"]),
+                    }
+                ],
+            },
+            idempotency_key=f"{PREFIX}:workspace-conclusion:{workspace_key}",
+        )
     ops = portfolio.conclude_ops(
         portfolio_cycle_id=f"{PREFIX}:portfolio",
         system_health={
             "memory": "ready",
             "content": "ready",
-            "acceptance_scope": "synthetic_isolated",
         },
         ops_decisions=[
             {
@@ -1081,6 +1157,10 @@ def _build_receipt(
                 "state": ops["state"],
                 "status": ops["status"],
                 "portfolio_cycle_id": ops["portfolio_cycle_id"],
+                "active_project_recursion_count": len(ops["workspace_recursion"]),
+                "shared_ops_reconciliation_evidence": projection_verification[
+                    "shared_ops_reconciliation_evidence"
+                ],
             },
         },
         "browser_acceptance": _browser_contract(),

@@ -55,6 +55,9 @@ test('portfolio exposes real states, lineage toggles, attribution, and exact cop
   assert.match(component, /Reverse exact persona promotion/);
   assert.match(component, /promotion\.canon_version/);
   assert.match(component, /resolveOwnerPostThesis/);
+  assert.match(component, /Canonical content learning receipts/);
+  assert.match(component, /gated content-lifecycle count, not a measure of all AI Clone learning/);
+  assert.doesNotMatch(component, />Learning events</);
   assert.doesNotMatch(component, /raw_path|transcript_body|evidence_binding_json/);
 });
 

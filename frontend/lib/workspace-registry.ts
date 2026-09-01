@@ -18,6 +18,7 @@ export type WorkspaceRegistryEntry = {
   execution_mode: 'direct' | 'delegated';
   default_standup_kind: string;
   workspace_sync_participants: string[];
+  standup_relevance_required?: boolean;
   description: string;
   operating_principles: string[];
   aliases: string[];
@@ -86,7 +87,8 @@ export const fallbackWorkspaceRegistry = [
     workspace_agent: null,
     execution_mode: 'direct',
     default_standup_kind: 'workspace_sync',
-    workspace_sync_participants: ['Jean-Claude', 'Neo', 'Yoda'],
+    workspace_sync_participants: [],
+    standup_relevance_required: true,
     description:
       "Turns Feeze's knowledge, experience, and aspirations into public value, credibility, relationships, audience, and durable distribution.",
     operating_principles: [

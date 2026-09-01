@@ -405,15 +405,32 @@ def delete_vectors_for_capture(capture_id: str) -> int:
 
 
 def fetch_captures_updated_since(threshold: datetime, limit: int) -> List[dict]:
-    query = """
-        SELECT id, raw_text, importance
-        FROM knowledge_capture
-        WHERE updated_at >= %s
-        ORDER BY updated_at DESC
-        LIMIT %s
-    """
     pool = get_pool()
     with pool.connection() as conn:
+        storage = detect_memory_vector_storage(conn)
+        join_column = _vector_join_column(storage)
+        query = f"""
+            WITH recent_captures AS (
+                SELECT id, raw_text, importance, updated_at
+                FROM knowledge_capture
+                WHERE updated_at >= %s
+                ORDER BY updated_at DESC
+                LIMIT %s
+            )
+            SELECT
+                kc.id,
+                kc.raw_text,
+                kc.importance,
+                COUNT(mv.{join_column})::integer AS vector_count,
+                COUNT(mv.expires_at)::integer AS expiring_vector_count,
+                COUNT(DISTINCT mv.expires_at)::integer AS distinct_expiry_count,
+                MIN(mv.expires_at) AS expires_at
+            FROM recent_captures kc
+            LEFT JOIN memory_vectors mv
+              ON {_vector_join_condition(storage)}
+            GROUP BY kc.id, kc.raw_text, kc.importance, kc.updated_at
+            ORDER BY kc.updated_at DESC
+        """
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(query, (threshold, limit))
             return cur.fetchall() or []

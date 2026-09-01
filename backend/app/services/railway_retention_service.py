@@ -11,6 +11,7 @@ import uuid
 
 
 HEALTHY_AUTOMATION_STATES = ("success", "succeeded", "done", "completed", "healthy", "ok")
+HISTORICAL_DETAIL_REQUIRED_AUTOMATION_IDS = ("standup_participant_report",)
 TERMINAL_JOB_STATES = ("completed", "failed", "canceled", "cancelled")
 TERMINAL_STANDUP_STATES = ("completed", "closed")
 RETENTION_LOCK_ID = 724_296_443
@@ -179,13 +180,16 @@ def retention_rules(
     audit_cutoff = fixed_as_of - timedelta(days=audit_days)
     automation_predicate = (
         "COALESCE(action_required,FALSE)=FALSE "
+        "AND NOT (COALESCE(automation_id,'')=ANY(%s)) "
         "AND LOWER(COALESCE(status,''))=ANY(%s) "
         "AND COALESCE(finished_at,run_at,created_at)<%s"
     )
     automation_blocked = (
         "COALESCE(action_required,FALSE)=FALSE "
-        "AND NOT (LOWER(COALESCE(status,''))=ANY(%s)) "
-        "AND COALESCE(finished_at,run_at,created_at)<%s"
+        "AND ((COALESCE(automation_id,'')=ANY(%s) "
+        "AND COALESCE(finished_at,run_at,created_at)<%s) "
+        "OR (NOT (LOWER(COALESCE(status,''))=ANY(%s)) "
+        "AND COALESCE(finished_at,run_at,created_at)<%s))"
     )
     job_payload_bytes = """(
         pg_column_size(t.request_payload)+pg_column_size(t.context_packet)+
@@ -233,13 +237,25 @@ def retention_rules(
             "automation_runs",
             f"""SELECT t.id::text,pg_column_size(t),to_jsonb(t)
             FROM automation_runs t WHERE {automation_predicate} ORDER BY t.id::text""",
-            (list(HEALTHY_AUTOMATION_STATES), recent_cutoff),
+            (
+                list(HISTORICAL_DETAIL_REQUIRED_AUTOMATION_IDS),
+                list(HEALTHY_AUTOMATION_STATES),
+                recent_cutoff,
+            ),
             "delete_with_daily_aggregate",
             migration_gate="automation_local_ledger_mirror",
             blocked_sql=f"""SELECT t.id::text,pg_column_size(t),to_jsonb(t)
             FROM automation_runs t WHERE {automation_blocked} ORDER BY t.id::text""",
-            blocked_params=(list(HEALTHY_AUTOMATION_STATES), audit_cutoff),
-            blocked_reason="failed_or_nonhealthy_automation_run_lacks_resolution_proof",
+            blocked_params=(
+                list(HISTORICAL_DETAIL_REQUIRED_AUTOMATION_IDS),
+                recent_cutoff,
+                list(HEALTHY_AUTOMATION_STATES),
+                audit_cutoff,
+            ),
+            blocked_reason=(
+                "historical_verification_detail_required_or_"
+                "failed_or_nonhealthy_automation_run_lacks_resolution_proof"
+            ),
             target_contract_version="automation_run_daily_receipt/v1",
             local_proof_kind="automation_run",
         ),
@@ -371,6 +387,17 @@ def _candidate_rows(
         source = row[2]
         if isinstance(source, str):
             source = json.loads(source)
+        # A signed participant report is the evidence that lets the historical
+        # standup verifier reconstruct real attendance. A daily count cannot
+        # substitute for its signed metadata, so keep it out of the mutation
+        # set even if a future SQL edit accidentally widens the candidate query.
+        if (
+            rule.table_name == "automation_runs"
+            and not blocked
+            and str((source or {}).get("automation_id") or "")
+            in HISTORICAL_DETAIL_REQUIRED_AUTOMATION_IDS
+        ):
+            continue
         if rule.table_name == "local_codex_jobs":
             source_row = dict((source or {}).get("row") or {})
             local_receipt = str(source_row.get("retention_local_receipt_sha256") or "")

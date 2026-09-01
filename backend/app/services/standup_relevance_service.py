@@ -9,7 +9,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "standup_relevance/v1"
-POLICY_VERSION = "feezie_positioning_contract/2026-08-14"
+POLICY_VERSION = "feezie_positioning_contract/2026-08-27"
 DEFAULT_FRESHNESS_WINDOW_HOURS = 168
 
 TAG_ORDER = (
@@ -37,7 +37,7 @@ ROLE_LENSES = {
     "neo": "employer and privacy boundaries, public claims, owner gates, cross-system conflicts, and executive conflicts",
     "yoda": "audience, thesis, positioning, values, and long-term priority tradeoffs",
 }
-
+CANONICAL_MEETING_CLOSER_DISPLAY_NAME = "Jean-Claude"
 ROLE_REASON_BY_TAG = {
     "jean_claude": {
         "execution_or_lifecycle": "routine_portfolio_execution",
@@ -234,9 +234,18 @@ def _as_utc(value: Any) -> datetime | None:
             parsed = datetime.fromisoformat(raw)
         except ValueError:
             return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
+
+
+def _evaluation_time(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.now(timezone.utc)
+    parsed = _as_utc(value)
+    if parsed is None:
+        raise ValueError("now must be a timezone-aware ai_clone_utc timestamp.")
+    return parsed
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -341,13 +350,8 @@ def normalize_agenda_item(
         raise TypeError("Every agenda item must be a mapping.")
     if freshness_window_hours <= 0:
         raise ValueError("freshness_window_hours must be positive.")
-    evaluated_at = _as_utc(now) or datetime.now(timezone.utc)
-    observed_at = _as_utc(
-        item.get("observed_at")
-        or item.get("updated_at")
-        or item.get("created_at")
-        or item.get("timestamp")
-    )
+    evaluated_at = _evaluation_time(now)
+    observed_at = _as_utc(item.get("observed_at"))
     source_ids = _normalize_source_ids(item)
     workspace_key = _slug(item.get("workspace_key") or item.get("workspace") or "feezie-os").replace("_", "-")
     title = _path_free_text(item.get("title") or item.get("summary") or "Untitled agenda item")
@@ -383,6 +387,8 @@ def normalize_agenda_item(
     input_fingerprint = _stable_hash({"agenda_item_id": agenda_item_id, **identity_material})
 
     exclusion_reasons: list[str] = []
+    if observed_at is None:
+        exclusion_reasons.append("semantic_observation_missing_or_invalid")
     if freshness == "stale":
         exclusion_reasons.append("stale")
     if "informational_only" in tags:
@@ -411,7 +417,7 @@ def normalize_agenda_items(
     now: datetime | None = None,
     freshness_window_hours: int = DEFAULT_FRESHNESS_WINDOW_HOURS,
 ) -> list[dict[str, Any]]:
-    evaluated_at = _as_utc(now) or datetime.now(timezone.utc)
+    evaluated_at = _evaluation_time(now)
     normalized = [
         normalize_agenda_item(
             item,
@@ -480,7 +486,7 @@ def build_standup_relevance_plan(
     not represented as independent Jean-Claude, Neo, or Yoda agent runs.
     """
 
-    evaluated_at = _as_utc(now) or datetime.now(timezone.utc)
+    evaluated_at = _evaluation_time(now)
     normalized_agenda = normalize_agenda_items(
         agenda_items,
         now=evaluated_at,
@@ -494,6 +500,9 @@ def build_standup_relevance_plan(
         }
     )
     unchanged = bool(previous_input_fingerprint) and previous_input_fingerprint == input_fingerprint
+    # These are independently relevant role lenses only. Meeting closure is a
+    # separate non-transferable authority and must never be manufactured as a
+    # relevance result merely to make Jean-Claude the closer.
     reason_evidence = {} if unchanged else _reason_evidence(normalized_agenda)
     selected_roles = [role for role in ROLE_ORDER if role in reason_evidence]
 
@@ -559,4 +568,169 @@ def evaluate_standup_relevance(
         now=now,
         freshness_window_hours=freshness_window_hours,
         previous_input_fingerprint=previous_input_fingerprint,
+    )
+
+
+def validate_standup_relevance_plan(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a persisted FEEZIE plan against the deterministic role policy.
+
+    The promotion API must not trust caller-selected display names merely
+    because a non-empty ``standup_relevance`` object was supplied.  This
+    validator reconstructs the complete participant decision from the bounded
+    normalized agenda already carried by the plan.
+    """
+
+    plan = dict(value or {})
+    if plan.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("Standup relevance schema is not authoritative.")
+    if plan.get("policy_version") != POLICY_VERSION:
+        raise ValueError("Standup relevance policy version is not authoritative.")
+    normalized_agenda = [
+        dict(item)
+        for item in (plan.get("normalized_agenda") or [])
+        if isinstance(item, Mapping)
+    ]
+    if normalized_agenda != list(plan.get("normalized_agenda") or []):
+        raise ValueError("Standup relevance normalized agenda is malformed.")
+    if len(normalized_agenda) > 100:
+        raise ValueError("Standup relevance normalized agenda exceeds its bound.")
+    required_item_fields = {
+        "agenda_item_id",
+        "workspace_key",
+        "title",
+        "source_ids",
+        "observed_at",
+        "freshness",
+        "status",
+        "tags",
+        "eligible_for_selection",
+        "exclusion_reasons",
+        "input_fingerprint",
+    }
+    for item in normalized_agenda:
+        if set(item) != required_item_fields:
+            raise ValueError("Standup relevance normalized agenda item has an invalid shape.")
+        if not isinstance(item.get("eligible_for_selection"), bool):
+            raise ValueError("Standup relevance eligibility must be boolean.")
+        if not isinstance(item.get("tags"), list) or any(tag not in TAG_SET for tag in item["tags"]):
+            raise ValueError("Standup relevance agenda tags are invalid.")
+        if not isinstance(item.get("source_ids"), list) or not isinstance(item.get("exclusion_reasons"), list):
+            raise ValueError("Standup relevance evidence lists are malformed.")
+        fingerprint = str(item.get("input_fingerprint") or "").strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise ValueError("Standup relevance agenda fingerprint is invalid.")
+
+    input_fingerprint = _stable_hash(
+        {
+            "policy_version": POLICY_VERSION,
+            "agenda_item_fingerprints": sorted(
+                {str(item["input_fingerprint"]) for item in normalized_agenda}
+            ),
+        }
+    )
+    if str(plan.get("input_fingerprint") or "") != input_fingerprint:
+        raise ValueError("Standup relevance input fingerprint is inconsistent.")
+
+    unchanged = plan.get("previous_input_fingerprint_matched") is True
+    reason_evidence = {} if unchanged else _reason_evidence(normalized_agenda)
+    selected_roles = [role for role in ROLE_ORDER if role in reason_evidence]
+    participant_plan: list[dict[str, Any]] = []
+    for role in selected_roles:
+        entries = reason_evidence[role]
+        participant_plan.append(
+            {
+                "role": role,
+                "display_name": ROLE_DISPLAY_NAMES[role],
+                "provenance": "synthesized_role_lens",
+                "lens": ROLE_LENSES[role],
+                "reason_codes": [entry["reason_code"] for entry in entries],
+                "agenda_item_ids": sorted(
+                    {
+                        agenda_item_id
+                        for entry in entries
+                        for agenda_item_id in entry["agenda_item_ids"]
+                    }
+                ),
+                "source_ids": sorted(
+                    {
+                        source_id
+                        for entry in entries
+                        for source_id in entry["source_ids"]
+                    }
+                ),
+            }
+        )
+    if not selected_roles:
+        disposition = "collapse_freshness"
+        disposition_reason = "unchanged_input" if unchanged else "no_relevant_agenda"
+    elif len(selected_roles) == 1:
+        disposition = "decision_record"
+        disposition_reason = "single_relevant_role"
+    else:
+        disposition = "run"
+        disposition_reason = "multiple_relevant_roles"
+
+    expected = {
+        "schema_version": SCHEMA_VERSION,
+        "policy_version": POLICY_VERSION,
+        "evaluated_at": plan.get("evaluated_at"),
+        "input_fingerprint": input_fingerprint,
+        "previous_input_fingerprint_matched": unchanged,
+        "disposition": disposition,
+        "disposition_reason": disposition_reason,
+        "selected_roles": selected_roles,
+        "participant_count": len(selected_roles),
+        "participant_plan": participant_plan,
+        "reason_evidence": reason_evidence,
+        "normalized_agenda": normalized_agenda,
+        "provenance": {
+            "participant_selection": "deterministic_policy",
+            "role_lenses": "synthesized_role_lens",
+            "independent_agent_runs": [],
+        },
+    }
+    if _semantic_plan(plan) != _semantic_plan(expected):
+        raise ValueError("Standup relevance plan does not match the deterministic role policy.")
+    if _as_utc(plan.get("evaluated_at")) is None:
+        raise ValueError("Standup relevance plan requires an explicit evaluation timestamp.")
+    return plan
+
+
+def effective_feezie_meeting_participants(value: Mapping[str, Any]) -> list[str]:
+    """Return the meeting roster without turning closure into relevance.
+
+    The relevance plan contains only independently selected lenses. A held
+    FEEZIE meeting additionally requires Jean-Claude's non-transferable PM and
+    execution closure authority, whether or not his execution lens was itself
+    selected by the agenda.
+    """
+
+    plan = validate_standup_relevance_plan(value)
+    if str(plan.get("disposition") or "").strip() != "run":
+        raise ValueError("Only a run relevance result has a FEEZIE meeting roster.")
+    selected = [
+        str(item.get("display_name") or "").strip()
+        for item in (plan.get("participant_plan") or [])
+        if isinstance(item, Mapping) and str(item.get("display_name") or "").strip()
+    ]
+    if len(selected) < 2 or len(set(selected)) != len(selected):
+        raise ValueError(
+            "A FEEZIE meeting requires at least two unique relevance-selected lenses."
+        )
+    return [
+        CANONICAL_MEETING_CLOSER_DISPLAY_NAME,
+        *[
+            participant
+            for participant in selected
+            if participant != CANONICAL_MEETING_CLOSER_DISPLAY_NAME
+        ],
+    ]
+
+
+def _semantic_plan(value: Mapping[str, Any]) -> str:
+    return json.dumps(
+        dict(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Mapping
 
@@ -15,6 +16,14 @@ ALLOWED_TRANSITIONS = {
 }
 TERMINAL_STATUSES = frozenset({"resolved", "canceled", "superseded"})
 SESSION_SURFACE = "decision_session"
+PM_OWNER_DECISION_TYPE = "pm_owner_decision"
+PM_OWNER_DECISION_CHOICES = frozenset(
+    {
+        "approve_bounded_internal_action",
+        "reject_recommendation",
+        "retain_until_trigger",
+    }
+)
 KNOWN_ROUTES = frozenset(
     {
         "ops",
@@ -60,10 +69,13 @@ class CanonicalDecisionService:
             raise ValueError("decision type is required")
         if len(decision_type) > 120:
             raise ValueError("decision type exceeds 120 characters")
+        normalized_payload = self._normalized_payload(payload)
+        if decision_type == PM_OWNER_DECISION_TYPE:
+            self._validate_pm_owner_decision_linkage(normalized_payload)
         idempotency_key = " ".join(str(idempotency_key or "").split()).strip()
         if not idempotency_key or len(idempotency_key) > 200:
             raise ValueError("bounded decision idempotency key is required")
-        payload_json = _canonical_json(self._normalized_payload(payload))
+        payload_json = _canonical_json(normalized_payload)
         decision_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ai-clone:decision:{idempotency_key}"))
         now = _utcnow()
         with self.store.connection() as connection:
@@ -85,7 +97,16 @@ class CanonicalDecisionService:
                     connection,
                     row["decision_id"],
                     "decision.created",
-                    {"status": "open", "state_version": 1, "decision_type": decision_type},
+                    {
+                        "status": "open",
+                        "state_version": 1,
+                        "decision_type": decision_type,
+                        "title": title[:300],
+                        "route": str(normalized_payload.get("route") or "ops"),
+                        "interaction_mode": str(
+                            normalized_payload.get("interaction_mode") or "simple"
+                        ),
+                    },
                     f"decision-created:{idempotency_key}",
                 )
                 connection.execute("COMMIT")
@@ -143,6 +164,10 @@ class CanonicalDecisionService:
                 ).fetchone()
                 if not row:
                     raise KeyError("unknown decision")
+                if row["decision_type"] == PM_OWNER_DECISION_TYPE:
+                    raise DecisionConflict(
+                        "PM owner decisions are simple bounded choices and cannot open a shared session"
+                    )
                 payload = json.loads(row["payload_json"])
                 if payload.get("interaction_mode") != "complex":
                     raise DecisionConflict("simple decisions are resolved inline")
@@ -180,7 +205,21 @@ class CanonicalDecisionService:
                     connection,
                     decision_id,
                     "decision.transitioned",
-                    {"from": row["status"], "to": "in_session", "state_version": expected_version + 1, "resolution_recorded": False},
+                    {
+                        "from": row["status"],
+                        "to": "in_session",
+                        "state_version": expected_version + 1,
+                        "resolution_recorded": False,
+                        "decision_type": row["decision_type"],
+                        "title": row["title"],
+                        "route": str(payload.get("route") or "ops"),
+                        "workspace_key": str(
+                            payload.get("workspace_key")
+                            or payload.get("route")
+                            or "shared_ops"
+                        ),
+                        "pm_card_id": payload.get("pm_card_id"),
+                    },
                     event_key,
                 )
                 self._event(
@@ -211,6 +250,11 @@ class CanonicalDecisionService:
                 row = connection.execute("SELECT * FROM decision_records WHERE decision_id=?", (decision_id,)).fetchone()
                 if not row:
                     raise KeyError("unknown decision")
+                resolution = self._normalized_resolution(
+                    decision_type=str(row["decision_type"]),
+                    new_status=new_status,
+                    resolution=resolution,
+                )
                 if row["state_version"] != expected_version:
                     current_payload = json.loads(row["payload_json"])
                     replay_resolution = current_payload.get("resolution")
@@ -266,6 +310,10 @@ class CanonicalDecisionService:
                         "decision_type": row["decision_type"],
                         "title": row["title"],
                         "route": str(payload.get("route") or "ops"),
+                        "workspace_key": str(
+                            payload.get("workspace_key") or payload.get("route") or "shared_ops"
+                        ),
+                        "pm_card_id": payload.get("pm_card_id"),
                         **(
                             {"resolution": self._bounded_resolution(resolution)}
                             if resolution
@@ -321,6 +369,51 @@ class CanonicalDecisionService:
 
         choice = " ".join(str(resolution.get("choice") or "").split()).strip()
         return {"choice": choice[:1000]} if choice else {}
+
+    @staticmethod
+    def _validate_pm_owner_decision_linkage(payload: Mapping[str, Any]) -> None:
+        """Require the exact signed PM intent that this owner choice may affect."""
+
+        card_id = " ".join(str(payload.get("pm_card_id") or "").split()).strip()
+        intent_hash = " ".join(
+            str(payload.get("pm_execution_gate_intent_hash") or "").split()
+        ).strip()
+        future_trigger = " ".join(
+            str(payload.get("pm_future_trigger") or "").split()
+        ).strip()
+        if not card_id or len(card_id) > 128:
+            raise ValueError("PM owner decisions require one bounded linked PM card identity")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", intent_hash):
+            raise ValueError("PM owner decisions require the exact signed PM execution intent hash")
+        if not future_trigger or len(future_trigger) > 1_000:
+            raise ValueError("PM owner decisions require one bounded future trigger")
+        if payload.get("interaction_mode") != "simple":
+            raise ValueError("PM owner decisions must use the simple bounded-choice path")
+
+    @staticmethod
+    def _normalized_resolution(
+        *,
+        decision_type: str,
+        new_status: str,
+        resolution: Mapping[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Keep generic decisions free-form while closing the PM owner-choice vocabulary."""
+
+        if decision_type != PM_OWNER_DECISION_TYPE:
+            return dict(resolution) if resolution else None
+        if new_status != "resolved":
+            raise DecisionConflict(
+                "PM owner decisions must resolve through one bounded PM recommendation choice"
+            )
+        normalized = dict(resolution or {})
+        if set(normalized) != {"choice"}:
+            raise DecisionConflict(
+                "PM owner decisions require exactly one bounded choice field"
+            )
+        choice = " ".join(str(normalized.get("choice") or "").split()).strip()
+        if choice not in PM_OWNER_DECISION_CHOICES:
+            raise DecisionConflict("unsupported PM owner decision choice")
+        return {"choice": choice}
 
     @staticmethod
     def _event(connection: Any, decision_id: str, event_type: str, payload: Mapping[str, Any], idempotency_key: str) -> None:

@@ -36,6 +36,15 @@ const API_NO_STORE: RequestCache = 'no-store';
 const TELEMETRY_TIMEOUT_MS = 40_000;
 const SNAPSHOT_TIMEOUT_MS = 40_000;
 const PM_MAINTENANCE_TIMEOUT_MS = 12_000;
+// ai_clone_utc remains the sole machine-time authority. This timezone is only
+// the owner's calendar projection for weekday/week/month grouping in the UI.
+const OWNER_CALENDAR_TIME_ZONE = 'America/New_York';
+const ownerCalendarDatePartsFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: OWNER_CALENDAR_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
 // Local runners start Codex from the repository root, so execution packets can
 // stay portable and avoid compiling one operator's absolute Mac path into the
 // browser bundle.
@@ -153,6 +162,15 @@ export type StandupPrepPacket = {
   workspaceKey: string;
   ownerAgent: string;
   generatedAt?: string;
+  observedAt?: string;
+  cycleId?: string;
+  clock?: {
+    schema_version?: string;
+    authority?: string;
+    clock?: string;
+    timezone?: string;
+    observed_at?: string;
+  };
   summary: string;
   agenda: string[];
   blockers: string[];
@@ -164,6 +182,7 @@ export type StandupPrepPacket = {
   memoryPromotions: string[];
   sourcePaths: string[];
   path: string;
+  standupRelevance?: Record<string, unknown>;
 };
 
 export type PMRecommendationItem = {
@@ -259,11 +278,21 @@ type WorkspaceCycleEvaluation = {
   reason: string;
   evaluatedAt: string | null;
   ownerRole: string | null;
+  futureTrigger: string | null;
+  asyncRole: string | null;
+  canonicalPmExecutionAuthority: string | null;
+  authorityTransferred: boolean;
+  terminalDispositions: string[];
+  ownerDecisionCount: number;
 };
 
 type OpsWorkspaceCycleProjection = {
   schema_version?: string;
+  portfolio_cycle_id?: string | null;
+  ops_conclusion_attempt_number?: number | null;
+  cycle_date?: string | null;
   observed_at?: string | null;
+  clock?: Record<string, unknown> | null;
   workspace_cycle_evaluations?: Array<Record<string, unknown>>;
 };
 
@@ -487,7 +516,7 @@ type StandupRecordProvenance = {
 };
 
 type StandupParticipantBuckets = {
-  observed: string[];
+  recorded: string[];
   inferred: string[];
   merged: string[];
 };
@@ -537,7 +566,7 @@ type MeetingRoomHealth = {
   workspaceKey: string;
   status: string;
   reason: string;
-  freshness: 'current' | 'quiet';
+  freshness: 'current' | 'quiet' | 'unavailable';
   outputCategory: StandupOutputGateCategory | null;
   latestEntry: StandupEntry | null;
   roundCount: number;
@@ -609,6 +638,7 @@ type StandupWorkspaceEffectiveness = {
 };
 
 type StandupEffectivenessSummary = {
+  observationAvailable: boolean;
   weekStartLabel: string;
   weekEndLabel: string;
   standupsRun: number;
@@ -2144,8 +2174,10 @@ type PortfolioPulseWorkspace = {
   latest_standups?: Array<{
     id: string;
     created_at?: string | null;
+    observed_at?: string | null;
     truth?: {
       freshness?: string;
+      freshness_clock?: string;
       freshness_limit_hours?: number;
       quality?: string;
       decision_yield?: number;
@@ -3035,7 +3067,7 @@ export default function OpsClient({
         : executionQueue.filter((entry) => !legacyOwnerReviewCardIds.has(entry.card_id)),
     [executionQueue, legacyOwnerReviewCardIds, legacyOwnerReviewCompatibilityEnabled],
   );
-  const aiCloneObservedAtMs = parseUpdatedAtMillis(portfolioPulse?.checked_at);
+  const aiCloneObservedAtMs = aiClonePortfolioObservedAtMillis(portfolioPulse);
   const workspaceCycleEvaluations = useMemo(
     () => projectedWorkspaceCycleEvaluations(opsWorkspaceCycle, automationRuns),
     [automationRuns, opsWorkspaceCycle],
@@ -3832,7 +3864,7 @@ const STANDUP_ROOMS: StandupRoom[] = [
     workspaceKey: 'shared_ops',
     operatingMode: 'core',
     description: 'Maintenance lane for automation health, Open Brain continuity, delivery integrity, and local runtime behavior.',
-    participants: ['Jean-Claude', 'Neo'],
+    participants: ['Jean-Claude', 'Neo', 'Yoda'],
     sources: ['Railway Health', 'Launchd Jobs', 'Legacy Scheduler Records', 'Pruning Cycles', 'Persistent State', 'PM Queue'],
     maxAgeHours: 36,
   },
@@ -3861,8 +3893,8 @@ const STANDUP_ROOMS: StandupRoom[] = [
     standupKind: 'workspace_sync',
     label: 'FEEZIE OS Standup',
     workspaceKey: 'feezie-os',
-    operatingMode: 'core',
-    description: 'Workspace meeting for FEEZIE OS execution across source intake, content production, and broader public visibility direction.',
+    operatingMode: 'on_demand',
+    description: 'Relevance-gated FEEZIE lane. Zero selected roles means no meeting, one role runs as a signed asynchronous contribution, and two or more exact selected roles may be promoted to a meeting with Jean-Claude retaining closure authority.',
     participants: ['Jean-Claude', 'Neo', 'Yoda'],
     sources: ['Codex Chronicle', 'Workspace Files', 'PM Board', 'Progress Pulse', 'Dream Cycle'],
     maxAgeHours: 36,
@@ -4020,6 +4052,7 @@ function PortfolioPulseSection({
     const operatorCount =
       Number(workspace.counts?.needs_owner_pm_cards ?? 0) + Number(workspace.counts?.needs_host_pm_cards ?? 0);
     const latestStandup = workspace.latest_standups?.[0];
+    const latestStandupObservedAt = portfolioStandupSemanticObservedAt(latestStandup);
     const cycleEvaluation = cycleEvaluations.get(workspace.workspace_key);
     return (
       <button
@@ -4068,13 +4101,17 @@ function PortfolioPulseSection({
           <p key={reason} style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '10px 0 0' }}>{reason}</p>
         ))}
         <p style={{ color: latestStandup?.truth?.freshness === 'stale' ? '#fbbf24' : '#64748b', fontSize: '11px', lineHeight: 1.45, margin: '9px 0 0' }}>
-          {latestStandup?.created_at
-            ? `Last canonical workspace update ${formatUiTimestamp(latestStandup.created_at)} · ${humanizeStatusLabel(latestStandup.truth?.freshness || 'unverified')} against a ${latestStandup.truth?.freshness_limit_hours ?? 'workspace'}${latestStandup.truth?.freshness_limit_hours ? 'h' : ''} contract.`
-            : 'No canonical workspace update has been recorded yet.'}
+          {latestStandupObservedAt
+            ? `Last canonical workspace observation ${formatUiTimestamp(latestStandupObservedAt)} · ${humanizeStatusLabel(latestStandup?.truth?.freshness || 'unverified')} against a ${latestStandup?.truth?.freshness_limit_hours ?? 'workspace'}${latestStandup?.truth?.freshness_limit_hours ? 'h' : ''} contract.`
+            : latestStandup
+              ? `Canonical workspace observation unavailable${latestStandup.created_at ? `; persisted ${formatUiTimestamp(latestStandup.created_at)}` : ''}.`
+              : 'No canonical workspace update has been recorded yet.'}
         </p>
         <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '7px 0 0' }}>
           {cycleEvaluation
-            ? `Cycle checked ${cycleEvaluation.evaluatedAt ? formatUiTimestamp(cycleEvaluation.evaluatedAt) : 'at an unverified time'} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+            ? cycleEvaluation.evaluatedAt
+              ? `Cycle checked ${formatUiTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+              : `Cycle evaluated at an unverified time; execution and persistence time were not substituted · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
             : 'No cycle-level workspace evaluation receipt is available yet.'}
         </p>
         <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: '10px 0 0' }}>
@@ -4203,10 +4240,8 @@ function PMBoardPanel({
   const heldRoomCount = useMemo(() => meetingOps.rooms.filter((room) => room.status === 'held').length, [meetingOps]);
   const latestMeetingAt = useMemo(() => {
     const timestamps = meetingOps.rooms
-      .map((room) => room.latestEntry?.created_at)
-      .filter((value): value is string => Boolean(value))
-      .map((value) => new Date(value).getTime())
-      .filter((value) => Number.isFinite(value));
+      .map((room) => (room.latestEntry ? standupObservedAt(room.latestEntry).getTime() : 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
     if (timestamps.length === 0) {
       return null;
     }
@@ -4593,8 +4628,8 @@ function PMBoardPanel({
             const roomHealth = meetingOps.byRoomKey[room.key];
             const itemCount = laneSummary.byWorkspace[room.workspaceKey] ?? 0;
             const recommendationCount = recommendationItems.filter((item) => item.workspaceKey === room.workspaceKey).length;
-            const latestMeetingLabel = roomHealth?.latestEntry?.created_at
-              ? formatTimestamp(new Date(roomHealth.latestEntry.created_at))
+            const latestMeetingLabel = roomHealth?.latestEntry
+              ? `Observed ${standupObservationLabel(roomHealth.latestEntry)}`
               : roomHealth?.status === 'planned' || roomHealth?.status === 'quiet'
                 ? 'Quiet / on-demand'
                 : 'No transcript yet';
@@ -7196,7 +7231,7 @@ function PMCardDetailModal({
                           </span>
                         </div>
                         <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0 0 6px' }}>
-                          {meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')} · {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}
+                          {meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')} · observed {standupObservationLabel(entry)}
                         </p>
                         <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{summarize(standupSummary(entry), 180)}</p>
                       </article>
@@ -7602,7 +7637,10 @@ function StandupsPanel({
     () => buildMeetingOps(STANDUP_ROOMS, entries, pmCards, executionQueue, observedAtMs),
     [entries, pmCards, executionQueue, observedAtMs],
   );
-  const effectiveness = useMemo(() => buildStandupEffectivenessSummary(entries, pmCards, executionQueue), [entries, pmCards, executionQueue]);
+  const effectiveness = useMemo(
+    () => buildStandupEffectivenessSummary(entries, pmCards, executionQueue, observedAtMs),
+    [entries, pmCards, executionQueue, observedAtMs],
+  );
   const [meetingView, setMeetingView] = useState<'list' | 'weekly' | 'monthly'>('list');
   const [promotingKey, setPromotingKey] = useState<string | null>(null);
   const [promotionFeedback, setPromotionFeedback] = useState<string | null>(null);
@@ -7633,10 +7671,14 @@ function StandupsPanel({
       STANDUP_ROOMS.flatMap((room) => {
         const prep = findStandupPrepForRoom(room, executiveFeed.standupPreps);
         if (!prep) return [];
-        const liveEntry = findLiveStandupEntry(room, entries);
-        const liveTime = liveEntry?.created_at ? new Date(liveEntry.created_at).getTime() : 0;
-        const prepTime = prep.generatedAt ? new Date(prep.generatedAt).getTime() : 0;
-        if (liveEntry && (!prepTime || prepTime <= liveTime)) return [];
+        const latestCoordinationEntry = findLatestCoordinationEntry(room, entries);
+        const latestCoordinationObservedAt = latestCoordinationEntry ? standupObservedAt(latestCoordinationEntry).getTime() : 0;
+        const prepObservedAt = timestampMs(standupPrepSemanticObservedAtText(prep));
+        if (
+          !prepObservedAt
+          || (latestCoordinationEntry && latestCoordinationObservedAt <= 0)
+          || (latestCoordinationEntry && prepObservedAt <= latestCoordinationObservedAt)
+        ) return [];
         return [{ room, prep }];
       }),
     [entries, executiveFeed.standupPreps],
@@ -7705,7 +7747,7 @@ function StandupsPanel({
         const createdCount = result.created_cards.length;
         const existingCount = result.existing_cards.length;
         setPromotionFeedback(
-          `${room.label} created. ${createdCount} PM card${createdCount === 1 ? '' : 's'} added${existingCount ? `, ${existingCount} already existed` : ''}.`,
+          `${room.label} prep routed as a workspace cycle plan. ${createdCount} PM card${createdCount === 1 ? '' : 's'} added${existingCount ? `, ${existingCount} already existed` : ''}. No meeting is claimed without separate verified agent evidence.`,
         );
       } catch (err) {
         setPromotionError(toErrorMessage(err));
@@ -7741,8 +7783,8 @@ function StandupsPanel({
             </h3>
             <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
               {todayActionCount > 0
-                ? 'Resolve owner and host decisions first, then clear any carried lane or promote a genuinely new prep packet.'
-                : `${currentRooms.length} room${currentRooms.length === 1 ? ' has' : 's have'} fresh meeting evidence. Quiet, on-demand, and strategy-only rooms remain context unless they produce a real decision.`}
+                ? 'Resolve owner and host decisions first, then clear any carried lane or route a genuinely new prep packet.'
+                : `${currentRooms.length} room${currentRooms.length === 1 ? ' has' : 's have'} fresh server-verified meeting evidence. Quiet, on-demand, and strategy-only rooms remain context unless they produce a real decision.`}
             </p>
           </div>
           {statusBadge(todayActionCount > 0 ? 'needs attention' : 'clear')}
@@ -7750,8 +7792,8 @@ function StandupsPanel({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: todayActionCount > 0 ? '14px' : 0 }}>
           <MiniMeta label="Your decisions" value={`${standupDecisionItems.length}`} detail="owner or host sign-offs" />
           <MiniMeta label="Stuck lanes" value={`${stuckRooms.length}`} detail="current carry-forward or thin output" />
-          <MiniMeta label="New prep" value={`${preparedRoomActions.length}`} detail="newer than the latest meeting" />
-          <MiniMeta label="Fresh rooms" value={`${currentRooms.length}`} detail={`${strategyRooms.length} strategy-only`} />
+          <MiniMeta label="New prep" value={`${preparedRoomActions.length}`} detail="newer than the latest processed cycle record" />
+          <MiniMeta label="Verified rooms" value={`${currentRooms.length}`} detail={`${strategyRooms.length} strategy-only`} />
         </div>
         {todayActionCount > 0 ? (
           <div style={{ display: 'grid', gap: '10px' }}>
@@ -7801,16 +7843,28 @@ function StandupsPanel({
                   {statusBadge('prep ready')}
                 </div>
                 <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{sanitizeLegacyLocalPathsForDisplay(prep.summary || room.description)}</p>
-                <StandupActionStrip
-                  marginTop="10px"
-                  actions={[{
-                    key: `${room.key}-promote-today`,
-                    label: promotingKey === room.key ? 'Creating…' : 'Create current standup',
-                    onClick: () => void handlePromote(room, prep),
-                    tone: 'primary',
-                    disabled: promotingKey === room.key,
-                  }]}
-                />
+                {prepRequiresVerifiedMeeting(prep) ? (
+                  <div
+                    data-standup-authority-state="awaiting-verified-meeting"
+                    style={{ marginTop: '10px', borderRadius: '10px', border: '1px solid rgba(251,191,36,0.3)', backgroundColor: 'rgba(120,53,15,0.12)', padding: '10px 12px' }}
+                  >
+                    <p style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 700, margin: 0 }}>Verified meeting required</p>
+                    <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: '4px 0 0' }}>
+                      Relevance selected multiple independent lenses. Signed participant reports and Jean-Claude&rsquo;s terminal close must be verified before any decision or PM work can route.
+                    </p>
+                  </div>
+                ) : (
+                  <StandupActionStrip
+                    marginTop="10px"
+                    actions={[{
+                      key: `${room.key}-promote-today`,
+                      label: promotingKey === room.key ? 'Routing…' : 'Route current cycle plan',
+                      onClick: () => void handlePromote(room, prep),
+                      tone: 'primary',
+                      disabled: promotingKey === room.key,
+                    }]}
+                  />
+                )}
               </article>
             ))}
           </div>
@@ -7836,16 +7890,16 @@ function StandupsPanel({
             </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
           <MiniMeta
-            label="Fresh Transcripts"
+            label="Verified Meeting Evidence"
             value={`${currentRooms.length}`}
-            detail="within each room's cadence"
+            detail="server-verified and within each room's cadence"
           />
           <MiniMeta label="Outcome Clear" value={`${outcomeClearRooms.length}`} detail="no carry-forward or follow-up needed" />
           <MiniMeta label="Strategy-only" value={`${strategyRooms.length}`} detail="current context, not execution debt" />
           <MiniMeta label="Carry-Forward Holds" value={`${meetingOps.heldRoomCount}`} detail="rooms still blocked on an older standup lane" />
           <MiniMeta label="Linked Cards" value={`${meetingOps.linkedCardCount}`} detail="active PM cards tied back to standups" />
           <MiniMeta label="Resolved Links" value={`${meetingOps.resolvedLinkedCardCount}`} detail="closed historical PM cards kept for transcript traceability" />
-          <MiniMeta label="Orphan Standups" value={`${meetingOps.orphanStandupCount}`} detail="completed meetings with PM recommendations but no linked PM card" />
+          <MiniMeta label="Orphan Meetings" value={`${meetingOps.orphanStandupCount}`} detail="verified meetings with PM recommendations but no linked PM card" />
           <MiniMeta label="Stale Ready" value={`${meetingOps.staleReadyCount}`} detail="ready execution items aging in place" />
           <MiniMeta label="Stale Review" value={`${meetingOps.staleReviewCount}`} detail="results waiting too long for a closeout" />
           <MiniMeta label="Stale Running" value={`${meetingOps.staleRunningCount}`} detail="queued/running lanes that need follow-through" />
@@ -7898,7 +7952,7 @@ function StandupsPanel({
                 <span>Workspace: {meetingLabelForWorkspace(room.workspaceKey)}</span>
                 <span>Rounds: {room.roundCount}</span>
                 <span>
-                  Latest: {room.latestEntry?.created_at ? formatTimestamp(new Date(room.latestEntry.created_at)) : 'No transcript yet'}
+                  Latest observation: {room.latestEntry ? standupObservationLabel(room.latestEntry) : 'No verified meeting yet'}
                 </span>
               </div>
               <StandupActionStrip
@@ -7950,11 +8004,13 @@ function StandupsPanel({
         {showWeeklyOutcomes ? (
           <div style={{ display: 'grid', gap: '14px', marginTop: '14px' }}>
             <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-              A meeting passes only when it produced runnable work, a real host step, or an owner-review lane. Window: {effectiveness.weekStartLabel} to {effectiveness.weekEndLabel}.
+              {effectiveness.observationAvailable
+                ? `A meeting passes only when it produced runnable work, a real host step, or an owner-review lane. AI Clone UTC window: ${effectiveness.weekStartLabel} to ${effectiveness.weekEndLabel}.`
+                : 'Weekly effectiveness is unavailable until the portfolio projection supplies a matching ai_clone_utc clock receipt and observation.'}
             </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
           <MiniMeta
-            label="Standups Run"
+            label="Verified Meetings"
             value={`${effectiveness.standupsRun}`}
             detail={`${effectiveness.successfulCount} passed the output gate`}
           />
@@ -7991,12 +8047,12 @@ function StandupsPanel({
           <MiniMeta
             label="Median First Execution"
             value={formatDurationCompact(effectiveness.medianFirstExecutionMs)}
-            detail="from standup timestamp to first runner pickup"
+            detail="from semantic meeting observation to first runner pickup"
           />
           <MiniMeta
             label="Median Closeout"
             value={formatDurationCompact(effectiveness.medianFirstClosureMs)}
-            detail="from standup timestamp to first closed lane"
+            detail="from semantic meeting observation to first closed lane"
           />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px', marginTop: '14px' }}>
@@ -8094,7 +8150,7 @@ function StandupsPanel({
                       }}
                     >
                       <p style={{ color: '#fef3c7', fontSize: '13px', margin: 0 }}>
-                        {gate.workspaceLabel} · {gate.entry.created_at ? formatTimestamp(new Date(gate.entry.created_at)) : 'No timestamp'}
+                        {gate.workspaceLabel} · observed {standupObservationLabel(gate.entry)}
                       </p>
                       <p style={{ color: '#fde68a', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
                         {sanitizeLegacyLocalPathsForDisplay(gate.carryForwardTitle ? `${gate.carryForwardTitle} · ${gate.detail}` : gate.detail)}
@@ -8142,7 +8198,7 @@ function StandupsPanel({
                       }}
                     >
                       <p style={{ color: '#fef3c7', fontSize: '13px', margin: 0 }}>
-                        {gate.workspaceLabel} · {gate.entry.created_at ? formatTimestamp(new Date(gate.entry.created_at)) : 'No timestamp'}
+                        {gate.workspaceLabel} · observed {standupObservationLabel(gate.entry)}
                       </p>
                       <p style={{ color: '#fde68a', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{sanitizeLegacyLocalPathsForDisplay(gate.detail)}</p>
                       <StandupActionStrip
@@ -8178,7 +8234,7 @@ function StandupsPanel({
                       }}
                     >
                       <p style={{ color: '#fee2e2', fontSize: '13px', margin: 0 }}>
-                        {gate.workspaceLabel} · {gate.entry.created_at ? formatTimestamp(new Date(gate.entry.created_at)) : 'No timestamp'}
+                        {gate.workspaceLabel} · observed {standupObservationLabel(gate.entry)}
                       </p>
                       <p style={{ color: '#fecaca', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{sanitizeLegacyLocalPathsForDisplay(gate.detail)}</p>
                       <StandupActionStrip
@@ -8253,7 +8309,7 @@ function StandupsPanel({
             <span style={{ display: 'block', color: '#c084fc', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase' }}>Meeting archive</span>
             <span style={{ display: 'block', fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>Past meetings and evidence</span>
           </span>
-          <span style={{ color: '#94a3b8', fontSize: '13px' }}>{showMeetingArchive ? 'Hide' : 'Browse'} · {meetingOps.recentStandups.length} records</span>
+          <span style={{ color: '#94a3b8', fontSize: '13px' }}>{showMeetingArchive ? 'Hide' : 'Browse'} · {meetingOps.recentStandups.length} verified</span>
         </button>
         {showMeetingArchive ? (
           <div style={{ display: 'grid', gap: '14px', marginTop: '14px' }}>
@@ -8283,7 +8339,7 @@ function StandupsPanel({
             </div>
             {meetingView === 'list' && !selectedMeetingEntry ? (
               <div style={{ display: 'grid', gap: '8px' }}>
-                {meetingOps.recentStandups.length === 0 ? <EmptyPanel message="No meeting records yet." compact /> : null}
+                {meetingOps.recentStandups.length === 0 ? <EmptyPanel message="No server-verified meeting records yet." compact /> : null}
                 {meetingOps.recentStandups.map((entry) => (
                   <button
                     key={`compact-meeting-${entry.id}`}
@@ -8293,7 +8349,7 @@ function StandupsPanel({
                   >
                     <span style={{ fontWeight: 700, fontSize: '13px' }}>{standupLabel(entry)}</span>
                     <span style={{ color: '#94a3b8', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sanitizeLegacyLocalPathsForDisplay(standupSummary(entry))}</span>
-                    <span style={{ color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>{entry.created_at ? formatTimestamp(new Date(entry.created_at)) : 'No date'}</span>
+                    <span style={{ color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>Observed {standupObservationLabel(entry)}</span>
                   </button>
                 ))}
               </div>
@@ -8320,8 +8376,8 @@ function StandupsPanel({
                 />
               </div>
             ) : null}
-            {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} />}
-            {meetingView === 'monthly' && <MeetingMonthlyView entries={meetingOps.recentStandups} />}
+            {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} observedAtMs={observedAtMs} />}
+            {meetingView === 'monthly' && <MeetingMonthlyView entries={meetingOps.recentStandups} observedAtMs={observedAtMs} />}
           </div>
         ) : null}
       </section>
@@ -8334,7 +8390,7 @@ function StandupsPanel({
         >
           <span>
             <span style={{ display: 'block', color: '#64748b', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase' }}>Stored records</span>
-            <span style={{ display: 'block', fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>Full room packets and raw standup cards</span>
+            <span style={{ display: 'block', fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>Cycle plans, prep packets, and verified meeting records</span>
           </span>
           <span style={{ color: '#94a3b8', fontSize: '13px' }}>{showStoredRecords ? 'Hide' : 'Show'} · audit only</span>
         </button>
@@ -8344,11 +8400,24 @@ function StandupsPanel({
         {STANDUP_ROOMS.map((room) => {
           const prep = findStandupPrepForRoom(room, executiveFeed.standupPreps);
           const liveEntry = findLiveStandupEntry(room, entries);
-          const liveCreatedAt = liveEntry?.created_at ? new Date(liveEntry.created_at) : null;
+          const latestCoordinationEntry = findLatestCoordinationEntry(room, entries);
+          const liveObservedAt = liveEntry ? standupObservedAt(liveEntry) : null;
+          const latestCoordinationObservedAt = latestCoordinationEntry ? standupObservedAt(latestCoordinationEntry) : null;
+          const prepObservedAtText = prep ? standupPrepSemanticObservedAtText(prep) : null;
+          const prepObservedAt = prepObservedAtText ? new Date(prepObservedAtText) : null;
           const prepGeneratedAt = prep?.generatedAt ? new Date(prep.generatedAt) : null;
-          const prepIsNewerThanLive = Boolean(prepGeneratedAt && (!liveCreatedAt || prepGeneratedAt.getTime() > liveCreatedAt.getTime()));
-          const hasPromotablePrep = Boolean(prep && (!liveEntry || prepIsNewerThanLive));
-          const prepAlreadyPromoted = Boolean(prep && liveEntry && !prepIsNewerThanLive);
+          const latestCoordinationObservationAvailable = Boolean(
+            latestCoordinationObservedAt && latestCoordinationObservedAt.getTime() > 0,
+          );
+          const prepIsNewerThanCoordination = Boolean(
+            prepObservedAt
+              && (!latestCoordinationEntry
+                || (latestCoordinationObservationAvailable && prepObservedAt.getTime() > latestCoordinationObservedAt!.getTime())),
+          );
+          const hasPromotablePrep = Boolean(prep && prepObservedAt && (!latestCoordinationEntry || prepIsNewerThanCoordination));
+          const prepAlreadyPromoted = Boolean(
+            prep && latestCoordinationEntry && latestCoordinationObservationAvailable && !prepIsNewerThanCoordination,
+          );
           const roomHealth = meetingOps.byRoomKey[room.key];
           const displayPrep = hasPromotablePrep ? prep : null;
           const agenda = hasPromotablePrep ? prep?.agenda ?? [] : extractStandupList(liveEntry?.payload, 'agenda');
@@ -8366,11 +8435,11 @@ function StandupsPanel({
             ? 'prepared'
             : roomHealth?.status ?? (liveEntry ? liveEntry.status ?? 'recorded' : room.workspaceKey === 'shared_ops' ? 'ready' : 'planned');
           const cardSummary = liveEntry ? standupSummary(liveEntry) : prep?.summary ?? room.description;
-          const cardTimestamp = liveCreatedAt
-            ? formatTimestamp(liveCreatedAt)
+          const cardTimestamp = liveObservedAt && liveObservedAt.getTime() > 0
+            ? `Observed ${formatTimestamp(liveObservedAt)}`
             : prepGeneratedAt
-              ? formatTimestamp(prepGeneratedAt)
-              : 'Awaiting first artifact-backed meeting';
+              ? `Prep generated ${formatTimestamp(prepGeneratedAt)}; not a meeting observation`
+              : 'Awaiting first artifact-backed meeting observation';
 
           return (
             <article
@@ -8397,6 +8466,7 @@ function StandupsPanel({
                 {statusBadge(cardStatus)}
               </div>
               <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, marginBottom: '12px' }}>{sanitizeLegacyLocalPathsForDisplay(cardSummary)}</p>
+              <p style={{ color: '#64748b', fontSize: '11px', margin: '0 0 6px' }}>Room contract roles — eligibility, not attendance</p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 {room.participants.map((participant) => (
                   <span key={participant} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#e2e8f0', fontSize: '12px' }}>
@@ -8412,35 +8482,47 @@ function StandupsPanel({
                 ))}
               </div>
               {hasPromotablePrep && prep && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap' }}>
-                  <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                    {liveEntry
-                      ? 'A newer prep packet is ready for the next promotion cycle.'
-                      : 'Promotion will create the standup record and seed PM cards from the current prep packet.'}
-                  </div>
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handlePromote(room, prep);
-                    }}
-                    disabled={promotingKey === room.key}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: '999px',
-                      border: '1px solid rgba(56,189,248,0.35)',
-                      backgroundColor: promotingKey === room.key ? '#0f172a' : '#38bdf8',
-                      color: promotingKey === room.key ? '#94a3b8' : '#04111f',
-                      fontWeight: 700,
-                      cursor: promotingKey === room.key ? 'not-allowed' : 'pointer',
-                    }}
+                prepRequiresVerifiedMeeting(prep) ? (
+                  <div
+                    data-standup-authority-state="awaiting-verified-meeting"
+                    style={{ marginBottom: '14px', borderRadius: '10px', border: '1px solid rgba(251,191,36,0.3)', backgroundColor: 'rgba(120,53,15,0.12)', padding: '10px 12px' }}
                   >
-                    {promotingKey === room.key ? 'Creating…' : liveEntry ? `Promote Next ${room.label}` : `Create ${room.label}`}
-                  </button>
-                </div>
+                    <p style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 700, margin: 0 }}>Verified meeting required</p>
+                    <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: '4px 0 0' }}>
+                      Multiple FEEZIE lenses are relevant. The signed meeting and Jean-Claude&rsquo;s terminal close must be verified before this prep can seed PM work.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap' }}>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+                      {liveEntry
+                        ? 'A newer prep packet is ready for the next governed coordination cycle.'
+                        : 'Routing will store a workspace cycle plan and seed eligible PM cards. It will not claim a meeting.'}
+                    </div>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handlePromote(room, prep);
+                      }}
+                      disabled={promotingKey === room.key}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '999px',
+                        border: '1px solid rgba(56,189,248,0.35)',
+                        backgroundColor: promotingKey === room.key ? '#0f172a' : '#38bdf8',
+                        color: promotingKey === room.key ? '#94a3b8' : '#04111f',
+                        fontWeight: 700,
+                        cursor: promotingKey === room.key ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {promotingKey === room.key ? 'Routing…' : liveEntry ? 'Route next cycle plan' : 'Route cycle plan'}
+                    </button>
+                  </div>
+                )
               )}
               {prepAlreadyPromoted && (
                 <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>
-                  Current prep packet already matches the latest live standup.
+                  Current prep packet already matches the latest processed cycle record.
                 </div>
               )}
               <StandupActionStrip
@@ -8482,32 +8564,35 @@ function StandupsPanel({
         })}
       </div>
       <div style={{ display: 'grid', gap: '14px' }}>
-        {entries.length === 0 && <EmptyPanel message="No live standup API entries recorded yet. The new local standup-prep packets are ready to seed the first meetings." />}
+        {entries.length === 0 && <EmptyPanel message="No coordination records are stored yet. Prep packets may seed cycle plans, while meetings require separate verified agent evidence." />}
         {entries.map((entry) => {
           const sections = extractStandupSections(entry.payload);
           const linkedCards = buildLinkedStandupCards(entry, pmCards, executionQueue);
           const carryForwardState = buildStandupCarryForwardState(entry, linkedCards);
           const activeCarryForwardCardId = carryForwardState?.state === 'active' ? carryForwardState.item.card.id : null;
+          const verifiedMeeting = isMeetingStandupRecord(entry);
           return (
             <article key={entry.id} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
               <div>
                 <h3 style={{ fontSize: '20px', color: 'white', margin: 0 }}>{entry.owner}</h3>
                 <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
-                  {meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')} · {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}
+                  {meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')} · observed {standupObservationLabel(entry)}
                 </p>
               </div>
-              {statusBadge(entry.status ?? 'pending')}
+              {statusBadge(coordinationRecordLabel(entry))}
             </div>
             <StandupActionStrip
               marginBottom="12px"
               actions={[
-                {
-                  key: `${entry.id}-meeting`,
-                  label: 'Open meeting reader',
-                  onClick: () => openMeetingReader(entry.id),
-                  tone: 'secondary',
-                },
+                ...(verifiedMeeting
+                  ? [{
+                      key: `${entry.id}-meeting`,
+                      label: 'Open verified meeting',
+                      onClick: () => openMeetingReader(entry.id),
+                      tone: 'secondary' as const,
+                    }]
+                  : []),
                 ...(activeCarryForwardCardId
                   ? [
                       {
@@ -8520,7 +8605,14 @@ function StandupsPanel({
                   : []),
               ]}
             />
-            <PanelList title="Status" items={entry.status ? [entry.status] : []} emptyLabel="No status summary yet." />
+            <PanelList
+              title="Record truth"
+              items={[
+                coordinationRecordLabel(entry),
+                ...(entry.status ? [`Stored lifecycle status: ${entry.status}`] : []),
+              ]}
+              emptyLabel="No record truth is available."
+            />
             <PanelList title="Captured PM Snapshot" items={extractPmSnapshotLines(entry.payload?.pm_snapshot)} emptyLabel="No PM snapshot captured." />
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px', marginBottom: '12px' }}>
               <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Current Linked PM Cards</p>
@@ -8594,14 +8686,15 @@ function MeetingReaderView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [meetingListFilter, setMeetingListFilter] = useState<'all' | 'attention' | 'held' | 'low_value' | 'no_output' | 'passed'>('all');
   const meetingEntryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const selectedEntry = entries.find((entry) => entry.id === selectedMeetingId) ?? entries[0] ?? null;
+  const meetingEntries = useMemo(() => entries.filter(isMeetingStandupRecord), [entries]);
+  const selectedEntry = meetingEntries.find((entry) => entry.id === selectedMeetingId) ?? meetingEntries[0] ?? null;
   const entryOutputGates = useMemo(
     () =>
-      entries.map((entry) => ({
+      meetingEntries.map((entry) => ({
         entry,
         gate: buildStandupOutputGate(entry, pmCards, executionQueue),
       })),
-    [entries, pmCards, executionQueue],
+    [meetingEntries, pmCards, executionQueue],
   );
   const attentionCount = entryOutputGates.filter((item) => !item.gate.success && item.gate.category !== 'strategy_only').length;
   const heldCount = entryOutputGates.filter((item) => item.gate.category === 'carry_forward_hold').length;
@@ -8633,7 +8726,7 @@ function MeetingReaderView({
         if (priorityDelta !== 0) {
           return priorityDelta;
         }
-        return standupCreatedAt(right.entry).getTime() - standupCreatedAt(left.entry).getTime();
+        return standupObservedAt(right.entry).getTime() - standupObservedAt(left.entry).getTime();
       }),
     [visibleEntryOutputGates],
   );
@@ -8661,7 +8754,7 @@ function MeetingReaderView({
             ? 'No standups with missing qualifying output match the current filter.'
             : meetingListFilter === 'passed'
               ? 'No successful standups match the current filter.'
-              : 'No standup transcripts recorded yet.';
+              : 'No server-verified meeting transcripts recorded yet.';
 
   useEffect(() => {
     setActionFeedback(null);
@@ -8689,7 +8782,7 @@ function MeetingReaderView({
   }, [meetingListFilter, selectedMeetingId]);
 
   if (!selectedEntry) {
-    return <EmptyPanel message="No standup transcripts recorded yet." compact />;
+    return <EmptyPanel message="No server-verified meeting transcripts recorded yet." compact />;
   }
 
   const room = standupRoom(selectedEntry);
@@ -8774,7 +8867,7 @@ function MeetingReaderView({
     {
       label: 'Meeting',
       value: selectedEntry.status ?? 'completed',
-      detail: selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : 'No timestamp stored',
+      detail: `Observed ${standupObservationLabel(selectedEntry)}`,
       tone: '#a78bfa',
     },
     {
@@ -8887,7 +8980,7 @@ function MeetingReaderView({
           actions={[
             {
               key: 'meeting-filter-all',
-              label: `All (${entries.length})`,
+              label: `All (${meetingEntries.length})`,
               onClick: () => setMeetingListFilter('all'),
               tone: meetingListFilter === 'all' ? 'primary' : 'secondary',
               disabled: meetingListFilter === 'all',
@@ -8963,12 +9056,15 @@ function MeetingReaderView({
                     {statusBadge(gate.category)}
                   </div>
                   <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                    {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}
+                    Observed {standupObservationLabel(entry)}
                   </p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', color: '#64748b', fontSize: '11px' }}>
                     <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
                     <span>{entryDiscussion.length} rounds</span>
-                    <span>{entryParticipants.merged.length} attendees</span>
+                    <span>{entryParticipants.recorded.length} recorded role{entryParticipants.recorded.length === 1 ? '' : 's'}</span>
+                    {entryParticipants.inferred.length > 0 ? (
+                      <span>{entryParticipants.inferred.length} room-contract role{entryParticipants.inferred.length === 1 ? '' : 's'} not stored</span>
+                    ) : null}
                     {entryRoom ? <span>{entryRoom.key}</span> : null}
                   </div>
                   <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: 0 }}>{summarize(gate.detail, 104)}</p>
@@ -9002,7 +9098,7 @@ function MeetingReaderView({
             <p style={{ color: '#fbbf24', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Conversation</p>
             <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{standupLabel(selectedEntry)}</h3>
             <p style={{ color: '#94a3b8', fontSize: '13px', margin: '6px 0 0' }}>
-              {meetingLabelForWorkspace(selectedEntry.workspace_key ?? 'shared_ops')} · {selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : '-'}
+              {meetingLabelForWorkspace(selectedEntry.workspace_key ?? 'shared_ops')} · observed {standupObservationLabel(selectedEntry)} · persisted {standupPersistenceLabel(selectedEntry)}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -9127,9 +9223,9 @@ function MeetingReaderView({
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
                 <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Attendee Snapshot</p>
                 <div style={{ display: 'grid', gap: '6px', color: '#e2e8f0', fontSize: '13px' }}>
-                  <span>{participantBuckets.observed.length} observed attendee{participantBuckets.observed.length === 1 ? '' : 's'}</span>
-                  <span>{participantBuckets.inferred.length} inferred from room defaults</span>
-                  <span>{participantBuckets.merged.length} shown in the meeting reader</span>
+                  <span>{participantBuckets.recorded.length} participant role{participantBuckets.recorded.length === 1 ? '' : 's'} stored on the record</span>
+                  <span>{participantBuckets.inferred.length} additional eligible role{participantBuckets.inferred.length === 1 ? '' : 's'} inferred from the room contract, not attendance</span>
+                  <span>Stored roles do not by themselves prove attendance or an independent agent run</span>
                 </div>
               </section>
             </div>
@@ -9140,11 +9236,24 @@ function MeetingReaderView({
                   const note = typeof round.note === 'string' && round.note.trim() ? round.note.trim() : 'No note captured.';
                   const focus = typeof round.focus === 'string' && round.focus.trim() ? round.focus.trim().replace(/[_-]+/g, ' ') : null;
                   const roundNumber = typeof round.round === 'number' ? round.round : index + 1;
+                  const roundProvenance =
+                    typeof round.provenance === 'string' && round.provenance.trim()
+                      ? round.provenance.trim()
+                      : rawSource === 'standup_prep' || prepId
+                        ? 'synthesized_role_lens'
+                        : null;
                   return (
                     <section key={`${selectedEntry.id}-round-${roundNumber}-${speaker}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
                         <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{`Round ${roundNumber}: ${speaker}`}</p>
-                        {focus ? <span style={{ color: '#94a3b8', fontSize: '12px' }}>{focus}</span> : null}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {focus ? <span style={{ color: '#94a3b8', fontSize: '12px' }}>{focus}</span> : null}
+                          {roundProvenance === 'synthesized_role_lens' ? (
+                            <span style={{ color: '#fbbf24', border: '1px solid rgba(251,191,36,0.35)', borderRadius: '999px', padding: '3px 7px', fontSize: '10px', fontWeight: 700 }}>
+                              System-synthesized role lens
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                       <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>{note}</p>
                     </section>
@@ -9380,13 +9489,13 @@ function MeetingReaderView({
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Observed Attendees</p>
-                {participantBuckets.observed.length === 0 ? (
-                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No attendees were explicitly stored on the record.</p>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Recorded Participant Roles</p>
+                {participantBuckets.recorded.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No participant roles were explicitly stored on the record.</p>
                 ) : (
                   <div style={{ display: 'grid', gap: '6px' }}>
-                    {participantBuckets.observed.map((participant) => (
-                      <p key={`${selectedEntry.id}-observed-${participant}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                    {participantBuckets.recorded.map((participant) => (
+                      <p key={`${selectedEntry.id}-recorded-${participant}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
                         - {participant}
                       </p>
                     ))}
@@ -9395,9 +9504,9 @@ function MeetingReaderView({
               </section>
 
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Inferred From Room Defaults</p>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Inferred From Room Contract</p>
                 {participantBuckets.inferred.length === 0 ? (
-                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No default-room attendees were added on top of the stored record.</p>
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No room-contract roles were added on top of the stored record.</p>
                 ) : (
                   <div style={{ display: 'grid', gap: '6px' }}>
                     {participantBuckets.inferred.map((participant) => (
@@ -9451,7 +9560,7 @@ function MeetingReaderView({
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
                 <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Standup Record</p>
                 <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{selectedEntry.status ?? 'completed'}</p>
-                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : 'No timestamp'}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>Observed {standupObservationLabel(selectedEntry)}</p>
               </section>
 
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
@@ -9574,7 +9683,7 @@ function MeetingReaderView({
                   1. {prepId ? `Prep packet ${prepId}` : `Stored source ${rawSource}`} shaped the meeting input.
                 </p>
                 <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                  2. The standup record was written as `{selectedEntry.status ?? 'completed'}` on {selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : 'an unknown date'}.
+                  2. The standup was observed as `{selectedEntry.status ?? 'completed'}` at {standupObservationLabel(selectedEntry)} and persisted at {standupPersistenceLabel(selectedEntry)}.
                 </p>
                 <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
                   3. {linkedStandupCards.length} linked PM card{linkedStandupCards.length === 1 ? '' : 's'} currently carry the work out of this meeting.
@@ -9837,25 +9946,25 @@ function MeetingReaderView({
 
 function standupParticipantBuckets(entry: StandupEntry): StandupParticipantBuckets {
   const payload = entry.payload ?? {};
-  const observed = Array.isArray(payload.participants)
+  const recorded = Array.isArray(payload.participants)
     ? payload.participants
         .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
         .map((item) => item.trim())
     : [];
   const roomParticipants = standupRoom(entry)?.participants ?? [];
   const inferred = roomParticipants.filter(
-    (participant) => observed.findIndex((candidate) => candidate.toLowerCase() === participant.toLowerCase()) === -1,
+    (participant) => recorded.findIndex((candidate) => candidate.toLowerCase() === participant.toLowerCase()) === -1,
   );
-  const merged = [...observed, ...inferred].filter(
+  const merged = [...recorded, ...inferred].filter(
     (participant, index, all) => all.findIndex((candidate) => candidate.toLowerCase() === participant.toLowerCase()) === index,
   );
 
   if (merged.length === 0 && entry.owner) {
-    return { observed: [entry.owner], inferred: [], merged: [entry.owner] };
+    return { recorded: [entry.owner], inferred: [], merged: [entry.owner] };
   }
 
   return {
-    observed,
+    recorded,
     inferred,
     merged,
   };
@@ -9993,13 +10102,13 @@ function buildStandupInferenceNotes(entry: StandupEntry, participants: StandupPa
   const source = (entry.source ?? '').toLowerCase();
   const notes: string[] = [];
   if (source === 'standup_prep' || (typeof payload.prep_id === 'string' && payload.prep_id.trim().length > 0)) {
-    notes.push('Discussion rounds were synthesized from a standup prep packet before the final meeting record was written.');
+    notes.push('Participant roles and discussion rounds were system-synthesized from a standup prep packet; they do not prove observed attendance or independent agent runs.');
   }
   if (source === 'brain_triage') {
     notes.push('Agenda, summary, and participants were shaped from routed Brain signal rather than a literal meeting capture.');
   }
   if (participants.inferred.length > 0) {
-    notes.push('The attendee list includes room-default participants that were not explicitly stored on the meeting payload itself.');
+    notes.push('The inferred role list includes room-contract defaults that were not explicitly stored on the record; this is eligibility metadata, not attendance.');
   }
   if (extractStandupList(entry.payload, 'owners').length > 0 && (source === 'standup_prep' || source === 'brain_triage')) {
     notes.push('Owners were derived from the workspace and standup contract, not necessarily spoken verbatim in the room.');
@@ -10015,8 +10124,8 @@ function buildStandupHistoryItems(entry: StandupEntry, linkedCards: LinkedStandu
   const items: MeetingHistoryItem[] = [];
   if (entry.created_at) {
     items.push({
-      label: 'Created',
-      detail: `Standup record stored on ${formatTimestamp(new Date(entry.created_at))} with status \`${entry.status ?? 'completed'}\`.`,
+      label: 'Persisted',
+      detail: `Standup record stored on ${standupPersistenceLabel(entry)} with status \`${entry.status ?? 'completed'}\`. This persistence time does not replace the meeting's semantic observation.`,
       tone: '#e2e8f0',
     });
   }
@@ -10094,10 +10203,10 @@ function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, link
     });
   }
   if (linkedStandups.length > 0) {
-    const latestStandup = [...linkedStandups].sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime())[0];
+    const latestStandup = [...linkedStandups].sort(compareStandupSemanticObservationDesc)[0];
     items.push({
       label: 'Linked Meetings',
-      detail: `${linkedStandups.length} standup record${linkedStandups.length === 1 ? '' : 's'} currently link into this card. Latest linked meeting: ${latestStandup ? `${standupLabel(latestStandup)} on ${latestStandup.created_at ? formatTimestamp(new Date(latestStandup.created_at)) : 'unknown date'}` : 'unknown'}.`,
+      detail: `${linkedStandups.length} standup record${linkedStandups.length === 1 ? '' : 's'} currently link into this card. Latest linked meeting: ${latestStandup ? `${standupLabel(latestStandup)} observed ${standupObservationLabel(latestStandup)}` : 'unknown'}.`,
       tone: '#38bdf8',
     });
   }
@@ -10235,7 +10344,7 @@ function StandupActionStrip({
 function MeetingListView({ entries }: { entries: StandupEntry[] }) {
   return (
     <div style={{ display: 'grid', gap: '12px' }}>
-      {entries.length === 0 && <EmptyPanel message="No standup transcripts recorded yet." compact />}
+      {entries.length === 0 && <EmptyPanel message="No server-verified meeting transcripts recorded yet." compact />}
       {entries.map((entry) => {
         const discussion = standupDiscussion(entry);
         const decisions = extractStandupList(entry.payload, 'decisions');
@@ -10248,7 +10357,7 @@ function MeetingListView({ entries }: { entries: StandupEntry[] }) {
             </div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
               <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
-              <span>{entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}</span>
+              <span>Observed {standupObservationLabel(entry)}</span>
               <span>{discussion.length} rounds</span>
               <span>{decisions.length} decisions</span>
             </div>
@@ -10265,8 +10374,11 @@ function MeetingListView({ entries }: { entries: StandupEntry[] }) {
   );
 }
 
-function MeetingWeeklyView({ entries }: { entries: StandupEntry[] }) {
-  const days = buildRecentDayBuckets(entries, 7);
+function MeetingWeeklyView({ entries, observedAtMs }: { entries: StandupEntry[]; observedAtMs: number }) {
+  if (!(observedAtMs > 0 && Number.isFinite(observedAtMs))) {
+    return <EmptyPanel message="Waiting for the AI Clone UTC observation before building the weekly meeting calendar." compact />;
+  }
+  const days = buildRecentDayBuckets(entries, 7, observedAtMs);
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
       {days.map((day) => (
@@ -10276,7 +10388,7 @@ function MeetingWeeklyView({ entries }: { entries: StandupEntry[] }) {
             <span style={{ color: '#64748b', fontSize: '12px' }}>{day.entries.length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {day.entries.length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>No meetings recorded.</p>}
+            {day.entries.length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>No verified meetings recorded.</p>}
             {day.entries.map((entry) => (
               <div key={`weekly-entry-${entry.id}`} style={{ borderRadius: '12px', border: '1px solid #162033', backgroundColor: '#08101f', padding: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
@@ -10284,7 +10396,7 @@ function MeetingWeeklyView({ entries }: { entries: StandupEntry[] }) {
                   {statusBadge(entry.status ?? 'completed')}
                 </div>
                 <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                  {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'} · {standupDiscussion(entry).length} rounds
+                  Observed {standupObservationLabel(entry)} · {standupDiscussion(entry).length} rounds
                 </p>
               </div>
             ))}
@@ -10295,8 +10407,11 @@ function MeetingWeeklyView({ entries }: { entries: StandupEntry[] }) {
   );
 }
 
-function MeetingMonthlyView({ entries }: { entries: StandupEntry[] }) {
-  const days = buildMonthBuckets(entries);
+function MeetingMonthlyView({ entries, observedAtMs }: { entries: StandupEntry[]; observedAtMs: number }) {
+  if (!(observedAtMs > 0 && Number.isFinite(observedAtMs))) {
+    return <EmptyPanel message="Waiting for the AI Clone UTC observation before building the monthly meeting calendar." compact />;
+  }
+  const days = buildMonthBuckets(entries, observedAtMs);
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
       {days.map((day) => (
@@ -10387,6 +10502,7 @@ function WorkspaceHubPanel({
     (workspace) => normalizeWorkspaceBoardKey(workspace.workspace_key) === selectedWorkspaceId,
   );
   const activeCanonicalUpdate = activePortfolioWorkspace?.latest_standups?.[0];
+  const activeCanonicalObservedAt = portfolioStandupSemanticObservedAt(activeCanonicalUpdate);
   const activeCycleEvaluation = cycleEvaluations.get(selectedWorkspaceId);
   const workspaceFiles = useMemo(
     () => files.filter((file) => workspaceFileBelongsToHub(file, selectedWorkspaceId)),
@@ -10459,7 +10575,15 @@ function WorkspaceHubPanel({
     return ordered;
   }, [selectedWorkspaceFile, visibleWorkspaceFiles]);
   const workspaceStandups = useMemo(
-    () => sortByTimestampDesc(standups.filter((entry) => normalizeWorkspaceBoardKey(entry.workspace_key ?? 'shared_ops') === selectedWorkspaceId), (entry) => entry.created_at),
+    () =>
+      sortByTimestampDesc(
+        standups.filter(
+          (entry) =>
+            isMeetingStandupRecord(entry) &&
+            normalizeWorkspaceBoardKey(entry.workspace_key ?? 'shared_ops') === selectedWorkspaceId,
+        ),
+        (entry) => standupSemanticObservedAtText(entry),
+      ),
     [standups, selectedWorkspaceId],
   );
   const workspacePmCards = useMemo(
@@ -10522,7 +10646,7 @@ function WorkspaceHubPanel({
     const latest = Math.max(
       ...[
         ...workspaceFiles.map((file) => timestampMs(file.updatedAt)),
-        ...workspaceStandups.map((entry) => timestampMs(entry.created_at)),
+        ...workspaceStandups.map((entry) => standupObservedAt(entry).getTime()),
         ...workspacePmCards.map((card) => timestampMs(card.updated_at ?? card.created_at)),
         ...workspaceExecutionEntries.map((entry) => timestampMs(entry.last_transition_at ?? entry.queued_at)),
         ...workspaceChronicleEntries.map((entry) => timestampMs(entry.createdAt)),
@@ -10638,8 +10762,9 @@ function WorkspaceHubPanel({
   const workspaceStandupItems = useMemo(
     () =>
       workspaceStandups.slice(0, 4).map((entry) => {
-        const createdAt = entry.created_at ? formatTimestamp(new Date(entry.created_at)) : 'No timestamp';
-        return `${standupLabel(entry)} · ${createdAt} · ${entry.commitments.length} commitments · ${entry.blockers.length} blockers`;
+        const observedAt = standupSemanticObservedAtText(entry);
+        const observationLabel = observedAt ? formatTimestamp(new Date(observedAt)) : 'No observation timestamp';
+        return `${standupLabel(entry)} · observed ${observationLabel} · ${entry.commitments.length} commitments · ${entry.blockers.length} blockers`;
       }),
     [workspaceStandups],
   );
@@ -10783,11 +10908,13 @@ function WorkspaceHubPanel({
           <MiniMeta label="Status" value={workspaceLifecycleLabel(activeWorkspace.status)} detail={workspaceLifecycleDetail(activeWorkspace.status)} />
           <MiniMeta
             label="Canonical Update"
-            value={activeCanonicalUpdate?.created_at ? formatTimestamp(new Date(activeCanonicalUpdate.created_at)) : 'Not recorded'}
+            value={activeCanonicalObservedAt ? formatTimestamp(new Date(activeCanonicalObservedAt)) : 'Observation unavailable'}
             detail={
-              activeCanonicalUpdate?.created_at
-                ? `${humanizeStatusLabel(activeCanonicalUpdate.truth?.freshness || 'unverified')} against the ${activeCanonicalUpdate.truth?.freshness_limit_hours ?? 'workspace'}${activeCanonicalUpdate.truth?.freshness_limit_hours ? 'h' : ''} contract`
-                : 'no standup-backed canonical workspace update yet'
+              activeCanonicalObservedAt
+                ? `${humanizeStatusLabel(activeCanonicalUpdate?.truth?.freshness || 'unverified')} against the ${activeCanonicalUpdate?.truth?.freshness_limit_hours ?? 'workspace'}${activeCanonicalUpdate?.truth?.freshness_limit_hours ? 'h' : ''} contract${activeCanonicalUpdate?.created_at ? ` · persisted ${formatTimestamp(new Date(activeCanonicalUpdate.created_at))}` : ''}`
+                : activeCanonicalUpdate
+                  ? `semantic observation unavailable; persistence${activeCanonicalUpdate.created_at ? ` at ${formatTimestamp(new Date(activeCanonicalUpdate.created_at))}` : ''} does not replace it`
+                  : 'no standup-backed canonical workspace update yet'
             }
           />
           <MiniMeta
@@ -10820,6 +10947,7 @@ function WorkspaceHubPanel({
                 (item) => normalizeWorkspaceBoardKey(item.workspace_key) === workspace.id,
               );
               const latestCanonicalUpdate = portfolioWorkspace?.latest_standups?.[0];
+              const latestCanonicalObservedAt = portfolioStandupSemanticObservedAt(latestCanonicalUpdate);
               const cycleEvaluation = cycleEvaluations.get(workspace.id);
               return (
                 <button
@@ -10873,13 +11001,17 @@ function WorkspaceHubPanel({
                       margin: 0,
                     }}
                   >
-                    {latestCanonicalUpdate?.created_at
-                      ? `Last canonical update ${formatTimestamp(new Date(latestCanonicalUpdate.created_at))} · ${humanizeStatusLabel(latestCanonicalUpdate.truth?.freshness || 'unverified')} against the ${latestCanonicalUpdate.truth?.freshness_limit_hours ?? 'workspace'}${latestCanonicalUpdate.truth?.freshness_limit_hours ? 'h' : ''} contract.`
-                      : 'No canonical workspace update has been recorded yet.'}
+                    {latestCanonicalObservedAt
+                      ? `Last canonical observation ${formatTimestamp(new Date(latestCanonicalObservedAt))} · ${humanizeStatusLabel(latestCanonicalUpdate?.truth?.freshness || 'unverified')} against the ${latestCanonicalUpdate?.truth?.freshness_limit_hours ?? 'workspace'}${latestCanonicalUpdate?.truth?.freshness_limit_hours ? 'h' : ''} contract.`
+                      : latestCanonicalUpdate
+                        ? `Canonical observation unavailable${latestCanonicalUpdate.created_at ? `; persisted ${formatTimestamp(new Date(latestCanonicalUpdate.created_at))}` : ''}.`
+                        : 'No canonical workspace update has been recorded yet.'}
                   </p>
                   <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>
                     {cycleEvaluation
-                      ? `Cycle checked ${cycleEvaluation.evaluatedAt ? formatUiTimestamp(cycleEvaluation.evaluatedAt) : 'at an unverified time'} · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+                    ? cycleEvaluation.evaluatedAt
+                      ? `Cycle checked ${formatUiTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+                      : `Cycle evaluated at an unverified time; execution and persistence time were not substituted · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
                       : 'No cycle-level workspace evaluation receipt is available yet.'}
                   </p>
                 </button>
@@ -14281,6 +14413,36 @@ function parseUpdatedAtMillis(value?: string | null) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function aiClonePortfolioObservedAtMillis(snapshot?: PortfolioPulseSnapshot | null) {
+  const schemaVersion = snapshot?.clock?.schema_version?.trim();
+  const authority = snapshot?.clock?.authority?.trim();
+  const timezoneName = snapshot?.clock?.timezone?.trim();
+  const checkedAt = timezoneAwareStandupTimestamp(snapshot?.checked_at);
+  const clockObservedAt = timezoneAwareStandupTimestamp(snapshot?.clock?.observed_at);
+  if (
+    schemaVersion !== 'ai_clone_clock/v1'
+    || authority !== 'ai_clone_utc'
+    || timezoneName !== 'UTC'
+    || !checkedAt
+    || !clockObservedAt
+  ) {
+    return 0;
+  }
+  const checkedAtMs = new Date(checkedAt).getTime();
+  const clockObservedAtMs = new Date(clockObservedAt).getTime();
+  return checkedAtMs === clockObservedAtMs ? clockObservedAtMs : 0;
+}
+
+function portfolioStandupSemanticObservedAt(
+  entry?: { observed_at?: string | null; truth?: { freshness_clock?: string } } | null,
+) {
+  const clock = entry?.truth?.freshness_clock;
+  if (clock !== 'semantic_observed_at' && clock !== 'semantic_cycle_observation') {
+    return null;
+  }
+  return timezoneAwareStandupTimestamp(entry?.observed_at);
+}
+
 function isLikelyStaleBoardItem(item: UnifiedBoardItem) {
   if (item.pmReviewPolicy?.attention_class === 'stale' || item.pmReviewPolicy?.auto_resolve_eligible) {
     return true;
@@ -14538,16 +14700,35 @@ function findLiveStandupEntry(
   room: { key: string; standupKind?: string; workspaceKey: string },
   entries: StandupEntry[],
 ) {
-  const exact = entries.find((entry) => {
-    return standupMatchesRoom(entry, room);
-  });
+  const exact = entries
+    .filter((entry) => isMeetingStandupRecord(entry) && standupMatchesRoom(entry, room))
+    .sort(compareStandupSemanticObservationDesc)[0];
   if (exact) {
     return exact;
   }
   if (room.workspaceKey === 'shared_ops') {
     return null;
   }
-  return entries.find((entry) => (entry.workspace_key ?? 'shared_ops') === room.workspaceKey) ?? null;
+  return (
+    entries
+      .filter(
+        (entry) => isMeetingStandupRecord(entry) && (entry.workspace_key ?? 'shared_ops') === room.workspaceKey,
+      )
+      .sort(compareStandupSemanticObservationDesc)[0] ?? null
+  );
+}
+
+function findLatestCoordinationEntry(
+  room: { key: string; standupKind?: string; workspaceKey: string },
+  entries: StandupEntry[],
+) {
+  const scopedEntries = entries.filter((entry) => {
+    if (entry.source === 'portfolio_standup_cycle_evaluation') {
+      return false;
+    }
+    return standupMatchesRoom(entry, room);
+  });
+  return scopedEntries.sort(compareStandupSemanticObservationDesc)[0] ?? null;
 }
 
 function findRecommendationPacketForRoom(
@@ -14557,13 +14738,34 @@ function findRecommendationPacketForRoom(
   return packets.find((packet) => packet.workspaceKey === room.workspaceKey) ?? null;
 }
 
+function prepRequiresVerifiedMeeting(prep: StandupPrepPacket) {
+  return (
+    normalizeWorkspaceBoardKey(prep.workspaceKey) === 'feezie-os'
+    && prep.standupRelevance?.disposition === 'run'
+  );
+}
+
 function buildStandupPromotionPayload(
   prep: StandupPrepPacket,
   recommendationPacket: PMRecommendationPacket | null,
   chronicleEntry: ChronicleEntry | null,
 ) {
-  const includeYoda = shouldIncludeYoda(prep);
-  const participants = includeYoda ? ['Jean-Claude', 'Neo', 'Yoda'] : ['Jean-Claude', 'Neo'];
+  const { participants, relevance } = standupPromotionParticipants(prep);
+  const cycleId = prep.cycleId?.trim();
+  const observedAt = prep.observedAt?.trim();
+  const clock = prep.clock;
+  if (
+    !cycleId
+    || !observedAt
+    || !clock
+    || clock.schema_version !== 'ai_clone_clock/v1'
+    || clock.authority !== 'ai_clone_utc'
+    || clock.timezone !== 'UTC'
+    || !clock.observed_at
+    || !standupPrepSemanticObservedAtText(prep)
+  ) {
+    throw new Error('Standup promotion requires the prep\'s complete canonical ai_clone_utc cycle receipt.');
+  }
   const sourcePmUpdates = recommendationPacket?.pmUpdates?.length ? recommendationPacket.pmUpdates : recommendationPacket?.items ?? [];
   const pmUpdates = sourcePmUpdates.map((item) => ({
     workspace_key: item.workspaceKey,
@@ -14579,8 +14781,8 @@ function buildStandupPromotionPayload(
     },
   }));
   const decisions = buildStandupDecisions(prep, pmUpdates);
-  const owners = buildStandupOwners(prep, includeYoda);
-  const discussionRounds = buildStandupDiscussionRounds(prep, chronicleEntry, decisions, owners, includeYoda);
+  const owners = buildStandupOwners(prep, participants);
+  const discussionRounds = buildStandupDiscussionRounds(prep, chronicleEntry, decisions, owners, participants);
 
   return {
     standup_kind: prep.standupKind,
@@ -14600,19 +14802,60 @@ function buildStandupPromotionPayload(
     memory_promotions: prep.memoryPromotions,
     pm_snapshot: prep.pmSnapshot ?? {},
     participants,
+    standup_relevance: relevance,
     discussion_rounds: discussionRounds,
-    jean_claude_note: buildJeanClaudeStandupNote(prep),
-    neo_note: buildNeoStandupNote(prep, decisions),
-    yoda_note: includeYoda ? buildYodaStandupNote(prep, chronicleEntry) : null,
+    jean_claude_note: participants.includes('Jean-Claude') ? buildJeanClaudeStandupNote(prep) : null,
+    neo_note: participants.includes('Neo') ? buildNeoStandupNote(prep, decisions) : null,
+    yoda_note: participants.includes('Yoda') ? buildYodaStandupNote(prep, chronicleEntry) : null,
     prep_id: prep.id,
+    cycle_id: cycleId,
+    recursion: {
+      cycle_id: cycleId,
+      observed_at: observedAt,
+      clock: { ...clock },
+    },
     recommendation_path: recommendationPacket?.path ?? null,
     pm_updates: pmUpdates,
   };
 }
 
-function shouldIncludeYoda(prep: StandupPrepPacket) {
+function standupPromotionParticipants(prep: StandupPrepPacket) {
   const workspaceKey = normalizeWorkspaceBoardKey(prep.workspaceKey);
-  return workspaceKey === 'shared_ops' || workspaceKey === 'feezie-os';
+  const relevance = prep.standupRelevance ?? {};
+  if (workspaceKey === 'feezie-os') {
+    if (relevance.disposition !== 'run') {
+      throw new Error('FEEZIE standup promotion requires an authoritative relevance result with disposition run.');
+    }
+    const participantPlan = Array.isArray(relevance.participant_plan)
+      ? relevance.participant_plan.filter(
+          (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+        )
+      : [];
+    const participants = participantPlan
+      .map((item) => (typeof item.display_name === 'string' ? item.display_name.trim() : ''))
+      .filter((item) => item.length > 0);
+    if (participants.length < 2) {
+      throw new Error('FEEZIE standup promotion requires at least two relevance-selected participant roles.');
+    }
+    if (new Set(participants).size !== participants.length) {
+      throw new Error('FEEZIE standup promotion requires unique relevance-selected participant roles.');
+    }
+    const effectiveMeetingParticipants = [
+      'Jean-Claude',
+      ...participants.filter((participant) => participant !== 'Jean-Claude'),
+    ];
+    return { participants: effectiveMeetingParticipants, relevance };
+  }
+
+  const room = STANDUP_ROOMS.find(
+    (candidate) =>
+      normalizeWorkspaceBoardKey(candidate.workspaceKey) === workspaceKey &&
+      standupKindForRoom(candidate) === prep.standupKind,
+  );
+  if (!room) {
+    throw new Error(`No canonical standup room contract exists for ${prep.workspaceKey} / ${prep.standupKind}.`);
+  }
+  return { participants: [...room.participants], relevance: {} };
 }
 
 function buildJeanClaudeStandupNote(prep: StandupPrepPacket) {
@@ -14668,8 +14911,11 @@ function buildStandupDecisions(
   return decisions.slice(0, 5);
 }
 
-function buildStandupOwners(prep: StandupPrepPacket, includeYoda: boolean) {
-  const owners = ['Jean-Claude — update the PM board, open the next SOP, and carry the lane summary back to leadership.'];
+function buildStandupOwners(prep: StandupPrepPacket, participants: string[]) {
+  const owners: string[] = [];
+  if (participants.includes('Jean-Claude')) {
+    owners.push('Jean-Claude — update the PM board, open the next SOP, and carry the lane summary back to leadership.');
+  }
   const workspaceOwners: Record<string, string> = {
     'fusion-os': 'Fusion Systems Operator',
     easyoutfitapp: 'Easy Outfit App Operator Agent',
@@ -14677,10 +14923,14 @@ function buildStandupOwners(prep: StandupPrepPacket, includeYoda: boolean) {
     agc: 'AGC Operator Agent',
   };
   const workspaceKey = normalizeWorkspaceBoardKey(prep.workspaceKey);
-  if (!['shared_ops', 'feezie-os'].includes(workspaceKey)) {
-    owners.push(`${workspaceOwners[workspaceKey] ?? 'Workspace Agent'} — execute inside ${workspaceKey} only and report back through workspace memory plus the PM card.`);
+  const workspaceOperator = workspaceOwners[workspaceKey] ?? (workspaceKey === 'work-life-tools' ? 'Work Life Tools Operator Agent' : null);
+  if (workspaceOperator && participants.includes(workspaceOperator)) {
+    owners.push(`${workspaceOperator} — execute inside ${workspaceKey} only and report back through workspace memory plus the PM card.`);
   }
-  if (includeYoda) {
+  if (participants.includes('Neo')) {
+    owners.push('Neo — pressure-test only the system, owner, privacy, or cross-workspace boundary selected for this meeting.');
+  }
+  if (participants.includes('Yoda')) {
     owners.push('Yoda — challenge whether the next move still aligns with the North Star before scope expands.');
   }
   return owners;
@@ -14691,39 +14941,59 @@ function buildStandupDiscussionRounds(
   chronicleEntry: ChronicleEntry | null,
   decisions: string[],
   owners: string[],
-  includeYoda: boolean,
+  participants: string[],
 ) {
-  const rounds: Array<Record<string, unknown>> = [
-    {
-      round: 1,
-      speaker: 'Jean-Claude',
-      role: 'workspace-president',
-      note: buildJeanClaudeStandupNote(prep),
-      focus: 'pm_board_first',
-    },
-    {
-      round: 2,
-      speaker: 'Neo',
-      role: 'system-operator',
-      note: buildNeoStandupNote(prep, decisions),
-      focus: 'priority_and_scope',
-    },
-  ];
-  if (includeYoda) {
-    rounds.push({
-      round: 3,
-      speaker: 'Yoda',
-      role: 'strategic-overlay',
-      note: buildYodaStandupNote(prep, chronicleEntry),
-      focus: 'north_star',
-    });
+  const rounds: Array<Record<string, unknown>> = participants.map((participant, index) => {
+    if (participant === 'Jean-Claude') {
+      return {
+        round: index + 1,
+        speaker: participant,
+        role: 'workspace-president',
+        note: buildJeanClaudeStandupNote(prep),
+        focus: 'pm_board_first',
+        provenance: 'synthesized_role_lens',
+      };
+    }
+    if (participant === 'Neo') {
+      return {
+        round: index + 1,
+        speaker: participant,
+        role: 'system-boundary',
+        note: buildNeoStandupNote(prep, decisions),
+        focus: 'priority_and_scope',
+        provenance: 'synthesized_role_lens',
+      };
+    }
+    if (participant === 'Yoda') {
+      return {
+        round: index + 1,
+        speaker: participant,
+        role: 'strategic-overlay',
+        note: buildYodaStandupNote(prep, chronicleEntry),
+        focus: 'north_star',
+        provenance: 'synthesized_role_lens',
+      };
+    }
+    return {
+      round: index + 1,
+      speaker: participant,
+      role: 'workspace-operator',
+      note: `Workspace execution lens: keep the decision inside ${normalizeWorkspaceBoardKey(prep.workspaceKey)}, verify current artifacts and PM truth, and report the bounded result back to Jean-Claude.`,
+      focus: 'workspace_execution',
+      provenance: 'synthesized_role_lens',
+    };
+  });
+  const closer = 'Jean-Claude';
+  if (!participants.includes(closer)) {
+    throw new Error('A standup promotion requires Jean-Claude as the canonical terminal closer.');
   }
   rounds.push({
-    round: includeYoda ? 4 : 3,
-    speaker: 'Jean-Claude',
+    round: rounds.length + 1,
+    speaker: closer,
     role: 'workspace-president',
     note: `Decision set: ${decisions.slice(0, 2).join('; ')} Owners: ${owners.slice(0, 2).join(' ')}`,
     focus: 'decision_and_handoff',
+    provenance: 'synthesized_role_lens',
   });
   return rounds;
 }
@@ -14788,13 +15058,23 @@ function standupRecordProvenance(entry: StandupEntry): StandupRecordProvenance {
     conversationPath.endsWith('.vtt') ||
     conversationPath.endsWith('.srt');
 
+  if (isMeetingStandupRecord(entry)) {
+    return {
+      label: 'Server-verified independent-agent meeting',
+      tone: '#4ade80',
+      background: 'rgba(34, 197, 94, 0.10)',
+      border: 'rgba(34, 197, 94, 0.30)',
+      description: 'The server verified signed canonical Codex-agent reports for every required participant and phase, bound every discussion round to those receipts, and validated the transcript evidence before admitting this record as a meeting.',
+    };
+  }
+
   if (source === 'standup_prep' || hasPrepId) {
     return {
       label: 'Generated from standup prep',
       tone: '#fbbf24',
       background: 'rgba(251, 191, 36, 0.10)',
       border: 'rgba(251, 191, 36, 0.30)',
-      description: 'This meeting record was promoted from a prep packet. It is operationally useful, but the attendees and dialogue may be system-shaped rather than a literal transcript.',
+      description: 'This meeting-shaped record was promoted from a prep packet. Its roles and dialogue are system-shaped and do not prove attendance, independent agent runs, or a literal transcript.',
     };
   }
 
@@ -14810,11 +15090,11 @@ function standupRecordProvenance(entry: StandupEntry): StandupRecordProvenance {
 
   if (transcriptLikeSource && hasDiscussion) {
     return {
-      label: 'Transcript-backed',
-      tone: '#22c55e',
-      background: 'rgba(34, 197, 94, 0.10)',
-      border: 'rgba(34, 197, 94, 0.30)',
-      description: 'This record points to transcript-like meeting evidence and stored discussion rounds, so it is the closest thing here to what was actually said in the room.',
+      label: 'Transcript-referenced',
+      tone: '#38bdf8',
+      background: 'rgba(56, 189, 248, 0.10)',
+      border: 'rgba(56, 189, 248, 0.30)',
+      description: 'This record points to transcript-like evidence and stored discussion rounds. That does not by itself prove independent agent runs or attendance; separate provenance is still required.',
     };
   }
 
@@ -16155,8 +16435,272 @@ function standupHasPmCoverage(entry: StandupEntry, pmCards: PMCard[]) {
   return coverageIds.size > 0 && pmCards.some((card) => coverageIds.has(card.id));
 }
 
-function standupCreatedAt(entry: StandupEntry) {
-  return entry.created_at ? new Date(entry.created_at) : new Date(0);
+function standupTimeRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function timezoneAwareStandupTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized || !/(?:[zZ]|[+-]\d{2}:\d{2})$/.test(normalized)) {
+    return null;
+  }
+  return Number.isFinite(Date.parse(normalized)) ? normalized : null;
+}
+
+function standupCycleObservationTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const match = value.trim().match(/@(\d{8})T(\d{6})(\d{1,6})?Z$/);
+  if (!match) {
+    return null;
+  }
+  const day = match[1];
+  const time = match[2];
+  const fraction = (match[3] ?? '').padEnd(3, '0').slice(0, 3);
+  const timestamp = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}${fraction ? `.${fraction}` : ''}Z`;
+  return timezoneAwareStandupTimestamp(timestamp);
+}
+
+function standupSemanticObservation(entry: Pick<StandupEntry, 'payload'>): { timestamp: string | null; reason: string } {
+  const payload = standupTimeRecord(entry.payload);
+  const recursion = standupTimeRecord(payload.recursion);
+  const clock = standupTimeRecord(payload.clock);
+  const recursionClock = standupTimeRecord(recursion.clock);
+
+  for (const receipt of [clock, recursionClock]) {
+    const authority = String(receipt.authority ?? receipt.clock ?? '').trim();
+    if (authority && authority !== 'ai_clone_utc') {
+      return { timestamp: null, reason: 'invalid clock authority' };
+    }
+  }
+
+  const candidates = [
+    payload.observed_at,
+    recursion.observed_at,
+    clock.observed_at,
+    recursionClock.observed_at,
+  ].filter((candidate) => typeof candidate === 'string' && candidate.trim());
+  const parsedCandidates: string[] = [];
+  for (const candidate of candidates) {
+    const parsed = timezoneAwareStandupTimestamp(candidate);
+    if (!parsed) {
+      return { timestamp: null, reason: 'invalid semantic observation' };
+    }
+    parsedCandidates.push(parsed);
+  }
+
+  const cycleCandidates: string[] = [];
+  for (const container of [payload, recursion]) {
+    const cycleId = container.cycle_id;
+    if (typeof cycleId !== 'string' || !cycleId.trim()) {
+      continue;
+    }
+    const embeddedObservation = standupCycleObservationTimestamp(cycleId);
+    if (/@\d{8}T\d{6}(?:\d{1,6})?Z$/.test(cycleId.trim()) && !embeddedObservation) {
+      return { timestamp: null, reason: 'invalid cycle observation' };
+    }
+    if (embeddedObservation) {
+      cycleCandidates.push(embeddedObservation);
+    }
+  }
+
+  // Cycle identities preserve microseconds while explicit clock receipts are
+  // intentionally second-precision. They still name the same machine-clock
+  // observation and must agree on the second.
+  if (parsedCandidates.length > 0 && cycleCandidates.length > 0) {
+    const explicitSeconds = new Set(parsedCandidates.map((value) => Math.floor(new Date(value).getTime() / 1000)));
+    const cycleSeconds = new Set(cycleCandidates.map((value) => Math.floor(new Date(value).getTime() / 1000)));
+    if (
+      explicitSeconds.size !== 1
+      || cycleSeconds.size !== 1
+      || [...explicitSeconds][0] !== [...cycleSeconds][0]
+    ) {
+      return { timestamp: null, reason: 'conflicting semantic observations' };
+    }
+  } else if (parsedCandidates.length === 0) {
+    parsedCandidates.push(...cycleCandidates);
+  }
+
+  if (parsedCandidates.length === 0) {
+    return { timestamp: null, reason: 'missing semantic observation' };
+  }
+  const observations = new Set(parsedCandidates.map((value) => new Date(value).getTime()));
+  if (observations.size !== 1) {
+    return { timestamp: null, reason: 'conflicting semantic observations' };
+  }
+  return { timestamp: new Date(parsedCandidates[0]).toISOString(), reason: 'ai_clone_utc' };
+}
+
+function standupSemanticObservedAtText(entry: StandupEntry): string | null {
+  return standupSemanticObservation(entry).timestamp;
+}
+
+function standupPrepSemanticObservedAtText(prep: StandupPrepPacket): string | null {
+  return standupSemanticObservation({
+    payload: {
+      observed_at: prep.observedAt,
+      cycle_id: prep.cycleId,
+      clock: prep.clock,
+    },
+  }).timestamp;
+}
+
+function standupObservedAt(entry: StandupEntry) {
+  const observedAt = standupSemanticObservedAtText(entry);
+  return observedAt ? new Date(observedAt) : new Date(0);
+}
+
+function compareStandupSemanticObservationDesc(left: StandupEntry, right: StandupEntry) {
+  const leftObservedAt = standupObservedAt(left).getTime();
+  const rightObservedAt = standupObservedAt(right).getTime();
+  if (leftObservedAt !== rightObservedAt) {
+    return rightObservedAt - leftObservedAt;
+  }
+  if (leftObservedAt > 0) {
+    return standupPersistedAt(right).getTime() - standupPersistedAt(left).getTime();
+  }
+  return 0;
+}
+
+function standupPersistedAt(entry: StandupEntry) {
+  const persistedAt = timezoneAwareStandupTimestamp(entry.created_at);
+  return persistedAt ? new Date(persistedAt) : new Date(0);
+}
+
+function standupObservationLabel(entry: StandupEntry) {
+  const observation = standupSemanticObservation(entry);
+  return observation.timestamp
+    ? formatTimestamp(new Date(observation.timestamp))
+    : `Unavailable (${observation.reason})`;
+}
+
+function standupPersistenceLabel(entry: StandupEntry) {
+  return standupPersistedAt(entry).getTime() > 0
+    ? formatTimestamp(standupPersistedAt(entry))
+    : 'No persistence timestamp';
+}
+
+function isMeetingStandupRecord(entry: StandupEntry) {
+  const payload = entry.payload ?? {};
+  const canonicalCloser = 'Jean-Claude';
+  const evidence = payload.meeting_evidence;
+  const evidenceRecord = evidence && typeof evidence === 'object' && !Array.isArray(evidence) ? (evidence as Record<string, unknown>) : {};
+  const participants = Array.isArray(payload.participants)
+    ? payload.participants.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  const reports = Array.isArray(evidenceRecord.participant_reports)
+      ? (evidenceRecord.participant_reports as unknown[]).filter(
+          (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+        )
+      : [];
+  const reportRunIds = Array.isArray(evidenceRecord.participant_report_run_ids)
+    ? evidenceRecord.participant_report_run_ids.filter(
+        (item): item is string => typeof item === 'string' && item.trim().length > 0,
+      )
+    : [];
+  const discussion = standupDiscussion(entry);
+  const sha256Pattern = /^(?:sha256:)?[0-9a-f]{64}$/;
+  const participantSet = new Set(participants);
+  const runIds = new Set<string>();
+  const phases = ['status', 'analysis', 'commitments_resolution'];
+  const expectedReportCount = participants.length * phases.length;
+  const reportsAreBound =
+    reports.length === expectedReportCount &&
+    reportRunIds.length === expectedReportCount &&
+    reports.every((report, index) => {
+      const runId = typeof report.agent_run_id === 'string' ? report.agent_run_id.trim() : '';
+      const displayName = typeof report.display_name === 'string' ? report.display_name.trim() : '';
+      const generatedAtText = typeof report.generated_at === 'string' ? report.generated_at.trim() : '';
+      const generatedAt = generatedAtText && /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(generatedAtText) ? Date.parse(generatedAtText) : Number.NaN;
+      const expectedPhaseIndex = Math.floor(index / participants.length) + 1;
+      const expectedPhaseParticipants =
+        expectedPhaseIndex === phases.length
+          ? [
+              ...participants.filter((participant) => participant !== canonicalCloser),
+              canonicalCloser,
+            ]
+          : participants;
+      const expectedParticipant = expectedPhaseParticipants[index % participants.length];
+      const valid =
+        report.schema_version === 'standup_participant_report/v1' &&
+        report.provenance === 'independent_codex_agent_run' &&
+        Boolean(runId) &&
+        reportRunIds[index] === runId &&
+        !runIds.has(runId) &&
+        displayName === expectedParticipant &&
+        report.phase_index === expectedPhaseIndex &&
+        report.phase === phases[expectedPhaseIndex - 1] &&
+        Number.isFinite(generatedAt) &&
+        sha256Pattern.test(typeof report.input_sha256 === 'string' ? report.input_sha256 : '') &&
+        sha256Pattern.test(typeof report.identity_pack_sha256 === 'string' ? report.identity_pack_sha256 : '') &&
+        sha256Pattern.test(typeof report.report_sha256 === 'string' ? report.report_sha256 : '');
+      if (valid) {
+        runIds.add(runId);
+      }
+      return valid;
+    });
+  const discussionIsBound =
+    discussion.length === expectedReportCount &&
+    discussion.every((round, index) => {
+      const report = reports[index];
+      return (
+        round.provenance === 'independent_codex_agent_run' &&
+        Boolean(report) &&
+        round.round === index + 1 &&
+        round.phase === report?.phase &&
+        round.phase_index === report?.phase_index &&
+        typeof round.speaker === 'string' &&
+        round.speaker.trim() === report?.display_name &&
+        typeof round.note === 'string' &&
+        round.note.trim().length > 0 &&
+        round.participant_report_run_id === report?.agent_run_id
+      );
+    });
+  const cycleId = typeof payload.cycle_id === 'string' ? payload.cycle_id.trim() : '';
+  const meetingId = typeof payload.meeting_id === 'string' ? payload.meeting_id.trim() : '';
+  const kind = typeof payload.standup_kind === 'string' ? payload.standup_kind.trim() : '';
+  const workspaceKey = entry.workspace_key ?? 'shared_ops';
+
+  return (
+    entry.source !== 'portfolio_standup_cycle_evaluation' &&
+    payload.record_kind === 'standup' &&
+    payload.meeting_held === true &&
+    payload.evaluation_only !== true &&
+    payload.meeting_evidence_state === 'verified_independent_agent_meeting' &&
+    evidenceRecord.schema_version === 'standup_meeting_evidence/v1' &&
+    evidenceRecord.transcript_provenance === 'compiled_from_signed_canonical_participant_reports' &&
+    sha256Pattern.test(typeof evidenceRecord.transcript_sha256 === 'string' ? evidenceRecord.transcript_sha256 : '') &&
+    Boolean(cycleId) &&
+    evidenceRecord.cycle_id === cycleId &&
+    Boolean(meetingId) &&
+    evidenceRecord.meeting_id === meetingId &&
+    Boolean(kind) &&
+    evidenceRecord.standup_kind === kind &&
+    evidenceRecord.workspace_key === workspaceKey &&
+    participants.length > 0 &&
+    participantSet.has(canonicalCloser) &&
+    participantSet.size === participants.length &&
+    reportsAreBound &&
+    discussionIsBound
+  );
+}
+
+function coordinationRecordLabel(entry: StandupEntry) {
+  if (isMeetingStandupRecord(entry)) {
+    return 'Verified meeting';
+  }
+  const payload = entry.payload ?? {};
+  if (payload.record_kind === 'workspace_cycle_plan' || entry.source === 'standup_prep') {
+    return 'Workspace cycle plan';
+  }
+  if (payload.evaluation_only === true || entry.source === 'portfolio_standup_cycle_evaluation') {
+    return 'Cycle evaluation';
+  }
+  return 'Unverified coordination record';
 }
 
 function isStandupLinkedCard(card: PMCard) {
@@ -16638,12 +17182,55 @@ function standupOutputGatePriority(gate: StandupOutputGate) {
   }
 }
 
-function startOfLocalWeek(date = new Date()) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  const weekday = (next.getDay() + 6) % 7;
-  next.setDate(next.getDate() - weekday);
-  return next;
+function ownerCalendarDateParts(date: Date) {
+  if (!Number.isFinite(date.getTime())) {
+    return null;
+  }
+  const parts = ownerCalendarDatePartsFormatter.formatToParts(date);
+  const lookup = new Map(parts.map((part) => [part.type, part.value]));
+  const year = Number(lookup.get('year'));
+  const month = Number(lookup.get('month'));
+  const day = Number(lookup.get('day'));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+function ownerCalendarDateKey(date: Date) {
+  const parts = ownerCalendarDateParts(date);
+  if (!parts) {
+    return null;
+  }
+  return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+}
+
+function ownerCalendarKeyFromArithmeticDate(date: Date) {
+  return `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function ownerCalendarArithmeticDate(key: string) {
+  const [year, month, day] = key.split('-').map(Number);
+  // Noon UTC is used only as a stable calendar-arithmetic/display anchor. It
+  // is never recorded or compared as the semantic observation of an event.
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function addOwnerCalendarDays(key: string, offset: number) {
+  const date = ownerCalendarArithmeticDate(key);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return ownerCalendarKeyFromArithmeticDate(date);
+}
+
+function ownerCalendarIsoWeekBounds(date: Date) {
+  const key = ownerCalendarDateKey(date);
+  if (!key) {
+    return null;
+  }
+  const calendarDate = ownerCalendarArithmeticDate(key);
+  const weekday = (calendarDate.getUTCDay() + 6) % 7;
+  const startKey = addOwnerCalendarDays(key, -weekday);
+  return { startKey, endKey: addOwnerCalendarDays(startKey, 6) };
 }
 
 function medianNumber(values: number[]) {
@@ -16662,24 +17249,39 @@ function buildStandupEffectivenessSummary(
   entries: StandupEntry[],
   pmCards: PMCard[],
   executionQueue: ExecutionQueueEntry[],
+  observedAtMs: number,
 ): StandupEffectivenessSummary {
-  const weekStart = startOfLocalWeek();
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 6);
-  weekEnd.setHours(23, 59, 59, 999);
+  const observationAvailable = observedAtMs > 0 && Number.isFinite(observedAtMs);
+  const weekBounds = observationAvailable
+    ? ownerCalendarIsoWeekBounds(new Date(observedAtMs))
+    : null;
 
   const weeklyEntries = sortByTimestampDesc(
     entries.filter((entry) => {
+      if (!observationAvailable) {
+        return false;
+      }
+      if (!isMeetingStandupRecord(entry)) {
+        return false;
+      }
+      if (standupObservedAt(entry).getTime() <= 0) {
+        return false;
+      }
       if ((entry.status ?? '').toLowerCase() !== 'completed') {
         return false;
       }
       if (standupIsStrategyOnly(entry)) {
         return false;
       }
-      const createdAt = standupCreatedAt(entry).getTime();
-      return createdAt >= weekStart.getTime() && createdAt <= weekEnd.getTime();
+      const observedCalendarDate = ownerCalendarDateKey(standupObservedAt(entry));
+      return Boolean(
+        observedCalendarDate &&
+          weekBounds &&
+          observedCalendarDate >= weekBounds.startKey &&
+          observedCalendarDate <= weekBounds.endKey,
+      );
     }),
-    (entry) => entry.created_at,
+    (entry) => standupSemanticObservedAtText(entry),
   );
   const gates = weeklyEntries.map((entry) => buildStandupOutputGate(entry, pmCards, executionQueue));
   const uniqueDirectCardIds = new Set(gates.flatMap((gate) => gate.directCardIds));
@@ -16687,10 +17289,10 @@ function buildStandupEffectivenessSummary(
   const uniqueDirectReturnedCardIds = new Set(gates.flatMap((gate) => gate.directReturnedCardIds));
   const uniqueHostActionCardIds = new Set(gates.flatMap((gate) => gate.hostActionCardIds));
   const firstExecutionDurations = gates
-    .map((gate) => timestampMs(gate.firstExecutionAt) - standupCreatedAt(gate.entry).getTime())
+    .map((gate) => timestampMs(gate.firstExecutionAt) - standupObservedAt(gate.entry).getTime())
     .filter((value) => Number.isFinite(value) && value >= 0);
   const firstClosureDurations = gates
-    .map((gate) => timestampMs(gate.firstClosureAt) - standupCreatedAt(gate.entry).getTime())
+    .map((gate) => timestampMs(gate.firstClosureAt) - standupObservedAt(gate.entry).getTime())
     .filter((value) => Number.isFinite(value) && value >= 0);
   const workspaceOrder = new Map(STANDUP_ROOMS.map((room, index) => [normalizeWorkspaceBoardKey(room.workspaceKey), index]));
 
@@ -16732,17 +17334,17 @@ function buildStandupEffectivenessSummary(
         ownerReviewOutputs: existing.ownerReviewOutputs + (gate.category === 'owner_review' ? 1 : 0),
         runnableOutputs: existing.runnableOutputs + (gate.category === 'runnable_execution' ? 1 : 0),
         latestGate:
-          existing.latestGate == null || standupCreatedAt(gate.entry).getTime() > standupCreatedAt(existing.latestGate.entry).getTime()
+          existing.latestGate == null || standupObservedAt(gate.entry).getTime() > standupObservedAt(existing.latestGate.entry).getTime()
             ? gate
             : existing.latestGate,
         _executionDurations: executionDurations,
         _closureDurations: closureDurations,
       };
-      const firstExecutionDuration = timestampMs(gate.firstExecutionAt) - standupCreatedAt(gate.entry).getTime();
+      const firstExecutionDuration = timestampMs(gate.firstExecutionAt) - standupObservedAt(gate.entry).getTime();
       if (Number.isFinite(firstExecutionDuration) && firstExecutionDuration >= 0) {
         next._executionDurations?.push(firstExecutionDuration);
       }
-      const firstClosureDuration = timestampMs(gate.firstClosureAt) - standupCreatedAt(gate.entry).getTime();
+      const firstClosureDuration = timestampMs(gate.firstClosureAt) - standupObservedAt(gate.entry).getTime();
       if (Number.isFinite(firstClosureDuration) && firstClosureDuration >= 0) {
         next._closureDurations?.push(firstClosureDuration);
       }
@@ -16765,8 +17367,9 @@ function buildStandupEffectivenessSummary(
     });
 
   return {
-    weekStartLabel: formatUiDate(weekStart),
-    weekEndLabel: formatUiDate(weekEnd),
+    observationAvailable,
+    weekStartLabel: weekBounds?.startKey ?? 'Awaiting AI Clone UTC observation',
+    weekEndLabel: weekBounds?.endKey ?? 'Awaiting AI Clone UTC observation',
     standupsRun: gates.length,
     successfulCount: gates.filter((gate) => gate.success).length,
     carryForwardHoldCount: gates.filter((gate) => gate.category === 'carry_forward_hold').length,
@@ -16794,7 +17397,9 @@ function buildMeetingOps(
   executionQueue: ExecutionQueueEntry[],
   observedAtMs: number,
 ): MeetingOpsSummary {
-  const sortedEntries = [...entries].sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime());
+  const sortedEntries = entries
+    .filter(isMeetingStandupRecord)
+    .sort(compareStandupSemanticObservationDesc);
   const now = observedAtMs;
   const linkedCards = pmCards.filter((card) => isStandupLinkedCard(card));
   const linkedCardCount = linkedCards.filter((card) => (card.status ?? '').toLowerCase() !== 'done').length;
@@ -16834,10 +17439,16 @@ function buildMeetingOps(
         : 'No current meeting evidence. This room stays quiet until a new prep packet or active PM lane calls it back in.';
     let activeCarryForward: StandupCarryForwardState | null = null;
 
-    if (latestEntry && now <= 0) {
+    const latestObservedAt = latestEntry ? standupObservedAt(latestEntry).getTime() : 0;
+    if (latestEntry && latestObservedAt <= 0) {
+      status = 'warning';
+      freshness = 'unavailable';
+      reason = `Meeting freshness is unavailable because the record has ${standupSemanticObservation(latestEntry).reason}; persistence time is not substituted.`;
+    } else if (latestEntry && now <= 0) {
+      freshness = 'unavailable';
       reason = 'Waiting for the AI Clone server observation time before evaluating meeting freshness.';
     } else if (latestEntry) {
-      const ageMs = now - standupCreatedAt(latestEntry).getTime();
+      const ageMs = now - latestObservedAt;
       const maxAgeMs = room.maxAgeHours * 60 * 60 * 1000;
       freshness = ageMs <= maxAgeMs ? 'current' : 'quiet';
       const outputGate = buildStandupOutputGate(latestEntry, pmCards, executionQueue);
@@ -16920,53 +17531,69 @@ function buildMeetingOps(
   };
 }
 
-function buildRecentDayBuckets(entries: StandupEntry[], days: number) {
+function buildRecentDayBuckets(entries: StandupEntry[], days: number, observedAtMs: number) {
   const buckets: Array<{ key: string; label: string; entries: StandupEntry[] }> = [];
   const byDay = new Map<string, StandupEntry[]>();
   entries.forEach((entry) => {
-    const date = standupCreatedAt(entry);
-    const key = date.toISOString().slice(0, 10);
+    const date = standupObservedAt(entry);
+    if (date.getTime() <= 0) {
+      return;
+    }
+    const key = ownerCalendarDateKey(date);
+    if (!key) {
+      return;
+    }
     const current = byDay.get(key) ?? [];
     current.push(entry);
     byDay.set(key, current);
   });
+  const observationKey = ownerCalendarDateKey(new Date(observedAtMs));
+  if (!observationKey) {
+    return buckets;
+  }
   for (let offset = days - 1; offset >= 0; offset -= 1) {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() - offset);
-    const key = date.toISOString().slice(0, 10);
+    const key = addOwnerCalendarDays(observationKey, -offset);
+    const date = ownerCalendarArithmeticDate(key);
     buckets.push({
       key,
       label: formatUiDateWithWeekday(date),
-      entries: (byDay.get(key) ?? []).sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime()),
+      entries: (byDay.get(key) ?? []).sort(compareStandupSemanticObservationDesc),
     });
   }
   return buckets;
 }
 
-function buildMonthBuckets(entries: StandupEntry[]) {
-  const today = new Date();
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+function buildMonthBuckets(entries: StandupEntry[], observedAtMs: number) {
+  const observation = ownerCalendarDateParts(new Date(observedAtMs));
+  if (!observation) {
+    return [];
+  }
+  const observedYear = observation.year;
+  const observedMonth = observation.month;
+  const lastDay = new Date(Date.UTC(observedYear, observedMonth, 0, 12)).getUTCDate();
   const byDay = new Map<string, StandupEntry[]>();
   entries.forEach((entry) => {
-    const date = standupCreatedAt(entry);
-    if (date.getFullYear() !== today.getFullYear() || date.getMonth() !== today.getMonth()) {
+    const date = standupObservedAt(entry);
+    if (date.getTime() <= 0) {
       return;
     }
-    const key = date.toISOString().slice(0, 10);
+    const key = ownerCalendarDateKey(date);
+    if (!key || !key.startsWith(`${observedYear}-${String(observedMonth).padStart(2, '0')}-`)) {
+      return;
+    }
     const current = byDay.get(key) ?? [];
     current.push(entry);
     byDay.set(key, current);
   });
 
   const buckets: Array<{ key: string; label: string; entries: StandupEntry[] }> = [];
-  for (let day = 1; day <= lastDay.getDate(); day += 1) {
-    const current = new Date(today.getFullYear(), today.getMonth(), day);
-    const key = current.toISOString().slice(0, 10);
+  for (let day = 1; day <= lastDay; day += 1) {
+    const key = `${observedYear}-${String(observedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const current = ownerCalendarArithmeticDate(key);
     buckets.push({
       key,
       label: formatUiDate(current),
-      entries: (byDay.get(key) ?? []).sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime()),
+      entries: (byDay.get(key) ?? []).sort(compareStandupSemanticObservationDesc),
     });
   }
   return buckets;
@@ -17133,20 +17760,112 @@ function workspaceCycleEvaluationMap(
       reason: String(item.reason ?? '').trim().toLowerCase(),
       evaluatedAt,
       ownerRole: typeof item.decision_record_owner_role === 'string' ? item.decision_record_owner_role : null,
+      futureTrigger: typeof item.future_trigger === 'string' && item.future_trigger.trim() ? item.future_trigger.trim() : null,
+      asyncRole: typeof item.async_role_display_name === 'string' && item.async_role_display_name.trim()
+        ? item.async_role_display_name.trim()
+        : null,
+      canonicalPmExecutionAuthority: typeof item.canonical_pm_execution_authority === 'string'
+        ? item.canonical_pm_execution_authority.trim() || null
+        : null,
+      authorityTransferred: item.pm_execution_authority_transferred === true,
+      terminalDispositions: Array.isArray(item.async_recommendation_terminal_dispositions)
+        ? item.async_recommendation_terminal_dispositions
+            .map((resolution) => (
+              resolution && typeof resolution === 'object' && !Array.isArray(resolution)
+                ? String((resolution as Record<string, unknown>).state ?? '').trim()
+                : ''
+            ))
+            .filter(Boolean)
+        : [],
+      ownerDecisionCount: typeof item.owner_decision_count === 'number'
+        ? Math.max(0, Math.trunc(item.owner_decision_count))
+        : 0,
     });
   });
 
   return evaluations;
 }
 
-function latestWorkspaceCycleEvaluations(automationRuns: AutomationRun[]): Map<string, WorkspaceCycleEvaluation> {
-  const latestCycle = [...automationRuns]
+function automationCycleSemanticObservedAt(metadata: Record<string, unknown>): string | null {
+  const clock = standupTimeRecord(metadata.clock);
+  const authority = String(clock.authority ?? clock.clock ?? '').trim();
+  const timezoneName = String(clock.timezone ?? '').trim();
+  const cycleId = typeof metadata.cycle_id === 'string' ? metadata.cycle_id.trim() : '';
+  if (
+    authority !== 'ai_clone_utc'
+    || timezoneName !== 'UTC'
+    || !cycleId
+    || typeof metadata.observed_at !== 'string'
+  ) {
+    return null;
+  }
+  const observation = standupSemanticObservation({
+    payload: {
+      cycle_id: cycleId,
+      observed_at: metadata.observed_at,
+      clock,
+    },
+  });
+  return observation.reason === 'ai_clone_utc' ? observation.timestamp : null;
+}
+
+function opsProjectionSemanticObservedAt(
+  projection: OpsWorkspaceCycleProjection | null,
+): string | null {
+  if (projection?.schema_version !== 'ops_standup_summary_conclusion/v3') {
+    return null;
+  }
+  const clock = standupTimeRecord(projection.clock);
+  const cycleId = typeof projection.portfolio_cycle_id === 'string'
+    ? projection.portfolio_cycle_id.trim()
+    : '';
+  const cycleDate = typeof projection.cycle_date === 'string'
+    ? projection.cycle_date.trim()
+    : '';
+  if (
+    clock.schema_version !== 'ai_clone_clock/v1'
+    || clock.authority !== 'ai_clone_utc'
+    || clock.timezone !== 'UTC'
+    || !cycleId
+    || !/^\d{4}-\d{2}-\d{2}$/.test(cycleDate)
+    || typeof projection.observed_at !== 'string'
+  ) {
+    return null;
+  }
+  const observation = standupSemanticObservation({
+    payload: {
+      cycle_id: cycleId,
+      observed_at: projection.observed_at,
+      clock,
+    },
+  });
+  if (observation.reason !== 'ai_clone_utc' || !observation.timestamp) {
+    return null;
+  }
+  return observation.timestamp.slice(0, 10) === cycleDate
+    ? observation.timestamp
+    : null;
+}
+
+function latestSemanticDailyCycle(automationRuns: AutomationRun[]) {
+  return automationRuns
     .filter((run) => run.automation_id === 'daily_integrated_cycle')
-    .sort((left, right) => timestampMs(right.run_at ?? right.finished_at) - timestampMs(left.run_at ?? left.finished_at))[0];
-  const metadata = latestCycle?.metadata ?? {};
+    .map((run) => ({
+      run,
+      observedAt: automationCycleSemanticObservedAt(run.metadata ?? {}),
+    }))
+    .filter((candidate): candidate is { run: AutomationRun; observedAt: string } => Boolean(candidate.observedAt))
+    .sort((left, right) => (
+      timestampMs(right.observedAt) - timestampMs(left.observedAt)
+      || timestampMs(right.run.run_at ?? right.run.finished_at) - timestampMs(left.run.run_at ?? left.run.finished_at)
+    ))[0] ?? null;
+}
+
+function latestWorkspaceCycleEvaluations(automationRuns: AutomationRun[]): Map<string, WorkspaceCycleEvaluation> {
+  const latestCycle = latestSemanticDailyCycle(automationRuns);
+  const metadata = latestCycle?.run.metadata ?? {};
   const rawEvaluations = Array.isArray(metadata.workspace_evaluations) ? metadata.workspace_evaluations : [];
-  const evaluatedAt = typeof metadata.observed_at === 'string' ? metadata.observed_at : latestCycle?.run_at ?? latestCycle?.finished_at ?? null;
-  return workspaceCycleEvaluationMap(rawEvaluations, evaluatedAt);
+  return workspaceCycleEvaluationMap(rawEvaluations, latestCycle?.observedAt ?? null);
 }
 
 function projectedWorkspaceCycleEvaluations(
@@ -17156,19 +17875,36 @@ function projectedWorkspaceCycleEvaluations(
   const projected = Array.isArray(projection?.workspace_cycle_evaluations)
     ? workspaceCycleEvaluationMap(
         projection.workspace_cycle_evaluations,
-        typeof projection.observed_at === 'string' ? projection.observed_at : null,
+        opsProjectionSemanticObservedAt(projection),
       )
     : new Map<string, WorkspaceCycleEvaluation>();
   return projected.size > 0 ? projected : latestWorkspaceCycleEvaluations(automationRuns);
 }
 
 function workspaceCycleEvaluationCopy(evaluation: WorkspaceCycleEvaluation): string {
+  if (evaluation.status === 'async_contribution') {
+    const participant = evaluation.asyncRole || 'the one relevance-selected role';
+    const authority = evaluation.canonicalPmExecutionAuthority || 'Jean-Claude';
+    if (evaluation.authorityTransferred) {
+      return `Blocked: the async receipt claimed a PM/execution authority transfer. No such transfer is valid; ${authority} remains the canonical authority.`;
+    }
+    const dispositions = evaluation.terminalDispositions.length > 0
+      ? ` ${evaluation.terminalDispositions.length} recommendation disposition${evaluation.terminalDispositions.length === 1 ? '' : 's'} reached canonical terminal state.`
+      : '';
+    const ownerGate = evaluation.ownerDecisionCount > 0
+      ? ` ${evaluation.ownerDecisionCount} bounded owner decision${evaluation.ownerDecisionCount === 1 ? '' : 's'} require your input.`
+      : '';
+    return `${participant} ran independently and produced a signed role contribution; no meeting was held, and ${authority} retained PM/execution authority.${dispositions}${ownerGate}`;
+  }
   if (evaluation.status === 'decision_record') {
     const owner = evaluation.ownerRole ? humanizeStatusLabel(evaluation.ownerRole) : 'the one relevant owner lane';
-    return `one relevant owner lane was found, so an async decision was recorded for ${owner}; no duplicate canonical standup was opened.`;
+    return `legacy compatibility evidence recorded one async lane for ${owner}; canonical progress requires its signed contribution, decision/event linkage, and terminal PM disposition.`;
   }
   if (evaluation.status === 'collapse_freshness') {
-    return 'the inputs matched an already-handled decision, so the cycle reused it instead of creating duplicate work.';
+    const trigger = evaluation.futureTrigger
+      ? ` The lane will reevaluate when ${evaluation.futureTrigger}`
+      : ' The lane will reevaluate when new eligible evidence or a changed exception arrives.';
+    return `no changed eligible input required a meeting or internal work.${trigger}`;
   }
   if (evaluation.status === 'skipped' && evaluation.reason === 'fresh') {
     return 'the canonical update remained inside its contract, so the cycle correctly kept the stable artifact.';

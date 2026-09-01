@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Sequence
 
 try:
     from psycopg.rows import dict_row
@@ -15,6 +15,7 @@ from app.services.railway_retention_service import RETENTION_LOCK_ID
 
 CODEX_RUN_SOURCES = ["codex_launchd_registry", "local_launchd_registry"]
 CODEX_RUN_RUNTIMES = ["launchd", "codex_exec"]
+PARTICIPANT_REPORT_AUTOMATION_ID = "standup_participant_report"
 
 
 class AutomationRunMirrorError(RuntimeError):
@@ -27,7 +28,22 @@ def _get_pool():
     return get_pool()
 
 
-def list_runs(limit: int = 50, automation_id: Optional[str] = None) -> List[AutomationRun]:
+def list_runs(
+    limit: int = 50,
+    automation_id: Optional[str] = None,
+    run_ids: Sequence[str] | None = None,
+) -> List[AutomationRun]:
+    exact_run_ids = list(
+        dict.fromkeys(
+            str(run_id).strip()
+            for run_id in (run_ids or [])
+            if str(run_id).strip()
+        )
+    )
+    if run_ids is not None and not exact_run_ids:
+        return []
+    if len(exact_run_ids) > 100:
+        raise ValueError("automation run-id lookup exceeds its bound")
     try:
         pool = _get_pool()
         clauses = ["(source = ANY(%s) OR runtime = ANY(%s))"]
@@ -35,6 +51,9 @@ def list_runs(limit: int = 50, automation_id: Optional[str] = None) -> List[Auto
         if automation_id:
             clauses.append("automation_id = %s")
             params.append(automation_id)
+        if exact_run_ids:
+            clauses.append("id = ANY(%s)")
+            params.append(exact_run_ids)
         where = f"WHERE {' AND '.join(clauses)}"
         params.append(limit)
 
@@ -56,6 +75,9 @@ def list_runs(limit: int = 50, automation_id: Optional[str] = None) -> List[Auto
         runs = list_automation_runs()
         if automation_id:
             runs = [run for run in runs if run.automation_id == automation_id]
+        if exact_run_ids:
+            expected_ids = set(exact_run_ids)
+            runs = [run for run in runs if run.id in expected_ids]
         return runs[:limit]
 
 
@@ -89,6 +111,50 @@ def upsert_runs(runs: Iterable[AutomationRun]) -> int:
                         (run.id,),
                     )
                     if cur.fetchone():
+                        acknowledged += 1
+                        continue
+                    cur.execute(
+                        """
+                        SELECT automation_id, automation_name, source, runtime, status,
+                               delivered, delivery_channel, delivery_target, run_at,
+                               finished_at, duration_ms, error, owner_agent,
+                               session_target, scope, workspace_key, action_required,
+                               metadata
+                        FROM automation_runs
+                        WHERE id = %s
+                        FOR UPDATE
+                        """,
+                        (run.id,),
+                    )
+                    existing = cur.fetchone()
+                    expected = (
+                        run.automation_id,
+                        run.automation_name,
+                        run.source,
+                        run.runtime,
+                        run.status,
+                        run.delivered,
+                        run.delivery_channel,
+                        run.delivery_target,
+                        run.run_at,
+                        run.finished_at,
+                        run.duration_ms,
+                        run.error,
+                        run.owner_agent,
+                        run.session_target,
+                        run.scope,
+                        run.workspace_key,
+                        run.action_required,
+                        run.metadata or {},
+                    )
+                    if existing is not None and (
+                        run.automation_id == PARTICIPANT_REPORT_AUTOMATION_ID
+                        or existing[0] == PARTICIPANT_REPORT_AUTOMATION_ID
+                    ):
+                        if tuple(existing) != expected:
+                            raise AutomationRunMirrorError(
+                                "Standup participant report ids are immutable and cannot be overwritten."
+                            )
                         acknowledged += 1
                         continue
                     cur.execute(
@@ -145,6 +211,8 @@ def upsert_runs(runs: Iterable[AutomationRun]) -> int:
                     acknowledged += 1
             conn.commit()
         return acknowledged
+    except AutomationRunMirrorError:
+        raise
     except Exception as exc:
         raise AutomationRunMirrorError("Automation run mirror storage is unavailable.") from exc
 

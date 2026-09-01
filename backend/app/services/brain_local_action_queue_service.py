@@ -35,6 +35,10 @@ from app.services.brain_response_privacy_service import sanitize_brain_text
 
 BRAIN_LOCAL_ACTION_SCHEMA = "brain_local_action/v1"
 BRAIN_LOCAL_ACTION_MAX_BYTES = 256 * 1024
+AUTOMATIC_SYSTEM_DECISION_TYPES = frozenset({"standup_async_system_decision"})
+OWNER_MUTABLE_CANONICAL_DECISION_TYPES = frozenset(
+    {"owner_call", "pm_owner_decision", "content", "architecture", "simple"}
+)
 BRAIN_LOCAL_ACTIONS = frozenset(
     {
         "signal_create",
@@ -85,6 +89,21 @@ _MODEL_GENERATING_ACTIONS = frozenset(
         "integrated_owner_post",
     }
 )
+
+
+def validate_owner_mutable_canonical_decision_type(value: Any) -> str:
+    """Return a bounded owner-decision type or fail closed for system authority."""
+
+    decision_type = " ".join(str(value or "").split()).strip()
+    if not decision_type or len(decision_type) > 120:
+        raise ValueError("Canonical owner mutation requires a verified decision type.")
+    normalized = decision_type.casefold().replace("-", "_").replace(" ", "_")
+    type_tokens = {token for token in normalized.split("_") if token}
+    if normalized in AUTOMATIC_SYSTEM_DECISION_TYPES or "system" in type_tokens:
+        raise ValueError("Automatic system decisions cannot use the owner mutation queue.")
+    if normalized not in OWNER_MUTABLE_CANONICAL_DECISION_TYPES:
+        raise ValueError("Unverified canonical decision types cannot use the owner mutation queue.")
+    return decision_type
 
 
 def _local_action_pm_reason(action: str) -> str:
@@ -308,17 +327,21 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
         }
     elif action == "canonical_decision_create":
         raw = _validate_exact_keys(parameters, {"request"}, label="canonical_decision_create parameters")
+        request = _validated_model_payload(
+            CanonicalDecisionCreateRequest,
+            raw.get("request"),
+            label="canonical_decision_create request",
+        )
+        request["decision_type"] = validate_owner_mutable_canonical_decision_type(
+            request.get("decision_type")
+        )
         normalized = {
-            "request": _validated_model_payload(
-                CanonicalDecisionCreateRequest,
-                raw.get("request"),
-                label="canonical_decision_create request",
-            )
+            "request": request
         }
     elif action == "canonical_decision_transition":
         raw = _validate_exact_keys(
             parameters,
-            {"decision_id", "request"},
+            {"decision_id", "expected_decision_type", "request"},
             label="canonical_decision_transition parameters",
         )
         decision_id = str(raw.get("decision_id") or "").strip()
@@ -326,6 +349,9 @@ def validate_brain_local_action(value: Any) -> dict[str, Any]:
             raise ValueError("canonical_decision_transition requires a bounded decision_id.")
         normalized = {
             "decision_id": decision_id,
+            "expected_decision_type": validate_owner_mutable_canonical_decision_type(
+                raw.get("expected_decision_type")
+            ),
             "request": _validated_model_payload(
                 CanonicalDecisionActionRequest,
                 raw.get("request"),

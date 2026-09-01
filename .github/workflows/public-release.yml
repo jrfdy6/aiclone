@@ -26,6 +26,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -77,6 +78,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -89,10 +91,6 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install public test dependencies before private scan material exists
-        run: |
-          python -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
 
       - name: Verify protected manifest, exact tree, history, and privacy
         shell: bash
@@ -127,6 +125,10 @@ jobs:
           rm -f -- "$DENYLIST_FILE"
           trap - EXIT
 
+      - name: Install public test dependencies after protected source verification
+        run: |
+          python -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
+
       - name: Run credential-free application gate on the verified Git tree
         shell: bash
         run: |
@@ -154,6 +156,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Require every owner-controlled head and release tag to belong to the approved public lineage
         shell: bash

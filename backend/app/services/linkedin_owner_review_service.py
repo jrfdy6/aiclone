@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.models import (
     LinkedinPerformanceLocalActionRequest,
@@ -66,6 +67,7 @@ FEEZIE_REVISION_CONTRACT_VERSION = "feezie_critic_guided_revision_contract/v1"
 FEEZIE_REVISION_RECEIPT_VERSION = "feezie_revision_execution_receipt/v1"
 SELECTED_REVISION_VERIFICATION_VERSION = "feezie_selected_revision_verification/v1"
 APPROVABLE_EMPLOYER_SAFETY = {"pass", "owner_review_required"}
+OWNER_CALENDAR_TIMEZONE = ZoneInfo("America/New_York")
 
 
 class LinkedinOwnerReviewNotFoundError(ValueError):
@@ -1946,6 +1948,24 @@ def _owner_review_card_is_pending_sync(card: Any) -> bool:
     )
 
 
+def _persist_owner_review_card_update(
+    snapshot: Any,
+    *,
+    operation: str,
+    build_update: Any,
+    is_committed: Any,
+) -> Any:
+    try:
+        return pm_card_service._persist_reconciled_card_update(
+            snapshot,
+            operation=operation,
+            build_update=build_update,
+            is_committed=is_committed,
+        )
+    except pm_card_service.PMCardMutationConflict as exc:
+        raise LinkedinOwnerReviewConflictError(str(exc)) from exc
+
+
 def _matching_owner_review_cards(item: dict[str, Any], active_cards: list[Any]) -> list[Any]:
     identity_key = _owner_review_identity_key_for_item(item)
     if not identity_key:
@@ -2361,20 +2381,47 @@ def ensure_generated_owner_review_item(
 
 
 def _close_superseded_owner_review_card(card: Any, *, replacement: Any, rule: str, reason: str) -> str:
-    payload = dict(getattr(card, "payload", {}) or {})
-    payload["duplicate_resolution"] = {
-        "rule": rule,
-        "replacement_card_id": getattr(replacement, "id", None),
-        "replacement_card_title": getattr(replacement, "title", None),
-        "closed_at": datetime.now(timezone.utc).isoformat(),
-        "reason": reason,
-    }
-    owner_review_payload = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
-    if isinstance(owner_review_payload, dict):
+    replacement_card_id = str(getattr(replacement, "id", "") or "")
+    closed_at = datetime.now(timezone.utc).isoformat()
+
+    def is_committed(current: Any) -> bool:
+        payload = dict(getattr(current, "payload", {}) or {})
+        resolution = dict(payload.get("duplicate_resolution") or {})
+        owner_review = _owner_review_payload_from_card(current)
+        return bool(
+            str(getattr(current, "status", "") or "").strip().lower() in {"done", "closed", "cancelled"}
+            and str(resolution.get("rule") or "") == rule
+            and str(resolution.get("replacement_card_id") or "") == replacement_card_id
+            and str(owner_review.get("sync_state") or "") == "superseded"
+        )
+
+    def build_update(current: Any) -> PMCardUpdate | None:
+        if (
+            str(getattr(current, "status", "") or "").strip().lower()
+            not in ACTIVE_OWNER_REVIEW_CARD_STATUSES
+            or not _owner_review_card_is_pending_sync(current)
+        ):
+            return None
+        payload = dict(getattr(current, "payload", {}) or {})
+        payload["duplicate_resolution"] = {
+            "rule": rule,
+            "replacement_card_id": getattr(replacement, "id", None),
+            "replacement_card_title": getattr(replacement, "title", None),
+            "closed_at": closed_at,
+            "reason": reason,
+        }
+        owner_review_payload = dict(_owner_review_payload_from_card(current))
         owner_review_payload["sync_state"] = "superseded"
         payload["owner_review"] = owner_review_payload
-    updated = pm_card_service.update_card(str(getattr(card, "id")), PMCardUpdate(status="done", payload=payload))
-    return str(updated.id if updated is not None else getattr(card, "id"))
+        return PMCardUpdate(status="done", payload=payload)
+
+    updated = _persist_owner_review_card_update(
+        card,
+        operation="superseded owner-review card closure",
+        build_update=build_update,
+        is_committed=is_committed,
+    )
+    return str(updated.id)
 
 
 def _auto_close_superseded_owner_review_cards(active_cards: list[Any]) -> list[str]:
@@ -2466,19 +2513,46 @@ def sync_owner_review_pm_cards(*, legacy_compatibility: bool = False) -> dict[st
         if _pending_owner_review_card_is_current(existing, title=card_title, payload=card_payload):
             skipped_card_ids.append(existing.id)
             continue
-        updated = pm_card_service.update_card(
-            existing.id,
-            PMCardUpdate(
+        def sync_is_committed(current: Any) -> bool:
+            if _owner_review_card_has_decision(current):
+                return False
+            expected_payload = _build_pending_owner_review_card_payload(
+                item,
+                existing_payload=dict(getattr(current, "payload", {}) or {}),
+            )
+            return _pending_owner_review_card_is_current(
+                current,
+                title=card_title,
+                payload=expected_payload,
+            )
+
+        def build_sync_update(current: Any) -> PMCardUpdate | None:
+            if (
+                _owner_review_card_has_decision(current)
+                or str(getattr(current, "status", "") or "").strip().lower()
+                not in ACTIVE_OWNER_REVIEW_CARD_STATUSES
+            ):
+                return None
+            current_payload = _build_pending_owner_review_card_payload(
+                item,
+                existing_payload=dict(getattr(current, "payload", {}) or {}),
+            )
+            return PMCardUpdate(
                 title=card_title,
                 owner="Neo",
                 status="review",
                 source=OWNER_REVIEW_CARD_SOURCE,
                 link_type=OWNER_REVIEW_LINK_TYPE,
                 link_id=_owner_review_link_id(),
-                payload=card_payload,
-            ),
+                payload=current_payload,
+            )
+
+        effective = _persist_owner_review_card_update(
+            existing,
+            operation=f"owner-review PM sync for {queue_id}",
+            build_update=build_sync_update,
+            is_committed=sync_is_committed,
         )
-        effective = updated if updated is not None else existing
         updated_card_ids.append(effective.id)
         active_cards = [card for card in active_cards if str(getattr(card, "id", "")) != str(existing.id)]
         active_cards.append(effective)
@@ -2552,29 +2626,54 @@ def _queue_owner_review_followup(
                 "status": "noop",
                 "message": f"{queue_id} parked. No backend follow-up was active.",
             }
-        existing_payload = _build_owner_review_card_payload(
-            item,
-            decision=decision,
-            notes=notes,
-            draft_rel_path=draft_rel_path,
-            packet_rel_path=packet_rel_path,
-            reviewed_at=reviewed_at,
-            existing_payload=dict(existing.payload or {}),
+        cancelled_at = datetime.now(timezone.utc).isoformat()
+
+        def park_is_committed(current: Any) -> bool:
+            current_payload = dict(getattr(current, "payload", {}) or {})
+            owner_review = _owner_review_payload_from_card(current)
+            execution = dict(current_payload.get("execution") or {})
+            return bool(
+                str(getattr(current, "status", "") or "").strip().lower() == "cancelled"
+                and str(owner_review.get("decision") or "").strip().lower() == "park"
+                and str(execution.get("state") or "").strip().lower() == "cancelled"
+            )
+
+        def build_park_update(current: Any) -> PMCardUpdate | None:
+            current_decision = str(
+                _owner_review_payload_from_card(current).get("decision") or ""
+            ).strip().lower()
+            if current_decision and current_decision != "park":
+                return None
+            current_payload = _build_owner_review_card_payload(
+                item,
+                decision=decision,
+                notes=notes,
+                draft_rel_path=draft_rel_path,
+                packet_rel_path=packet_rel_path,
+                reviewed_at=reviewed_at,
+                existing_payload=dict(getattr(current, "payload", {}) or {}),
+            )
+            execution = dict(current_payload.get("execution") or {})
+            execution.update(
+                {
+                    "state": "cancelled",
+                    "last_transition_at": cancelled_at,
+                    "reason": f"{queue_id} was parked during owner review.",
+                }
+            )
+            current_payload["execution"] = execution
+            return PMCardUpdate(status="cancelled", payload=current_payload)
+
+        cancelled_card = _persist_owner_review_card_update(
+            existing,
+            operation=f"owner-review park cancellation for {queue_id}",
+            build_update=build_park_update,
+            is_committed=park_is_committed,
         )
-        execution = dict(existing_payload.get("execution") or {})
-        execution.update(
-            {
-                "state": "cancelled",
-                "last_transition_at": datetime.now(timezone.utc).isoformat(),
-                "reason": f"{queue_id} was parked during owner review.",
-            }
-        )
-        existing_payload["execution"] = execution
-        pm_card_service.update_card(existing.id, PMCardUpdate(status="cancelled", payload=existing_payload))
         return {
             "status": "cancelled",
-            "message": f"{queue_id} parked. Cancelled backend follow-up card {existing.id}.",
-            "card_id": existing.id,
+            "message": f"{queue_id} parked. Cancelled backend follow-up card {cancelled_card.id}.",
+            "card_id": cancelled_card.id,
         }
 
     title = _owner_review_card_title(item, decision)
@@ -2775,13 +2874,48 @@ def _update_draft_file(draft_path: Path, decision: str, reviewed_at: str, notes:
     draft_path.write_text(updated, encoding="utf-8")
 
 
-def _append_execution_log(root: Path, queue_id: str, title: str, decision: str, notes: str, draft_rel_path: str, packet_rel_path: str | None) -> None:
+def _owner_review_log_observation(reviewed_at: str | datetime | None) -> datetime:
+    if reviewed_at is None:
+        return datetime.now(timezone.utc)
+    if isinstance(reviewed_at, datetime):
+        parsed = reviewed_at
+    else:
+        raw = str(reviewed_at).strip()
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise LinkedinOwnerReviewConflictError(
+                "The owner-review execution-log observation is invalid."
+            ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise LinkedinOwnerReviewConflictError(
+            "The owner-review execution-log observation lacks an ai_clone_utc timezone offset."
+        )
+    return parsed.astimezone(timezone.utc)
+
+
+def _append_execution_log(
+    root: Path,
+    queue_id: str,
+    title: str,
+    decision: str,
+    notes: str,
+    draft_rel_path: str,
+    packet_rel_path: str | None,
+    *,
+    reviewed_at: str | datetime | None = None,
+) -> None:
+    operation_observed_at = _owner_review_log_observation(reviewed_at)
+    owner_observed_at = operation_observed_at.astimezone(OWNER_CALENDAR_TIMEZONE)
     log_path = _execution_log_path(root)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    timestamp = owner_observed_at.strftime("%Y-%m-%d %H:%M %Z")
     note_line = notes.strip() or "No additional notes."
     entry = (
-        f"\n## Owner Review Decision — {timestamp}\n\n"
+        f"\n## Owner Review Decision — {timestamp} (America/New_York)\n\n"
+        f"- Operation observation (`ai_clone_utc`): `{operation_observed_at.isoformat()}`\n"
         f"- Queue item: `{queue_id}`\n"
         f"- Title: {title}\n"
         f"- Decision: `{decision}`\n"
@@ -2844,7 +2978,16 @@ def _record_owner_decision_for_item(
     if draft_path is not None:
         _update_draft_file(draft_path, decision, reviewed_at, notes)
     if not _is_generated_owner_review_item(item):
-        _append_execution_log(root, queue_id, str(item.get("title") or queue_id), decision, notes or "", draft_rel_path, packet_rel_path)
+        _append_execution_log(
+            root,
+            queue_id,
+            str(item.get("title") or queue_id),
+            decision,
+            notes or "",
+            draft_rel_path,
+            packet_rel_path,
+            reviewed_at=reviewed_at,
+        )
     try:
         workflow = _queue_owner_review_followup(
             item,
