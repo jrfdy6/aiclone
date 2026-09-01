@@ -121,6 +121,7 @@ NON_OVERRIDABLE_RISK_FACTORS = frozenset(
 
 _DYNAMIC_EXECUTION_FIELDS = frozenset(
     {
+        "active_run_id",
         "assigned_runner",
         "briefing_path",
         "claim_id",
