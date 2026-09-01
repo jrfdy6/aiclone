@@ -213,6 +213,42 @@ def _store_semantic_ops_payload(
     return store
 
 
+def _daily_cycle_clock_run(
+    *,
+    cycle_id: str,
+    observed_at: str = "2026-08-20T06:15:00Z",
+    clock: dict | None = None,
+    run_id: str = "daily-integrated-cycle-clock-evidence",
+) -> dict:
+    return {
+        "id": run_id,
+        "automation_id": "daily_integrated_cycle",
+        "automation_name": "Daily Integrated Cycle",
+        "source": "codex_launchd_registry",
+        "runtime": "launchd",
+        "status": "failed",
+        "metadata": {
+            "cycle_id": cycle_id,
+            "observed_at": observed_at,
+            "clock": clock
+            or {
+                "schema_version": "ai_clone_clock/v1",
+                "authority": "ai_clone_utc",
+                "timezone": "UTC",
+                "observed_at": observed_at,
+            },
+        },
+    }
+
+
+def _write_clock_ledger(path, *rows: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
 def test_ready_projection_covers_each_structural_active_project_once():
     projection = _semantic_projection()
     expected = [
@@ -931,6 +967,321 @@ def test_legacy_projection_without_conclusion_preserves_coherent_empty_state(sta
     assert upgraded["ops_conclusion_id"] is None
     assert upgraded["workspace_recursion"] == []
     assert "legacy_projection_missing_clock_receipt" in upgraded["reason_codes"]
+
+
+def test_canonical_ops_attempt_recovers_exact_daily_cycle_clock_evidence(
+    tmp_path,
+    monkeypatch,
+):
+    store = _store_semantic_ops_payload(
+        tmp_path,
+        workspace_recursion=_active_workspace_recursion(),
+    )
+    with store.connection() as connection:
+        row = connection.execute(
+            "SELECT ops_conclusion_id,payload_json FROM ops_conclusions LIMIT 1"
+        ).fetchone()
+        legacy_payload = json.loads(row["payload_json"])
+        cycle_id = legacy_payload["portfolio_cycle_id"]
+        legacy_payload["observed_at"] = "2026-08-20T06:15:00+00:00"
+        legacy_payload.pop("clock")
+        encoded = json.dumps(legacy_payload, sort_keys=True, separators=(",", ":"))
+        connection.execute(
+            "UPDATE ops_conclusions SET payload_json=? WHERE ops_conclusion_id=?",
+            (encoded, row["ops_conclusion_id"]),
+        )
+        connection.execute(
+            "UPDATE ops_conclusion_attempts SET payload_json=? WHERE ops_conclusion_id=?",
+            (encoded, row["ops_conclusion_id"]),
+        )
+        connection.commit()
+    ledger = tmp_path / "runs" / "all.jsonl"
+    _write_clock_ledger(
+        ledger,
+        _daily_cycle_clock_run(cycle_id=cycle_id),
+    )
+    monkeypatch.setattr(
+        ops_standup_projection_service,
+        "CODEX_RUN_LEDGER_PATH",
+        ledger,
+    )
+
+    projection = build_ops_standup_projection(store=store)
+
+    assert projection["observed_at"] == "2026-08-20T06:15:00Z"
+    assert projection["clock"] == {
+        "schema_version": "ai_clone_clock/v1",
+        "authority": "ai_clone_utc",
+        "timezone": "UTC",
+        "observed_at": "2026-08-20T06:15:00Z",
+    }
+    assert "ops_conclusion_clock_unverified" not in projection["reason_codes"]
+
+
+def test_legacy_clock_bridge_ignores_same_cycle_retries_without_exact_observation(
+    tmp_path,
+):
+    cycle_id = "daily-2026-08-26"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-26",
+        "observed_at": "2026-08-26T18:02:39+00:00",
+    }
+    missing_observation = _daily_cycle_clock_run(
+        cycle_id=cycle_id,
+        run_id="daily-retry-without-observation",
+    )
+    missing_observation["metadata"].pop("observed_at")
+    missing_observation["metadata"].pop("clock")
+    different_observation = _daily_cycle_clock_run(
+        cycle_id=cycle_id,
+        observed_at="2026-08-26T06:15:00Z",
+        run_id="daily-retry-different-observation",
+    )
+    different_observation["metadata"].pop("clock")
+    exact_observation = _daily_cycle_clock_run(
+        cycle_id=cycle_id,
+        observed_at="2026-08-26T18:02:39Z",
+        run_id="daily-exact-clock-evidence",
+    )
+    ledger = tmp_path / "runs.jsonl"
+    _write_clock_ledger(
+        ledger,
+        missing_observation,
+        different_observation,
+        exact_observation,
+    )
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=ledger,
+        )
+    )
+
+    assert recovered["observed_at"] == "2026-08-26T18:02:39Z"
+    assert recovered["clock"] == exact_observation["metadata"]["clock"]
+
+
+@pytest.mark.parametrize(
+    "receipt_cycle_id,receipt_observed_at,clock",
+    [
+        ("daily-2026-08-20", "2026-08-20T06:15:01Z", None),
+        ("daily-2026-08-21", "2026-08-20T06:15:00Z", None),
+        ("daily-2026-08-20", "2026-08-20T02:15:00-04:00", None),
+        (
+            "daily-2026-08-20",
+            "2026-08-20T06:15:00Z",
+            {
+                "schema_version": "ai_clone_clock/v1",
+                "authority": "browser_local",
+                "timezone": "UTC",
+                "observed_at": "2026-08-20T06:15:00Z",
+            },
+        ),
+        (
+            "daily-2026-08-20",
+            "2026-08-20T06:15:00Z",
+            {
+                "schema_version": "ai_clone_clock/v1",
+                "authority": "ai_clone_utc",
+                "timezone": "UTC",
+                "observed_at": "2026-08-20T06:15:01Z",
+            },
+        ),
+    ],
+)
+def test_legacy_clock_bridge_fails_closed_for_mismatch_or_invalid_receipt(
+    tmp_path,
+    receipt_cycle_id,
+    receipt_observed_at,
+    clock,
+):
+    cycle_id = "daily-2026-08-20"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-20",
+        "observed_at": "2026-08-20T06:15:00+00:00",
+        "generated_at": receipt_observed_at,
+    }
+    ledger = tmp_path / "runs.jsonl"
+    _write_clock_ledger(
+        ledger,
+        _daily_cycle_clock_run(
+            cycle_id=receipt_cycle_id,
+            observed_at=receipt_observed_at,
+            clock=clock,
+        ),
+    )
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=ledger,
+        )
+    )
+
+    assert recovered == payload
+    assert "clock" not in recovered
+    assert recovered["observed_at"].endswith("+00:00")
+
+
+def test_legacy_clock_bridge_rejects_conflicting_same_cycle_receipts(tmp_path):
+    cycle_id = "daily-2026-08-20"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-20",
+        "observed_at": "2026-08-20T06:15:00+00:00",
+    }
+    ledger = tmp_path / "runs.jsonl"
+    _write_clock_ledger(
+        ledger,
+        _daily_cycle_clock_run(cycle_id=cycle_id, run_id="daily-clock-a"),
+        _daily_cycle_clock_run(
+            cycle_id=cycle_id,
+            observed_at="2026-08-20T06:15:00.000000Z",
+            run_id="daily-clock-b",
+        ),
+    )
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=ledger,
+        )
+    )
+
+    assert recovered == payload
+    assert "clock" not in recovered
+
+
+def test_legacy_clock_bridge_streams_past_old_ledger_bounds_before_recovery(
+    tmp_path,
+):
+    cycle_id = "daily-2026-08-20"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-20",
+        "observed_at": "2026-08-20T06:15:00+00:00",
+    }
+    ledger = tmp_path / "large-runs.jsonl"
+    filler_line = json.dumps(
+        {
+            "automation_id": "unrelated_bounded_worker",
+            "padding": "x" * 900,
+        },
+        sort_keys=True,
+    ) + "\n"
+    matching_line = json.dumps(
+        _daily_cycle_clock_run(cycle_id=cycle_id),
+        sort_keys=True,
+    ) + "\n"
+    ledger.write_text(filler_line * 10_001 + matching_line, encoding="utf-8")
+    assert ledger.stat().st_size > 8 * 1024 * 1024
+    with ledger.open(encoding="utf-8") as handle:
+        assert sum(1 for _line in handle) > 10_000
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=ledger,
+        )
+    )
+
+    assert recovered["observed_at"] == "2026-08-20T06:15:00Z"
+    assert recovered["clock"]["authority"] == "ai_clone_utc"
+
+
+def test_legacy_clock_bridge_fails_closed_beyond_configured_whole_file_bound(
+    tmp_path,
+    monkeypatch,
+):
+    cycle_id = "daily-2026-08-20"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-20",
+        "observed_at": "2026-08-20T06:15:00+00:00",
+    }
+    ledger = tmp_path / "bounded-runs.jsonl"
+    _write_clock_ledger(ledger, _daily_cycle_clock_run(cycle_id=cycle_id))
+    monkeypatch.setattr(
+        ops_standup_projection_service,
+        "_LEGACY_CLOCK_LEDGER_MAX_BYTES",
+        ledger.stat().st_size - 1,
+    )
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=ledger,
+        )
+    )
+
+    assert recovered == payload
+    assert "clock" not in recovered
+
+
+def test_legacy_clock_bridge_rejects_symlinked_ledger(tmp_path):
+    cycle_id = "daily-2026-08-20"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-20",
+        "observed_at": "2026-08-20T06:15:00+00:00",
+    }
+    target = tmp_path / "real-runs.jsonl"
+    linked = tmp_path / "linked-runs.jsonl"
+    _write_clock_ledger(target, _daily_cycle_clock_run(cycle_id=cycle_id))
+    linked.symlink_to(target)
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=linked,
+        )
+    )
+
+    assert recovered == payload
+    assert "clock" not in recovered
+
+
+def test_legacy_clock_bridge_rejects_malformed_ledger_and_preserves_clocked_payload(
+    tmp_path,
+):
+    cycle_id = "daily-2026-08-20"
+    payload = {
+        "portfolio_cycle_id": cycle_id,
+        "cycle_date": "2026-08-20",
+        "observed_at": "2026-08-20T06:15:00+00:00",
+    }
+    malformed = tmp_path / "malformed.jsonl"
+    malformed.write_text("{not-json}\n", encoding="utf-8")
+
+    recovered = (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            payload,
+            ledger_path=malformed,
+        )
+    )
+
+    assert recovered == payload
+    assert "clock" not in recovered
+
+    clocked = _semantic_projection()
+    conflicting = tmp_path / "conflicting.jsonl"
+    _write_clock_ledger(
+        conflicting,
+        _daily_cycle_clock_run(
+            cycle_id=clocked["portfolio_cycle_id"],
+            observed_at="2026-08-20T06:15:01Z",
+        ),
+    )
+    assert (
+        ops_standup_projection_service._recover_legacy_ops_clock_from_run_ledger(
+            clocked,
+            ledger_path=conflicting,
+        )
+        is clocked
+    )
 
 
 def test_v2_projection_rejects_unknown_item_fields(tmp_path):

@@ -3,12 +3,17 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.models.automations import AutomationRun
+from app.services.automation_service import CODEX_RUN_LEDGER_PATH, is_codex_run
 from app.services.brain_response_privacy_service import sanitize_brain_text
 from app.services.execution_artifact_reference_service import contains_private_filesystem_reference
 from app.services.integrated_content_projection_service import _decision_summary
@@ -34,6 +39,9 @@ MAX_ITEMS = 100
 MAX_BYTES = 256 * 1024
 MAX_WORKSPACE_RECURSION = 25
 MAX_RECURSION_ITEMS = 20
+_LEGACY_CLOCK_LEDGER_MAX_BYTES = 128 * 1024 * 1024
+_LEGACY_CLOCK_LEDGER_MAX_ROWS = 100_000
+_LEGACY_CLOCK_LEDGER_MAX_LINE_BYTES = 2 * 1024 * 1024
 _PRIVATE_KEYS = {
     "absolute_path",
     "body",
@@ -992,6 +1000,165 @@ def _validated_projection_observation(
     return observation, None
 
 
+def _exact_utc_instant(value: Any) -> datetime | None:
+    """Parse an exact, timezone-aware UTC instant without inventing a clock."""
+
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or len(value) > 100
+    ):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if (
+        parsed.tzinfo is None
+        or parsed.utcoffset() != timezone.utc.utcoffset(parsed)
+    ):
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _recover_legacy_ops_clock_from_run_ledger(
+    payload: dict[str, Any],
+    *,
+    ledger_path: Path | None = None,
+) -> dict[str, Any]:
+    """Bind one pre-clock Ops payload to its exact daily-cycle clock receipt.
+
+    The append-only local automation ledger is already the authority for the
+    daily coordinator's run receipt.  This bridge is intentionally narrow: it
+    only fills a missing clock when every daily-cycle receipt claiming the
+    exact UTC instant already stored by Ops carries the same canonical
+    ``ai_clone_utc`` observation. Any malformed or conflicting exact-instant
+    receipt leaves the payload untouched and therefore degraded by the
+    existing semantic-observation validator.
+
+    ``generated_at`` and calendar/display timezone values are deliberately not
+    inputs to this recovery path.
+    """
+
+    if not isinstance(payload, dict) or payload.get("clock") is not None:
+        return payload
+    portfolio_cycle_id = payload.get("portfolio_cycle_id")
+    if (
+        not isinstance(portfolio_cycle_id, str)
+        or not portfolio_cycle_id
+        or portfolio_cycle_id != portfolio_cycle_id.strip()
+    ):
+        return payload
+    stored_observation = _exact_utc_instant(payload.get("observed_at"))
+    if stored_observation is None:
+        return payload
+
+    target = Path(ledger_path or CODEX_RUN_LEDGER_PATH)
+    try:
+        target_stat = target.lstat()
+        size = target_stat.st_size
+        if (
+            stat.S_ISLNK(target_stat.st_mode)
+            or not stat.S_ISREG(target_stat.st_mode)
+            or size <= 0
+            or size > _LEGACY_CLOCK_LEDGER_MAX_BYTES
+        ):
+            return payload
+    except OSError:
+        return payload
+
+    recovered_receipt: tuple[str, dict[str, Any]] | None = None
+    consumed_bytes = 0
+    row_count = 0
+    try:
+        with target.open("rb") as handle:
+            opened_stat = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened_stat.st_mode)
+                or opened_stat.st_dev != target_stat.st_dev
+                or opened_stat.st_ino != target_stat.st_ino
+                or opened_stat.st_size != size
+            ):
+                return payload
+            while consumed_bytes < size:
+                remaining = size - consumed_bytes
+                raw_line = handle.readline(
+                    min(_LEGACY_CLOCK_LEDGER_MAX_LINE_BYTES + 1, remaining + 1)
+                )
+                if (
+                    not raw_line
+                    or len(raw_line) > _LEGACY_CLOCK_LEDGER_MAX_LINE_BYTES
+                    or len(raw_line) > remaining
+                    or not raw_line.endswith(b"\n")
+                ):
+                    return payload
+                consumed_bytes += len(raw_line)
+                row_count += 1
+                if row_count > _LEGACY_CLOCK_LEDGER_MAX_ROWS:
+                    return payload
+                try:
+                    decoded_line = raw_line.decode("utf-8", errors="strict")
+                    row = json.loads(decoded_line)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    return payload
+                if not isinstance(row, dict):
+                    return payload
+                if row.get("automation_id") != "daily_integrated_cycle":
+                    continue
+                metadata = row.get("metadata")
+                if not isinstance(metadata, dict):
+                    return payload
+                if metadata.get("cycle_id") != portfolio_cycle_id:
+                    continue
+                receipt_observed_at = metadata.get("observed_at")
+                receipt_instant = _exact_utc_instant(receipt_observed_at)
+                if receipt_instant is None or receipt_instant != stored_observation:
+                    continue
+                try:
+                    run = AutomationRun.model_validate(row)
+                except (TypeError, ValueError):
+                    return payload
+                if not is_codex_run(run):
+                    return payload
+
+                receipt_clock = metadata.get("clock")
+                if (
+                    not isinstance(receipt_observed_at, str)
+                    or _CANONICAL_UTC_OBSERVATION_RE.fullmatch(receipt_observed_at)
+                    is None
+                    or not isinstance(receipt_clock, dict)
+                    or set(receipt_clock)
+                    != {"schema_version", "authority", "timezone", "observed_at"}
+                    or receipt_clock.get("schema_version") != CLOCK_SCHEMA_VERSION
+                    or receipt_clock.get("authority") != CLOCK_AUTHORITY
+                    or receipt_clock.get("timezone") != "UTC"
+                    or receipt_clock.get("observed_at") != receipt_observed_at
+                ):
+                    return payload
+
+                candidate = (receipt_observed_at, dict(receipt_clock))
+                if recovered_receipt is not None and recovered_receipt != candidate:
+                    return payload
+                recovered_receipt = candidate
+            if consumed_bytes != size or handle.read(1):
+                return payload
+    except OSError:
+        return payload
+    if row_count == 0:
+        return payload
+
+    if recovered_receipt is None:
+        return payload
+    recovered = dict(payload)
+    recovered["observed_at"] = recovered_receipt[0]
+    recovered["clock"] = recovered_receipt[1]
+    observation, observation_error = _validated_projection_observation(recovered)
+    if observation is None or observation_error is not None:
+        return payload
+    return recovered
+
+
 def _valid_canonical_decision(value: Any) -> bool:
     decision_fields = {
         "decision_id",
@@ -1121,6 +1288,7 @@ def build_ops_standup_projection(*, store: IntegratedSystemStore | None = None) 
         )
     raw_attempt_payload = row["attempt_payload_json"]
     payload = json.loads(raw_attempt_payload or row["payload_json"])
+    payload = _recover_legacy_ops_clock_from_run_ledger(payload)
     attempt_number = int(row["attempt_number"] or 0)
     attempt_id = str(row["attempt_id"] or "").strip() or None
     attempt_payload_sha256 = (

@@ -304,6 +304,7 @@ def test_monotonic_snapshot_migrates_only_closed_legacy_shape_to_named_revision(
 
     query, params = cursor.execute.call_args.args
     assert "jsonb_object_keys(workspace_snapshots.payload)" in query
+    assert 'ORDER BY legacy_key COLLATE "C"' in query
     assert "octet_length(workspace_snapshots.payload::text) <= %s" in query
     assert "workspace_snapshots.payload = %s" in query
     assert "workspace_snapshots.payload->>'schema_version' = %s" in query

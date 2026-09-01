@@ -1254,8 +1254,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/ops_standup_projection_service.py",
-        "sha256": "ca89c98c1826aa22ec7aa77b62de02cf966d72ef76f79dd90ea76f127ca0db0f",
-        "size": 72008
+        "sha256": "bccecb8969d718e42116e9a25c6d290cbf5b4acd350d71707e5a4f4487e6beb3",
+        "size": 78611
       },
       {
         "mode": 420,
@@ -1938,8 +1938,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_store.py",
-        "sha256": "0230953aa29f0d98ecb79127cce341af9f6f7496fd8b648881e352abb9a497ca",
-        "size": 24500
+        "sha256": "4683aa23570c62e7412a9a0438ecb1a18f7729c789fc05a2a3fac36d66b27f81",
+        "size": 24543
       },
       {
         "mode": 420,
@@ -2124,8 +2124,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_ops_standup_projection_service.py",
-        "sha256": "b04deec2b1ff5cbb8eb2b8b0bac32250206293adaed7bde3a2e4b04daef59cac",
-        "size": 58324
+        "sha256": "c59a3b37cd4ba8bf93a83e9f560bc0ef523d825353720825bccc7737afcdd38d",
+        "size": 68877
       },
       {
         "mode": 420,
@@ -2196,8 +2196,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_workspace_snapshot_store.py",
-        "sha256": "230bb84d2d0b32c08be6c5bb3979d66aa0fb62c3d261e4bba050a2c287e37844",
-        "size": 20961
+        "sha256": "34920ad7583f4402038ab00cd3c9f6455f8857b93a8290ffbb36c9084ee88051",
+        "size": 21015
       },
       {
         "mode": 420,
@@ -3268,7 +3268,7 @@
         "size": 9830
       }
     ],
-    "tree_sha256": "54c68272aee1c65d5003f443487851ab7447d00a3588a102183aa326a7a88ba5"
+    "tree_sha256": "d695db4ae2170d406878b1ef37d764ad2c0a94a5d5f87236956c197d73641b70"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

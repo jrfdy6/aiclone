@@ -469,7 +469,8 @@ def upsert_snapshot_monotonic(
                             "workspace_snapshots.payload->>'schema_version' = %s "
                             "AND ARRAY(SELECT legacy_key FROM "
                             "jsonb_object_keys(workspace_snapshots.payload) "
-                            "AS legacy_keys(legacy_key) ORDER BY legacy_key) "
+                            "AS legacy_keys(legacy_key) "
+                            'ORDER BY legacy_key COLLATE "C") '
                             "= %s::text[]"
                             ")"
                         )
