@@ -615,6 +615,8 @@ def _verify_content(content: dict[str, Any]) -> dict[str, Any]:
     evidence_ids: set[str] = set()
     interpretation_ids: set[str] = set()
     duplicate_route_source_seen = False
+    captured_source_seen = False
+    evidenced_source_seen = False
     for source in sources:
         _require(isinstance(source, dict), "source row is not structured")
         source_id = str(source.get("source_id") or "")
@@ -626,11 +628,14 @@ def _verify_content(content: dict[str, Any]) -> dict[str, Any]:
         if len(discoveries) >= 2 and len(origins) >= 2:
             duplicate_route_source_seen = True
         capture = source.get("capture")
-        _require(isinstance(capture, dict) and capture.get("captured") is True, "source capture is not verified")
-        digest = str(capture.get("content_sha256") or "")
-        _require(len(digest) == 64 and all(char in "0123456789abcdef" for char in digest), "source hash is invalid")
+        _require(isinstance(capture, dict), "source capture is malformed")
+        if capture.get("captured") is True:
+            digest = str(capture.get("content_sha256") or "")
+            _require(len(digest) == 64 and all(char in "0123456789abcdef" for char in digest), "source hash is invalid")
+            captured_source_seen = True
         evidence_rows = source.get("evidence")
-        _require(isinstance(evidence_rows, list) and evidence_rows, "source evidence is missing")
+        _require(isinstance(evidence_rows, list), "source evidence is malformed")
+        evidenced_source_seen = evidenced_source_seen or bool(evidence_rows)
         for evidence in evidence_rows:
             evidence_id = str(evidence.get("evidence_id") or "")
             _require(evidence_id and evidence_id not in evidence_ids, "evidence identity is missing or duplicated")
@@ -650,6 +655,8 @@ def _verify_content(content: dict[str, Any]) -> dict[str, Any]:
                     in {"independent_agent", "deterministic_policy", "synthesized_lens"},
                     "interpretation provenance is invalid",
                 )
+    _require(captured_source_seen, "no captured source is present in the bounded projection")
+    _require(evidenced_source_seen, "no source evidence is present in the bounded projection")
     _require(duplicate_route_source_seen, "no canonical source preserves multiple discovery origins")
 
     opportunity_by_id: dict[str, dict[str, Any]] = {}

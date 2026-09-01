@@ -3258,8 +3258,8 @@
       {
         "mode": 420,
         "path": "scripts/verify_integrated_production_projection.py",
-        "sha256": "1d1c3839290420997accaf18afd08ed1a2e66f7273564db7bdf22ebd726eee66",
-        "size": 51767
+        "sha256": "ea8f8b74c68393e0b65295bc150f410f959e64f9086e616960f5da2c34b85ef5",
+        "size": 52137
       },
       {
         "mode": 493,
@@ -3268,7 +3268,7 @@
         "size": 9830
       }
     ],
-    "tree_sha256": "d117ba3292b7580f727362f0aef09d9ef6d831e58a1f85c6f8c1701c0f0e5ec6"
+    "tree_sha256": "45bbe9592373d06c351dde1697031ee145aa2914bed8e6777b21900dec19afc7"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
