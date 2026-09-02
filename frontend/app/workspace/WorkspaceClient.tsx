@@ -12,6 +12,8 @@ import {
   waitForFeedRefreshAttempt,
 } from '@/lib/feed-refresh-polling';
 import {
+  feezieWorkspaceSyncTransitionAt,
+  parseAiCloneUtcTimestamp,
   type FeezieWorkspaceSyncQueueReceipt,
   type FeezieWorkspaceSyncStatus,
   waitForFeezieWorkspaceSync,
@@ -378,6 +380,10 @@ type WorkspaceSnapshot = {
     sections?: Record<string, {
       state?: string;
       available?: boolean;
+      reference_only?: boolean;
+      freshness_required?: boolean;
+      timestamp_meaning?: string | null;
+      item_count?: number | null;
       generated_at?: string | null;
       age_hours?: number | null;
       stale_after_hours?: number | null;
@@ -2095,10 +2101,27 @@ export function LinkedinWorkspaceSurface({
     [],
   );
 
+  const queueAndWaitForFeezieWorkspaceSync = useCallback(async () => {
+    const receipt = await controlApiPost<FeezieWorkspaceSyncQueueReceipt>('/api/brain/refresh-feezie-workspace', {});
+    await waitForFeezieWorkspaceSync({
+      receipt,
+      readStatus: (cardId) =>
+        controlApiGet<FeezieWorkspaceSyncStatus>(`/api/brain/refresh-feezie-workspace/${encodeURIComponent(cardId)}`, {
+          cache: 'no-store',
+          timeoutMs: 20_000,
+        }),
+    });
+    return receipt;
+  }, []);
+
   const refreshSocialFeed = useCallback(async () => {
     setRefreshingFeed(true);
-    setRefreshStatus('Refreshing public signals...');
     try {
+      if (!feezieGenerationReady) {
+        setRefreshStatus('Private FEEZIE context is not ready. Restoring it through the signed Mac runner first...');
+        await queueAndWaitForFeezieWorkspaceSync();
+      }
+      setRefreshStatus('Refreshing public signals...');
       const data = await controlApiPost<FeedRefreshQueueReceipt>('/api/workspace/refresh-social-feed', {
         skip_fetch: false,
         sources: 'safe',
@@ -2107,34 +2130,26 @@ export function LinkedinWorkspaceSurface({
       setRefreshStatus(`Refresh queued${queuedAt ? ` at ${formatUiTime(queuedAt)}` : ''}`);
       const finalStatus = await waitForFeedRefresh(data);
       setRefreshStatus('Public signals updated. Syncing the current FEEZIE plan and private context on your Mac...');
-      const syncReceipt = await controlApiPost<FeezieWorkspaceSyncQueueReceipt>('/api/brain/refresh-feezie-workspace', {});
-      await waitForFeezieWorkspaceSync({
-        receipt: syncReceipt,
-        readStatus: (cardId) =>
-          controlApiGet<FeezieWorkspaceSyncStatus>(`/api/brain/refresh-feezie-workspace/${encodeURIComponent(cardId)}`, {
-            cache: 'no-store',
-            timeoutMs: 20_000,
-          }),
-      });
+      const syncReceipt = await queueAndWaitForFeezieWorkspaceSync();
       const refreshedSnapshot = await loadSnapshot();
-      const queuedActionAt = Date.parse(syncReceipt.card?.created_at ?? '');
-      const planGeneratedAt = Date.parse(refreshedSnapshot?.weekly_plan?.generated_at ?? '');
-      const contextGeneratedAt = Date.parse(refreshedSnapshot?.private_runtime_context_status?.context_generated_at ?? '');
-      const performanceGeneratedAt = Date.parse(
+      const actionTransitionAt = feezieWorkspaceSyncTransitionAt(syncReceipt);
+      const planGeneratedAt = parseAiCloneUtcTimestamp(refreshedSnapshot?.weekly_plan?.generated_at);
+      const contextGeneratedAt = parseAiCloneUtcTimestamp(
+        refreshedSnapshot?.private_runtime_context_status?.context_generated_at,
+      );
+      const performanceGeneratedAt = parseAiCloneUtcTimestamp(
         refreshedSnapshot?.publication_performance_status?.projection_generated_at ?? '',
       );
-      const boundFloor = queuedActionAt - 5 * 60 * 1000;
       if (
         !refreshedSnapshot
         || refreshedSnapshot.snapshot_status?.sections?.weekly_plan?.state !== 'fresh'
         || refreshedSnapshot.publication_performance_status?.state !== 'fresh'
-        || !Number.isFinite(queuedActionAt)
-        || !Number.isFinite(planGeneratedAt)
-        || planGeneratedAt < boundFloor
-        || !Number.isFinite(contextGeneratedAt)
-        || contextGeneratedAt < boundFloor
-        || !Number.isFinite(performanceGeneratedAt)
-        || performanceGeneratedAt < boundFloor
+        || planGeneratedAt === null
+        || planGeneratedAt < actionTransitionAt
+        || contextGeneratedAt === null
+        || contextGeneratedAt < actionTransitionAt
+        || performanceGeneratedAt === null
+        || performanceGeneratedAt < actionTransitionAt
         || !isFeeziePrivateRuntimeContextReady(refreshedSnapshot.private_runtime_context_status)
       ) {
         throw new Error('The signed Mac action completed, but Railway did not return a current weekly plan, ready private context, and fresh performance status. Reload before retrying.');
@@ -2145,7 +2160,7 @@ export function LinkedinWorkspaceSurface({
     } finally {
       setRefreshingFeed(false);
     }
-  }, [loadSnapshot, waitForFeedRefresh]);
+  }, [feezieGenerationReady, loadSnapshot, queueAndWaitForFeezieWorkspaceSync, waitForFeedRefresh]);
 
   const ingestSignal = useCallback(async () => {
     if (!ingestUrl && !ingestText) {
@@ -3587,7 +3602,7 @@ export function LinkedinWorkspaceSurface({
                 Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {ownerReviewItems.length} owner review · {decisionFeedItems.length} needs decision · {workflowFeedItems.length} in workflow
               </p>
               <p style={{ color: '#64748b', fontSize: '11px', margin: 0, maxWidth: '420px', textAlign: 'right' }}>
-                Refreshes safe public signals, then syncs the current weekly plan and private generation context through the signed Mac runner.
+                If private context needs recovery, the signed Mac runner restores it first. The exact safe-public feed then refreshes, followed by a final signed sync of the current plan, private context, and performance status.
               </p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <InlinePill label={`${ownerReviewItems.length} owner review`} tone="#fbbf24" />
@@ -4475,15 +4490,36 @@ export function LinkedinWorkspaceSurface({
           ) : null}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-            {Object.entries(snapshot?.snapshot_status?.sections ?? {}).map(([key, section]) => (
-              <TruthCard
-                key={key}
-                label={humanizeFeezieWorkspaceLabel(key)}
-                value={humanizeFeezieWorkspaceLabel(section.state || (section.available ? 'available' : 'missing'))}
-                detail={section.generated_at ? `Generated ${formatTimestamp(section.generated_at)}${section.age_hours == null ? '' : ` · ${section.age_hours.toFixed(1)}h old`}` : 'No source timestamp is available.'}
-                tone={truthStateTone(section.state || (section.available ? 'current' : 'missing'))}
-              />
-            ))}
+            {Object.entries(snapshot?.snapshot_status?.sections ?? {}).map(([key, section]) => {
+              const sourceAssetsReferenceOnly = (
+                key === 'source_assets'
+                && section.state === 'reference_only'
+                && section.available === true
+                && section.reference_only === true
+                && section.freshness_required === false
+                && section.timestamp_meaning === 'projection_assembled_at'
+                && Number.isInteger(section.item_count)
+                && (section.item_count ?? 0) > 0
+                && parseAiCloneUtcTimestamp(section.generated_at) !== null
+              );
+              return (
+                <TruthCard
+                  key={key}
+                  label={humanizeFeezieWorkspaceLabel(key)}
+                  value={sourceAssetsReferenceOnly
+                    ? 'Reference only'
+                    : humanizeFeezieWorkspaceLabel(section.state || (section.available ? 'available' : 'missing'))}
+                  detail={sourceAssetsReferenceOnly
+                    ? `Inventory projection assembled ${formatTimestamp(section.generated_at)} · ${section.item_count} items in the durable governed reference inventory. Source capture and publication times remain unchanged.`
+                    : section.generated_at
+                      ? `Generated ${formatTimestamp(section.generated_at)}${section.age_hours == null ? '' : ` · ${section.age_hours.toFixed(1)}h old`}`
+                      : 'No source timestamp is available.'}
+                  tone={sourceAssetsReferenceOnly
+                    ? '#38bdf8'
+                    : truthStateTone(section.state || (section.available ? 'current' : 'missing'))}
+                />
+              );
+            })}
           </div>
           {Object.keys(snapshot?.snapshot_status?.sections ?? {}).length === 0 ? (
             <EmptyMessage message="The aggregate grounding inventory has not been projected yet. This does not expose or delete the local source material." />

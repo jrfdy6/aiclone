@@ -49,6 +49,25 @@ def _parse_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _parse_explicit_utc_timestamp(value: Any) -> datetime | None:
+    """Accept only an aware timestamp already expressed on ai_clone_utc."""
+
+    text = _clean_text(value, limit=80)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if (
+        parsed.tzinfo is None
+        or parsed.utcoffset() is None
+        or parsed.utcoffset().total_seconds() != 0
+    ):
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def _stable_hash(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -149,9 +168,29 @@ def _signal_freshness_receipt(snapshot: Mapping[str, Any]) -> dict[str, Any] | N
     for name in _SIGNAL_SECTION_NAMES:
         section = sections.get(name) if isinstance(sections.get(name), Mapping) else {}
         state = _clean_text(section.get("state"), limit=40).lower() or "missing"
-        if state != "fresh":
+        generated_at = (
+            _parse_explicit_utc_timestamp(section.get("generated_at"))
+            if name == "source_assets"
+            else _parse_timestamp(section.get("generated_at"))
+        )
+        item_count = section.get("item_count")
+        source_assets_reference_is_valid = bool(
+            name == "source_assets"
+            and state == "reference_only"
+            and section.get("available") is True
+            and section.get("reference_only") is True
+            and section.get("freshness_required") is False
+            and section.get("timestamp_meaning") == "projection_assembled_at"
+            and section.get("stale_after_hours") is None
+            and isinstance(item_count, int)
+            and not isinstance(item_count, bool)
+            and 0 < item_count <= 1_000_000
+            and generated_at is not None
+        )
+        if state != "fresh" and not source_assets_reference_is_valid:
+            if name == "source_assets" and state == "reference_only":
+                state = "invalid_reference_contract"
             nonfresh[name] = state
-            generated_at = _parse_timestamp(section.get("generated_at"))
             if generated_at is not None:
                 timestamps.append(generated_at)
     if not nonfresh:

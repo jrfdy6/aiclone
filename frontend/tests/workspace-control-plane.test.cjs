@@ -80,7 +80,11 @@ new Function('module', 'exports', 'require', compiledFeezieWorkspaceSync)(
   loadedFeezieWorkspaceSync.exports,
   require,
 );
-const { waitForFeezieWorkspaceSync } = loadedFeezieWorkspaceSync.exports;
+const {
+  feezieWorkspaceSyncTransitionAt,
+  parseAiCloneUtcTimestamp,
+  waitForFeezieWorkspaceSync,
+} = loadedFeezieWorkspaceSync.exports;
 
 test('FEEZIE opens with a bounded Today’s Distribution decision surface', () => {
   assert.match(workspaceSource, /Today&apos;s Distribution/);
@@ -129,6 +133,29 @@ test('workspace separates transport availability from editorial and performance 
   assert.match(workspaceSource, /Primary KPI/);
   assert.match(workspaceSource, /Learning gate/);
   assert.match(workspaceSource, /Next truth-building actions/);
+});
+
+test('source-assets inventory is visibly reference-only without converting projection age into freshness', () => {
+  assert.match(workspaceSource, /reference_only\?: boolean/);
+  assert.match(workspaceSource, /freshness_required\?: boolean/);
+  assert.match(workspaceSource, /timestamp_meaning\?: string \| null/);
+  assert.match(workspaceSource, /item_count\?: number \| null/);
+  assert.match(
+    workspaceSource,
+    /key === 'source_assets'[\s\S]*?section\.state === 'reference_only'[\s\S]*?section\.reference_only === true[\s\S]*?section\.freshness_required === false[\s\S]*?section\.timestamp_meaning === 'projection_assembled_at'/,
+  );
+  assert.match(workspaceSource, /sourceAssetsReferenceOnly[\s\S]*?\? 'Reference only'/);
+  assert.match(workspaceSource, /Inventory projection assembled \$\{formatTimestamp\(section\.generated_at\)\}/);
+  assert.match(workspaceSource, /durable governed reference inventory/);
+  assert.match(workspaceSource, /Source capture and publication times remain unchanged\./);
+  assert.doesNotMatch(workspaceSource, /canonical source records/);
+  assert.match(workspaceSource, /sourceAssetsReferenceOnly[\s\S]*?\? '#38bdf8'/);
+  assert.doesNotMatch(workspaceSource, /sourceAssetsReferenceOnly[\s\S]{0,180}\? '(?:Fresh|Current|Stale)'/);
+});
+
+test('Brain names the aggregate source inventory without implying source recency', () => {
+  assert.match(brainSource, /title="Source Asset Inventory"/);
+  assert.doesNotMatch(brainSource, /title="Recent Source Assets"/);
 });
 
 test('both FEEZIE feed controls bind polling to the queued Railway run receipt', () => {
@@ -290,21 +317,30 @@ test('FEEZIE refresh waits for the exact signed Mac action before reporting comp
       card_id: 'card-current',
       status: 'running',
       created_at: '2026-08-17T14:00:00Z',
+      updated_at: '2026-08-17T14:00:01Z',
     },
     {
       job_id: 'card-current',
       card_id: 'card-current',
       status: 'completed',
       created_at: '2026-08-17T14:00:00Z',
+      updated_at: '2026-08-17T14:00:03Z',
       completed_at: '2026-08-17T14:00:03Z',
     },
   ];
   let reads = 0;
   const result = await waitForFeezieWorkspaceSync({
     receipt: {
+      queued: true,
+      disposition: 'queued',
       action: 'refresh_feezie_workspace',
       card_id: 'card-current',
-      card: { id: 'card-current', created_at: '2026-08-17T14:00:00Z' },
+      job_id: 'card-current',
+      card: {
+        id: 'card-current',
+        created_at: '2026-08-17T14:00:00Z',
+        updated_at: '2026-08-17T14:00:00Z',
+      },
     },
     readStatus: async (cardId) => {
       assert.equal(cardId, 'card-current');
@@ -323,15 +359,23 @@ test('FEEZIE refresh fails closed on a mismatched or failed local action without
   await assert.rejects(
     waitForFeezieWorkspaceSync({
       receipt: {
+        queued: true,
+        disposition: 'queued',
         action: 'refresh_feezie_workspace',
         card_id: 'card-current',
-        card: { id: 'card-current', created_at: '2026-08-17T14:00:00Z' },
+        job_id: 'card-current',
+        card: {
+          id: 'card-current',
+          created_at: '2026-08-17T14:00:00Z',
+          updated_at: '2026-08-17T14:00:00Z',
+        },
       },
       readStatus: async () => ({
         job_id: 'different-card',
         card_id: 'different-card',
         status: 'completed',
         created_at: '2026-08-17T14:00:00Z',
+        updated_at: '2026-08-17T14:00:03Z',
         completed_at: '2026-08-17T14:00:03Z',
       }),
       pollIntervalMs: 1,
@@ -343,15 +387,23 @@ test('FEEZIE refresh fails closed on a mismatched or failed local action without
   await assert.rejects(
     waitForFeezieWorkspaceSync({
       receipt: {
+        queued: true,
+        disposition: 'queued',
         action: 'refresh_feezie_workspace',
         card_id: 'card-current',
-        card: { id: 'card-current', created_at: '2026-08-17T14:00:00Z' },
+        job_id: 'card-current',
+        card: {
+          id: 'card-current',
+          created_at: '2026-08-17T14:00:00Z',
+          updated_at: '2026-08-17T14:00:00Z',
+        },
       },
       readStatus: async () => ({
         job_id: 'card-current',
         card_id: 'card-current',
         status: 'failed',
         created_at: '2026-08-17T14:00:00Z',
+        updated_at: '2026-08-17T14:00:03Z',
         message: 'private-canary',
         error_code: 'bounded_local_action_failure',
       }),
@@ -366,6 +418,75 @@ test('FEEZIE refresh fails closed on a mismatched or failed local action without
   );
 });
 
+test('FEEZIE requeue binding uses the current update transition and rejects an older completion', async () => {
+  const receipt = {
+    queued: true,
+    disposition: 'requeued',
+    action: 'refresh_feezie_workspace',
+    card_id: 'card-requeued',
+    job_id: 'card-requeued',
+    card: {
+      id: 'card-requeued',
+      created_at: '2026-08-17T12:00:00Z',
+      updated_at: '2026-08-17T14:00:00Z',
+    },
+  };
+  assert.equal(feezieWorkspaceSyncTransitionAt(receipt), Date.parse('2026-08-17T14:00:00Z'));
+
+  await assert.rejects(
+    waitForFeezieWorkspaceSync({
+      receipt,
+      readStatus: async () => ({
+        job_id: 'card-requeued',
+        card_id: 'card-requeued',
+        status: 'completed',
+        created_at: '2026-08-17T12:00:00Z',
+        updated_at: '2026-08-17T14:00:00Z',
+        completed_at: '2026-08-17T13:00:00Z',
+      }),
+      pollIntervalMs: 1,
+      timeoutMs: 1,
+    }),
+    /did not complete on the signed local runner/,
+  );
+
+  const current = await waitForFeezieWorkspaceSync({
+    receipt,
+    readStatus: async () => ({
+      job_id: 'card-requeued',
+      card_id: 'card-requeued',
+      status: 'completed',
+      created_at: '2026-08-17T12:00:00Z',
+      updated_at: '2026-08-17T14:00:04Z',
+      completed_at: '2026-08-17T14:00:04Z',
+    }),
+    pollIntervalMs: 1,
+    timeoutMs: 1,
+  });
+  assert.equal(current.status, 'completed');
+});
+
+test('FEEZIE signed-action receipt fails closed when a requeue omits its current transition', () => {
+  assert.throws(
+    () => feezieWorkspaceSyncTransitionAt({
+      queued: true,
+      disposition: 'requeued',
+      action: 'refresh_feezie_workspace',
+      card_id: 'card-requeued',
+      job_id: 'card-requeued',
+      card: { id: 'card-requeued', created_at: '2026-08-17T12:00:00Z' },
+    }),
+    /without an exact signed-action receipt/,
+  );
+});
+
+test('FEEZIE sync and freshness bindings accept only the canonical aware UTC clock', () => {
+  assert.equal(parseAiCloneUtcTimestamp('2026-08-17T14:00:00Z'), Date.parse('2026-08-17T14:00:00Z'));
+  assert.equal(parseAiCloneUtcTimestamp('2026-08-17T14:00:00+00:00'), Date.parse('2026-08-17T14:00:00Z'));
+  assert.equal(parseAiCloneUtcTimestamp('2026-08-17T14:00:00'), null);
+  assert.equal(parseAiCloneUtcTimestamp('2026-08-17T10:00:00-04:00'), null);
+});
+
 test('the FEEZIE workspace control chains Railway feed refresh to exact Mac sync and freshness proof', () => {
   assert.match(workspaceSource, /\/api\/brain\/refresh-feezie-workspace/);
   assert.match(workspaceSource, /waitForFeezieWorkspaceSync\(\{/);
@@ -373,14 +494,22 @@ test('the FEEZIE workspace control chains Railway feed refresh to exact Mac sync
   assert.doesNotMatch(workspaceSource, /\/api\/pm\/cards\/\$\{encodeURIComponent\(cardId\)\}\/execution-source/);
   assert.match(workspaceSource, /sections\?\.weekly_plan\?\.state !== 'fresh'/);
   assert.match(workspaceSource, /publication_performance_status\?\.state !== 'fresh'/);
-  assert.match(workspaceSource, /performanceGeneratedAt < boundFloor/);
+  assert.match(workspaceSource, /const actionTransitionAt = feezieWorkspaceSyncTransitionAt\(syncReceipt\)/);
+  assert.match(workspaceSource, /performanceGeneratedAt < actionTransitionAt/);
+  assert.doesNotMatch(workspaceSource, /const boundFloor = queuedActionAt - 5 \* 60 \* 1000/);
   assert.match(workspaceSource, /isFeeziePrivateRuntimeContextReady\(refreshedSnapshot\.private_runtime_context_status\)/);
+  assert.match(
+    workspaceSource,
+    /if \(!feezieGenerationReady\) \{[\s\S]*?await queueAndWaitForFeezieWorkspaceSync\(\);[\s\S]*?\/api\/workspace\/refresh-social-feed[\s\S]*?const syncReceipt = await queueAndWaitForFeezieWorkspaceSync\(\);/,
+  );
   assert.match(workspaceSource, /Refresh FEEZIE workspace/);
   assert.match(workspaceSource, /data-feezie-workspace-refresh="canonical"/);
   const canonicalRefreshIndex = workspaceSource.indexOf('data-feezie-workspace-refresh="canonical"');
   const legacyReviewIndex = workspaceSource.indexOf('data-legacy-owner-review-compatibility="true"');
   assert.ok(canonicalRefreshIndex >= 0 && canonicalRefreshIndex < legacyReviewIndex);
   assert.match(workspaceSource, /signed Mac runner/);
+  assert.match(workspaceSource, /If private context needs recovery, the signed Mac runner restores it first/);
+  assert.match(workspaceSource, /exact safe-public feed then refreshes, followed by a final signed sync/);
 });
 
 test('workspace exposes the bounded critic-guided revision receipt without copy', () => {

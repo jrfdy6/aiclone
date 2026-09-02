@@ -2168,7 +2168,7 @@ def claim_execution(
             if not verify_execution_payload(card.id, payload):
                 raise PMExecutionClaimConflict("PM card execution authorization is missing or invalid.")
             try:
-                current_gate = require_current_execution_gate(
+                require_current_execution_gate(
                     card_id=card.id,
                     title=card.title,
                     source=card.source,
@@ -2237,7 +2237,6 @@ def claim_execution(
                 "execution_packet_sha256": request.execution_packet_sha256,
                 "result_author_agent": result_author_agent,
                 "result_runner_id": result_runner_id,
-                "claimed_execution_gate_intent_hash": str(current_gate.get("intent_hash") or ""),
                 "executor_status": "running",
                 "executor_worker_id": request.worker_id,
                 "claim_id": claim_id,
@@ -2256,6 +2255,28 @@ def claim_execution(
                 workspace_key=current_workspace,
                 payload=next_payload,
             )
+            final_gate = dict(next_payload.get("execution_gate") or {})
+            if not execution_gate_allows_run(final_gate):
+                raise PMExecutionClaimConflict(
+                    str(
+                        final_gate.get("reason")
+                        or "Execution requires owner approval after claim defaults are materialized."
+                    )
+                )
+            next_execution["claimed_execution_gate_intent_hash"] = str(
+                final_gate.get("intent_hash") or ""
+            )
+            next_payload["execution"] = next_execution
+            if not execution_gate_matches_current(
+                card_id=card.id,
+                title=card.title,
+                source=card.source,
+                workspace_key=current_workspace,
+                payload=next_payload,
+            ):
+                raise PMExecutionClaimConflict(
+                    "PM card execution gate changed while binding the live claim."
+                )
             signed_payload = sign_execution_payload(card.id, next_payload)
             next_status = (
                 "in_progress"
@@ -2850,6 +2871,7 @@ def recover_stale_execution_claims(
                         "executor_status": "queued",
                         "executor_worker_id": None,
                         "claim_id": None,
+                        "claimed_execution_gate_intent_hash": None,
                         "executor_started_at": None,
                         "executor_finished_at": None,
                         "executor_last_error": None,
@@ -2895,6 +2917,18 @@ def recover_stale_execution_claims(
 
                 next_payload = dict(payload)
                 next_payload["execution"] = next_execution
+                if brain_action is not None:
+                    # Recovery lineage is durable operational evidence, but it
+                    # must not leave a safe deterministic replay with a stale
+                    # gate. Re-evaluate the complete recovered intent; any
+                    # genuine owner gate remains fail-closed.
+                    next_payload = apply_execution_gate(
+                        card_id=card.id,
+                        title=card.title,
+                        source=card.source,
+                        workspace_key=_workspace_key_from_card(card),
+                        payload=next_payload,
+                    )
                 signed_payload = sign_execution_payload(card.id, next_payload)
                 cur.execute(
                     """

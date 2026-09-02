@@ -142,12 +142,16 @@ History deletion is destructive and does not remove copies held by forks, caches
   `jrfdy6/aiclone:public-release` with Wait for CI. Receipt-bound staged upload
   remains a separately approval-bound fallback.
 - The private runtime channel is refreshed only by the signed local
-  `refresh_feezie_workspace` action. It builds both inputs before a network
-  write and synchronizes only the closed privacy-safe
-  `feezie_weekly_plan_projection/v1` plus the private
-  `feezie_runtime_context/v1` bundle. It makes no Codex/model-provider call,
-  uses no model-provider API key, publishes nothing, updates no learning, and
-  does not recompute persona review. `refresh_persona_review` remains a
+  `refresh_feezie_workspace` action. It builds all four governed payloads before
+  a network write and synchronizes exactly four receipt-bound snapshot types:
+  the closed privacy-safe `feezie_weekly_plan_projection/v1` as `weekly_plan`,
+  the private `feezie_runtime_context/v1` as `feezie_runtime_context`, and the
+  closed `publication_performance_summary` and
+  `publication_performance_status` projections. It must validate the exact
+  four-receipt set before completion. `source_assets` is excluded and must not
+  be persisted or redated by this action. It makes no Codex/model-provider
+  call, uses no model-provider API key, publishes nothing, updates no learning,
+  and does not recompute persona review. `refresh_persona_review` remains a
   separate DB-owned recomputation.
 - Before connection or reconnection, the local public-source and deterministic
   clean-checkout gates must prove: 36-hour private-runtime freshness with only
@@ -158,16 +162,31 @@ History deletion is destructive and does not remove copies held by forks, caches
   `source_assets`, `content_reservoir`, `operator_story_signals`,
   `content_safe_operator_lessons`, `persona_review_summary`, and
   `long_form_routes` in both Workspace and Brain.
+- A valid nonempty derived `source_assets` inventory is reference-only and not
+  a time-freshness gate. Its closed editorial status must report `state:
+  reference_only`, `reference_only: true`, `freshness_required: false`,
+  `timestamp_meaning: projection_assembled_at`, and no stale threshold. Its
+  original `generated_at` and the sources' capture/publication times must not be
+  redated merely because another projection was refreshed; missing, empty,
+  malformed, or future-dated inventory remains visibly failed.
 - Changing a deployment source is privileged production work and requires exact
   owner approval naming the platform, service, `public-release` branch, project
   root, and rollout order. Passing local gates does not authorize connection or
   deployment.
 - A GitHub-triggered deploy must prove owner-specific runtime context readiness after deploy. Generic fallback behavior is not an acceptable substitute for FEEZIE quality.
-- The authenticated frontend must complete the exact Railway safe-public-feed
-  run before queueing the Mac action, poll only its bounded exact-card status,
-  and require a fresh safe weekly projection plus ready private runtime context
-  whose timestamps bind to that job. The browser receives no private bundle,
-  raw weekly rows, storage receipts, or executor errors.
+- If loaded private-runtime status is not ready, the authenticated frontend
+  must first queue and await one exact signed-Mac
+  `refresh_feezie_workspace` preflight. It must then complete the exact Railway
+  safe-public-feed refresh for that run ID and always queue and await a final
+  signed-Mac `refresh_feezie_workspace` sync. Each returned bounded status must
+  match the exact card/job. Success requires a fresh safe weekly projection,
+  ready private runtime context, and fresh performance status whose explicit
+  `ai_clone_utc` UTC source timestamps are at or after the final action
+  transition. Queue, requeue, execution, completion, and artifact-binding
+  lineage accepts only explicit `Z` or `+00:00` UTC timestamps, never browser
+  receipt, display, or unzoned time. Bounded browser status must not leak the
+  private bundle, full storage receipts, private weekly rows, or raw executor
+  errors.
 - If that readiness contract fails, stop the protected release. Use the
   receipt-bound staged Railway fallback only after separate exact approval; it
   is not an automatic bypass.

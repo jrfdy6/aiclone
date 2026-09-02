@@ -34,10 +34,36 @@ type WaitForFeezieWorkspaceSyncOptions = {
   timeoutMs?: number;
 };
 
-function parseTimestamp(value: string | null | undefined): number | null {
-  if (!value || !value.trim()) return null;
-  const parsed = Date.parse(value);
+export function parseAiCloneUtcTimestamp(value: string | null | undefined): number | null {
+  const normalized = value?.trim() ?? '';
+  if (!normalized || !/(?:Z|\+00:00)$/i.test(normalized)) return null;
+  const parsed = Date.parse(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function feezieWorkspaceSyncTransitionAt(receipt: FeezieWorkspaceSyncQueueReceipt): number {
+  const cardId = String(receipt.card_id || '').trim();
+  const jobId = String(receipt.job_id || '').trim();
+  const receiptCardId = String(receipt.card?.id || '').trim();
+  const disposition = String(receipt.disposition || '').trim();
+  const createdAtMs = parseAiCloneUtcTimestamp(receipt.card?.created_at);
+  const transitionAtMs = disposition === 'requeued'
+    ? parseAiCloneUtcTimestamp(receipt.card?.updated_at)
+    : createdAtMs;
+  if (
+    receipt.queued !== true
+    || receipt.action !== FEEZIE_WORKSPACE_SYNC_ACTION
+    || !cardId
+    || jobId !== cardId
+    || receiptCardId !== cardId
+    || !['queued', 'already_active', 'requeued'].includes(disposition)
+    || createdAtMs === null
+    || transitionAtMs === null
+    || transitionAtMs < createdAtMs
+  ) {
+    throw new Error('FEEZIE workspace sync was queued without an exact signed-action receipt. Reload before retrying.');
+  }
+  return transitionAtMs;
 }
 
 export async function waitForFeezieWorkspaceSync({
@@ -47,11 +73,9 @@ export async function waitForFeezieWorkspaceSync({
   pollIntervalMs = 2_500,
   timeoutMs = 360_000,
 }: WaitForFeezieWorkspaceSyncOptions): Promise<FeezieWorkspaceSyncStatus> {
-  const cardId = String(receipt.card_id || receipt.job_id || '').trim();
-  const queuedAtMs = parseTimestamp(receipt.card?.created_at);
-  if (!cardId || queuedAtMs === null || receipt.action !== FEEZIE_WORKSPACE_SYNC_ACTION) {
-    throw new Error('FEEZIE workspace sync was queued without an exact signed-action receipt. Reload before retrying.');
-  }
+  const cardId = String(receipt.card_id || '').trim();
+  const cardCreatedAtMs = parseAiCloneUtcTimestamp(receipt.card?.created_at);
+  const transitionAtMs = feezieWorkspaceSyncTransitionAt(receipt);
   if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0 || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new Error('FEEZIE workspace sync polling requires a positive interval and timeout.');
   }
@@ -59,12 +83,15 @@ export async function waitForFeezieWorkspaceSync({
   const pollAttempts = Math.max(1, Math.ceil(timeoutMs / pollIntervalMs));
   for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
     const status = await readStatus(cardId);
-    const cardCreatedAtMs = parseTimestamp(status.created_at);
+    const statusCreatedAtMs = parseAiCloneUtcTimestamp(status.created_at);
+    const statusUpdatedAtMs = parseAiCloneUtcTimestamp(status.updated_at);
     if (
       status.card_id !== cardId
       || status.job_id !== cardId
-      || cardCreatedAtMs === null
-      || cardCreatedAtMs < queuedAtMs - 1_000
+      || statusCreatedAtMs === null
+      || statusCreatedAtMs !== cardCreatedAtMs
+      || statusUpdatedAtMs === null
+      || statusUpdatedAtMs < transitionAtMs
     ) {
       throw new Error('FEEZIE workspace sync status did not match the exact queued action. Reload before retrying.');
     }
@@ -75,8 +102,8 @@ export async function waitForFeezieWorkspaceSync({
 
     if (
       status.status === 'completed'
-      && parseTimestamp(status.completed_at) !== null
-      && parseTimestamp(status.completed_at)! >= queuedAtMs
+      && parseAiCloneUtcTimestamp(status.completed_at) !== null
+      && parseAiCloneUtcTimestamp(status.completed_at)! >= transitionAtMs
     ) {
       return status;
     }

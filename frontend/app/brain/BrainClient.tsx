@@ -2899,7 +2899,7 @@ function BrainLongFormIngestPanel({
               emptyLabel=""
             />
             <BriefOverlayBlock
-              title="Recent Source Assets"
+              title="Source Asset Inventory"
               items={(workspaceSnapshot?.source_assets?.counts?.total ?? 0) > 0
                 ? [`${workspaceSnapshot?.source_assets?.counts?.total ?? 0} source assets are registered. Exact titles, identifiers, and paths remain outside this aggregate view.`]
                 : []}

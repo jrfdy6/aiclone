@@ -469,7 +469,6 @@ EDITORIAL_SECTION_STALE_HOURS = {
     SNAPSHOT_REACTION_QUEUE: 48,
     SNAPSHOT_SOCIAL_FEED: 48,
     SNAPSHOT_FEEDBACK_SUMMARY: 48,
-    SNAPSHOT_SOURCE_ASSETS: 24 * 8,
     SNAPSHOT_CONTENT_RESERVOIR: 24 * 8,
     SNAPSHOT_PERSONA_REVIEW_SUMMARY: 24 * 8,
     SNAPSHOT_LONG_FORM_ROUTES: 24 * 8,
@@ -3853,6 +3852,83 @@ def _editorial_section_status(
     }
 
 
+def _source_assets_reference_status(
+    payload: dict[str, Any] | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    """Describe the durable source inventory without inventing freshness.
+
+    Source assets are a durable governed reference inventory, not a recurring
+    editorial output or canonical source authority. ``generated_at`` records
+    when that inventory projection was assembled; it does not refresh the
+    captured or published times of the underlying evidence. A valid, non-empty
+    inventory therefore remains usable regardless of projection age, while
+    missing, malformed, empty, or future-dated inventory still fails visibly.
+    """
+
+    base = {
+        "reference_only": True,
+        "freshness_required": False,
+        "timestamp_meaning": "projection_assembled_at",
+        "stale_after_hours": None,
+    }
+    if not isinstance(payload, dict):
+        return {
+            **base,
+            "state": "missing",
+            "available": False,
+            "generated_at": None,
+            "age_hours": None,
+            "item_count": None,
+        }
+
+    generated = _status_timestamp(payload.get("generated_at"))
+    counts = payload.get("counts")
+    items = payload.get("items")
+    total = counts.get("total") if isinstance(counts, dict) else None
+    count_is_valid = (
+        isinstance(total, int)
+        and not isinstance(total, bool)
+        and 0 <= total <= 1_000_000
+        and isinstance(items, list)
+    )
+    if generated is None or not count_is_valid:
+        return {
+            **base,
+            "state": "corrupt",
+            "available": True,
+            "generated_at": (
+                generated.replace(microsecond=0).isoformat()
+                if generated is not None
+                else None
+            ),
+            "age_hours": None,
+            "item_count": total if count_is_valid else None,
+        }
+
+    future_skew_hours = (generated - now).total_seconds() / 3600
+    if future_skew_hours > 1:
+        return {
+            **base,
+            "state": "corrupt",
+            "available": True,
+            "generated_at": generated.replace(microsecond=0).isoformat(),
+            "age_hours": None,
+            "item_count": total,
+        }
+
+    age_hours = round(max(0.0, (now - generated).total_seconds() / 3600), 2)
+    return {
+        **base,
+        "state": "reference_only" if total > 0 else "empty",
+        "available": True,
+        "generated_at": generated.replace(microsecond=0).isoformat(),
+        "age_hours": age_hours,
+        "item_count": total,
+    }
+
+
 def _feedback_section_status(
     payload: dict[str, Any] | None,
     *,
@@ -4007,6 +4083,8 @@ def _build_workspace_editorial_status(
     for key, payload in payloads.items():
         if key == SNAPSHOT_FEEDBACK_SUMMARY:
             sections[key] = _feedback_section_status(payload, now=checked_at)
+        elif key == SNAPSHOT_SOURCE_ASSETS:
+            sections[key] = _source_assets_reference_status(payload, now=checked_at)
         else:
             sections[key] = _editorial_section_status(key, payload, now=checked_at)
     sections[SNAPSHOT_PUBLICATION_PERFORMANCE] = {
@@ -4021,7 +4099,7 @@ def _build_workspace_editorial_status(
     reasons = [
         f"{key}_{section.get('state')}"
         for key, section in sections.items()
-        if section.get("state") != "fresh"
+        if section.get("state") not in {"fresh", "reference_only"}
     ]
     if ((publication_performance_status.get("evidence") or {}).get("state")) == "empty":
         reasons.append("publication_performance_evidence_empty")
@@ -4053,7 +4131,6 @@ def _build_workspace_editorial_status(
             SNAPSHOT_WEEKLY_PLAN,
             SNAPSHOT_REACTION_QUEUE,
             SNAPSHOT_SOCIAL_FEED,
-            SNAPSHOT_SOURCE_ASSETS,
             SNAPSHOT_CONTENT_RESERVOIR,
             SNAPSHOT_LONG_FORM_ROUTES,
         )
@@ -4061,6 +4138,7 @@ def _build_workspace_editorial_status(
         state, severity = "stale", "yellow"
     elif section_states & {
         "missing",
+        "empty",
         "stale",
         "not_measured",
         "measurement_stale",
