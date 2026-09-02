@@ -8,9 +8,14 @@ import pytest
 
 from app.models import StandupEntry
 from app.models.automations import AutomationRun
+from app.models.standups import StandupPromotionRequest
 from app.security.execution_authorization import sign_execution_payload
 from app.services import standup_truth_service
-from app.services.standup_relevance_service import build_standup_relevance_plan
+from app.services.standup_relevance_service import (
+    build_standup_relevance_plan,
+    effective_feezie_meeting_participants,
+    validate_standup_relevance_plan,
+)
 from app.services.standup_truth_service import (
     ASYNC_ROLE_CONTRIBUTION_SCHEMA_VERSION,
     ASYNC_ROLE_EVIDENCE_SCHEMA_VERSION,
@@ -29,6 +34,9 @@ from app.services.standup_truth_service import (
     remote_standup_promotion_payload,
     remote_standup_report_content,
     semantic_sha256,
+)
+from app.services.workspace_runtime_contract_service import (
+    standup_participants_for,
 )
 
 
@@ -57,12 +65,12 @@ def test_remote_promotion_projection_keeps_private_goal_and_excerpt_context_loca
         "workspace_key": "fusion-os",
         "cycle_id": "daily-private-projection",
         "standup_kind": "workspace_sync",
-        "participants": ["Jean-Claude", "Fusion Operator"],
+        "participants": ["Jean-Claude", "Fusion Systems Operator"],
         "summary": f"Evaluation against {private_goal}",
         "discussion_rounds": [
             {
                 "round": 1,
-                "speaker": "Fusion Operator",
+                "speaker": "Fusion Systems Operator",
                 "note": f"Grounding brief: {truncated_excerpt}",
                 "provenance": "synthesized_role_lens",
             },
@@ -74,7 +82,7 @@ def test_remote_promotion_projection_keeps_private_goal_and_excerpt_context_loca
             },
             {
                 "round": 3,
-                "speaker": "Fusion Operator",
+                "speaker": "Fusion Systems Operator",
                 "note": f"Middle slice copied alone: {middle_slice}",
                 "provenance": "synthesized_role_lens",
             },
@@ -171,6 +179,227 @@ def test_remote_promotion_projection_keeps_private_goal_and_excerpt_context_loca
         "display_name": "Fusion OS",
         "goal_contract_status": "available_private_authority",
     }
+
+
+def _structural_projection_fixture(
+    *,
+    workspace_key: str,
+    standup_kind: str,
+    participants: list[str],
+    standup_relevance: dict | None = None,
+) -> dict:
+    private_goal = (
+        "sep-2-private-proof binds "
+        f"{workspace_key} {standup_kind} {' '.join(participants)}"
+    )
+    relevance = dict(standup_relevance or {})
+    goal_contract = {
+        "goal": private_goal,
+        "workspace_key": workspace_key,
+        "standup_kind": standup_kind,
+        "participants": participants,
+    }
+    if relevance:
+        goal_contract["policy_version"] = relevance["policy_version"]
+    return {
+        "meeting_id": f"meeting-{workspace_key}-{standup_kind}",
+        "prep_id": f"prep-{workspace_key}-{standup_kind}",
+        "workspace_key": workspace_key,
+        "cycle_id": "daily-2026-09-02@20260902T101500000000Z",
+        "standup_kind": standup_kind,
+        "owner": "Jean-Claude",
+        "source": "standup_prep",
+        "participants": participants,
+        "summary": f"Copied private authority: {private_goal}",
+        "agenda": ["Evaluate the bounded current state."],
+        "blockers": [],
+        "commitments": [],
+        "needs": [],
+        "audience_response": [],
+        "decisions": [],
+        "owners": [],
+        "artifact_deltas": [],
+        "standup_sections": {},
+        "pm_snapshot": {},
+        "strategy_context": {
+            "display_name": workspace_key,
+            "goal_contract_status": "available_private_authority",
+            "goal_contract": goal_contract,
+        },
+        "standup_relevance": relevance,
+        "discussion_rounds": [
+            {
+                "round": index,
+                "speaker": participant,
+                "note": "Bounded public-safe structural regression note.",
+            }
+            for index, participant in enumerate(participants, start=1)
+        ],
+        "source_paths": [],
+        "memory_promotions": [],
+        "prior_standup": {},
+        "continuity": {},
+        "recursion": {
+            "planned_participants": participants,
+            "closing_participant": "Jean-Claude",
+        },
+        "recommendation_path": None,
+        "pm_updates": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "workspace_key",
+    (
+        "fusion-os",
+        "easyoutfitapp",
+        "ai-swag-store",
+        "agc",
+        "work-life-tools",
+    ),
+)
+def test_sep2_project_structural_identifiers_survive_private_projection(
+    workspace_key: str,
+) -> None:
+    participants = standup_participants_for(workspace_key, "workspace_sync")
+    promotion = _structural_projection_fixture(
+        workspace_key=workspace_key,
+        standup_kind="workspace_sync",
+        participants=participants,
+    )
+
+    projected = remote_standup_promotion_payload(promotion)
+    replayed = remote_standup_promotion_payload(projected)
+    validated = StandupPromotionRequest.model_validate(replayed)
+
+    assert validated.workspace_key == workspace_key
+    assert validated.standup_kind == "workspace_sync"
+    assert validated.participants == participants
+    assert [item["speaker"] for item in validated.discussion_rounds] == participants
+    assert validated.recursion["planned_participants"] == participants
+    assert "sep-2-private-proof" not in json.dumps(replayed, sort_keys=True)
+    assert "[private-workspace-context]" in replayed["summary"]
+
+
+@pytest.mark.parametrize(
+    "standup_kind",
+    ("executive_ops", "operations", "weekly_review", "saturday_vision"),
+)
+def test_sep2_shared_ops_structural_identifiers_survive_private_projection(
+    standup_kind: str,
+) -> None:
+    participants = ["Jean-Claude", "Neo", "Yoda"]
+    promotion = _structural_projection_fixture(
+        workspace_key="shared_ops",
+        standup_kind=standup_kind,
+        participants=participants,
+    )
+
+    projected = remote_standup_promotion_payload(promotion)
+    replayed = remote_standup_promotion_payload(projected)
+    validated = StandupPromotionRequest.model_validate(replayed)
+
+    assert validated.workspace_key == "shared_ops"
+    assert validated.standup_kind == standup_kind
+    assert validated.participants == participants
+    assert [item["speaker"] for item in validated.discussion_rounds] == participants
+    assert "sep-2-private-proof" not in json.dumps(replayed, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    "tags",
+    (
+        ["execution_or_lifecycle"],
+        ["owner_intent_or_approval", "strategy_or_positioning"],
+    ),
+)
+def test_sep2_feezie_relevance_authority_survives_private_projection(
+    tags: list[str],
+) -> None:
+    relevance = build_standup_relevance_plan(
+        [
+            {
+                "id": "sep2-feezie-structural-regression",
+                "title": "Evaluate one bounded FEEZIE agenda item",
+                "workspace_key": "feezie-os",
+                "source_ids": ["bounded-source-1"],
+                "observed_at": "2026-09-02T10:15:00Z",
+                "tags": tags,
+            }
+        ],
+        now=datetime(2026, 9, 2, 10, 15, tzinfo=timezone.utc),
+    )
+    participants = (
+        effective_feezie_meeting_participants(relevance)
+        if relevance["disposition"] == "run"
+        else [
+            str(item["display_name"])
+            for item in relevance["participant_plan"]
+        ]
+    )
+    promotion = _structural_projection_fixture(
+        workspace_key="feezie-os",
+        standup_kind="workspace_sync",
+        participants=participants,
+        standup_relevance=relevance,
+    )
+
+    projected = remote_standup_promotion_payload(promotion)
+    replayed = remote_standup_promotion_payload(projected)
+    validated = StandupPromotionRequest.model_validate(replayed)
+    validated_relevance = validate_standup_relevance_plan(
+        validated.standup_relevance
+    )
+
+    assert validated.workspace_key == "feezie-os"
+    assert validated.standup_kind == "workspace_sync"
+    assert validated.participants == participants
+    assert validated_relevance["policy_version"] == relevance["policy_version"]
+    assert validated_relevance["selected_roles"] == relevance["selected_roles"]
+    assert [
+        item["display_name"] for item in validated_relevance["participant_plan"]
+    ] == [item["display_name"] for item in relevance["participant_plan"]]
+    assert "sep-2-private-proof" not in json.dumps(replayed, sort_keys=True)
+
+
+@pytest.mark.parametrize("workspace_key", ("fusion os", "unknown-workspace"))
+def test_remote_projection_rejects_noncanonical_workspace_identifiers(
+    workspace_key: str,
+) -> None:
+    promotion = _structural_projection_fixture(
+        workspace_key=workspace_key,
+        standup_kind="workspace_sync",
+        participants=["Jean-Claude", "Fusion Systems Operator"],
+    )
+
+    with pytest.raises(ValueError, match="canonical workspace_key"):
+        remote_standup_promotion_payload(promotion)
+
+
+def test_remote_projection_rejects_tampered_feezie_policy_before_preservation() -> None:
+    relevance = build_standup_relevance_plan(
+        [
+            {
+                "id": "sep2-feezie-tamper",
+                "title": "Evaluate a bounded execution issue",
+                "workspace_key": "feezie-os",
+                "source_ids": ["bounded-source-1"],
+                "observed_at": "2026-09-02T10:15:00Z",
+                "tags": ["execution_or_lifecycle"],
+            }
+        ],
+        now=datetime(2026, 9, 2, 10, 15, tzinfo=timezone.utc),
+    )
+    relevance["policy_version"] = "untrusted-policy/v0"
+    promotion = _structural_projection_fixture(
+        workspace_key="feezie-os",
+        standup_kind="workspace_sync",
+        participants=["Jean-Claude"],
+        standup_relevance=relevance,
+    )
+
+    with pytest.raises(ValueError, match="policy version is not authoritative"):
+        remote_standup_promotion_payload(promotion)
 
 
 def _standup(**overrides) -> StandupEntry:

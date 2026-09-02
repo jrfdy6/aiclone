@@ -21,6 +21,7 @@ from app.services.workspace_registry_service import (
     WORKSPACES_ROOT,
     canonicalize_workspace_key,
     workspace_registry_entry,
+    workspace_registry_map,
 )
 from app.utils.ai_clone_clock import resolve_payload_observation, utc_iso
 
@@ -258,6 +259,309 @@ def _mapping_value(value: object) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
     raise ValueError("standup promotion value must be a mapping")
+
+
+def _validated_remote_promotion_structure(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve only public structural identifiers before privacy projection.
+
+    Private-context copy detection is intentionally aggressive. A canonical
+    workspace key, standup kind, or participant name can also occur inside a
+    private goal contract, however, and must not consequently be rewritten in
+    the structural fields the Railway writer validates. This helper admits an
+    identifier to the preservation allowlist only after the existing
+    workspace-runtime and FEEZIE-relevance authorities validate it.
+    """
+
+    from app.services.standup_relevance_service import (
+        SCHEMA_VERSION as RELEVANCE_SCHEMA_VERSION,
+        effective_feezie_meeting_participants,
+        validate_standup_relevance_plan,
+    )
+    from app.services.workspace_runtime_contract_service import (
+        EXECUTIVE_STANDUP_KINDS,
+        canonical_standup_kind_for_workspace,
+        standup_participants_for,
+    )
+
+    supplied_workspace_key = value.get("workspace_key")
+    if not isinstance(supplied_workspace_key, str):
+        raise ValueError("standup promotion requires a canonical workspace_key")
+    workspace_key = supplied_workspace_key.strip()
+    canonical_workspace_key = canonicalize_workspace_key(
+        workspace_key,
+        default="shared_ops",
+    )
+    if (
+        not workspace_key
+        or workspace_key != supplied_workspace_key
+        or workspace_key != canonical_workspace_key
+        or workspace_key not in workspace_registry_map()
+    ):
+        raise ValueError("standup promotion requires a canonical workspace_key")
+
+    supplied_standup_kind = value.get("standup_kind")
+    if not isinstance(supplied_standup_kind, str):
+        raise ValueError(
+            "standup_kind does not match the canonical workspace standup contract"
+        )
+    standup_kind = supplied_standup_kind.strip()
+    canonical_standup_kind = canonical_standup_kind_for_workspace(
+        workspace_key,
+        standup_kind,
+    )
+    if (
+        not standup_kind
+        or standup_kind != supplied_standup_kind
+        or standup_kind != canonical_standup_kind
+    ):
+        raise ValueError(
+            "standup_kind does not match the canonical workspace standup contract"
+        )
+
+    relevance: dict[str, Any] = {}
+    selected_role_keys: list[str] = []
+    supplied_relevance = value.get("standup_relevance")
+    if workspace_key == "feezie-os":
+        if supplied_relevance:
+            if not isinstance(supplied_relevance, Mapping):
+                raise ValueError(
+                    "FEEZIE standup promotion requires the canonical relevance plan."
+                )
+            relevance = validate_standup_relevance_plan(dict(supplied_relevance))
+            disposition = str(relevance.get("disposition") or "").strip()
+            if disposition == "run":
+                expected_participants = effective_feezie_meeting_participants(
+                    relevance
+                )
+            elif disposition == "decision_record":
+                expected_participants = [
+                    str(item.get("display_name") or "").strip()
+                    for item in relevance.get("participant_plan") or []
+                    if isinstance(item, Mapping)
+                    and str(item.get("display_name") or "").strip()
+                ]
+            else:
+                raise ValueError(
+                    f"A `{disposition or 'missing'}` relevance result cannot be promoted as a standup."
+                )
+            selected_role_keys = [
+                str(item).strip()
+                for item in relevance.get("selected_roles") or []
+                if str(item).strip()
+            ]
+        else:
+            # This projector is also reused by the legacy prepared-row writer.
+            # Keep that non-promotion shape projectable; promote_standup still
+            # requires relevance before any completed FEEZIE write.
+            expected_participants = standup_participants_for(
+                workspace_key,
+                standup_kind,
+            )
+    else:
+        if supplied_relevance:
+            raise ValueError(
+                "Only FEEZIE may replace the canonical workspace participant contract with a relevance plan."
+            )
+        expected_participants = standup_participants_for(
+            workspace_key,
+            standup_kind,
+        )
+
+    supplied_participants = value.get("participants") or []
+    if not isinstance(supplied_participants, list) or any(
+        not isinstance(item, str) for item in supplied_participants
+    ):
+        raise ValueError("standup participants must be canonical display names")
+    participants = list(supplied_participants)
+    participants_valid = (
+        participants == expected_participants
+        if workspace_key == "feezie-os"
+        else not participants or participants == expected_participants
+    )
+
+    participant_names = {
+        CANONICAL_MEETING_CLOSER,
+        *(str(item) for item in expected_participants if str(item).strip()),
+    }
+    participant_keys = {
+        _participant_key(participant) for participant in participant_names
+    }
+    participant_keys.update(selected_role_keys)
+    registry = workspace_registry_entry(workspace_key)
+    display_names = {
+        *participant_names,
+        str(registry.get("display_name") or "").strip(),
+    }
+    display_names.discard("")
+
+    exact_values_by_field: dict[str, frozenset[str]] = {
+        "workspace_key": frozenset(workspace_registry_map()),
+        "standup_kind": frozenset(
+            {"workspace_sync", *EXECUTIVE_STANDUP_KINDS}
+        ),
+        "display_name": frozenset(display_names),
+        "speaker": frozenset(participant_names),
+        "participant": frozenset(participant_names),
+        "closing_participant": frozenset(participant_names),
+        "closed_by": frozenset(participant_names),
+        "canonical_pm_execution_authority": frozenset(
+            {CANONICAL_MEETING_CLOSER}
+        ),
+        "owner_agent": frozenset(participant_names),
+        "participant_key": frozenset(participant_keys),
+        "role": frozenset(selected_role_keys),
+    }
+    exact_lists_by_field: dict[str, frozenset[str]] = {
+        "participants": frozenset(participant_names),
+        "planned_participants": frozenset(participant_names),
+        "selected_roles": frozenset(selected_role_keys),
+        "challenged_by": frozenset(participant_names),
+        "owner_decision_required_by": frozenset(participant_names),
+    }
+    if relevance:
+        exact_values_by_field["policy_version"] = frozenset(
+            {str(relevance["policy_version"])}
+        )
+        exact_values_by_field["schema_version"] = frozenset(
+            {RELEVANCE_SCHEMA_VERSION}
+        )
+        # These are deterministic policy vocabulary reconstructed and checked
+        # by validate_standup_relevance_plan, not workspace-authored prose.
+        # Preserve them so words shared with the policy version (for example
+        # ``strategy_or_positioning``) cannot invalidate an otherwise exact
+        # plan. Input-derived titles and evidence identifiers remain subject
+        # to the private-context scrubber and therefore still fail closed if
+        # they overlap private authority text.
+        deterministic_values: dict[str, set[str]] = {
+            "disposition": {str(relevance.get("disposition") or "")},
+            "disposition_reason": {
+                str(relevance.get("disposition_reason") or "")
+            },
+            "evaluated_at": {str(relevance.get("evaluated_at") or "")},
+            "lens": set(),
+            "provenance": set(),
+            "reason_code": set(),
+            "freshness": set(),
+            "observed_at": set(),
+        }
+        deterministic_lists: dict[str, set[str]] = {
+            "tags": set(),
+            "reason_codes": set(),
+            "matching_tags": set(),
+            "exclusion_reasons": set(),
+        }
+        for item in relevance.get("participant_plan") or []:
+            if not isinstance(item, Mapping):
+                continue
+            for field in ("lens", "provenance"):
+                if str(item.get(field) or "").strip():
+                    deterministic_values[field].add(str(item[field]))
+            deterministic_lists["reason_codes"].update(
+                str(code) for code in item.get("reason_codes") or []
+            )
+        for entries in (relevance.get("reason_evidence") or {}).values():
+            for item in entries or []:
+                if not isinstance(item, Mapping):
+                    continue
+                if str(item.get("reason_code") or "").strip():
+                    deterministic_values["reason_code"].add(
+                        str(item["reason_code"])
+                    )
+                deterministic_lists["matching_tags"].update(
+                    str(tag) for tag in item.get("matching_tags") or []
+                )
+        for item in relevance.get("normalized_agenda") or []:
+            if not isinstance(item, Mapping):
+                continue
+            for field in ("freshness", "observed_at"):
+                if str(item.get(field) or "").strip():
+                    deterministic_values[field].add(str(item[field]))
+            deterministic_lists["tags"].update(
+                str(tag) for tag in item.get("tags") or []
+            )
+            deterministic_lists["exclusion_reasons"].update(
+                str(reason) for reason in item.get("exclusion_reasons") or []
+            )
+        provenance = relevance.get("provenance")
+        if isinstance(provenance, Mapping):
+            deterministic_values["provenance"].update(
+                str(item)
+                for item in provenance.values()
+                if isinstance(item, str) and item
+            )
+        for field, values in deterministic_values.items():
+            clean_values = {item for item in values if item}
+            if clean_values:
+                exact_values_by_field[field] = frozenset(clean_values)
+        for field, values in deterministic_lists.items():
+            exact_lists_by_field[field] = frozenset(values)
+
+    return {
+        "workspace_key": workspace_key,
+        "standup_kind": standup_kind,
+        "participants": participants,
+        "participants_valid": participants_valid,
+        "relevance": relevance,
+        "exact_values_by_field": exact_values_by_field,
+        "exact_lists_by_field": exact_lists_by_field,
+    }
+
+
+def _restore_validated_remote_structure(
+    original: object,
+    projected: object,
+    *,
+    exact_values_by_field: Mapping[str, frozenset[str]],
+    exact_lists_by_field: Mapping[str, frozenset[str]],
+) -> object:
+    """Restore only exact, validated identifiers after narrative scrubbing."""
+
+    if isinstance(original, Mapping) and isinstance(projected, Mapping):
+        result = dict(projected)
+        for raw_key, raw_value in original.items():
+            key = str(raw_key).strip()
+            if not key or key not in result:
+                continue
+            allowed_values = exact_values_by_field.get(key)
+            if (
+                allowed_values is not None
+                and isinstance(raw_value, str)
+                and raw_value in allowed_values
+            ):
+                result[key] = raw_value
+                continue
+            allowed_list_values = exact_lists_by_field.get(key)
+            if (
+                allowed_list_values is not None
+                and isinstance(raw_value, list)
+                and all(
+                    isinstance(item, str) and item in allowed_list_values
+                    for item in raw_value
+                )
+            ):
+                result[key] = list(raw_value)
+                continue
+            result[key] = _restore_validated_remote_structure(
+                raw_value,
+                result[key],
+                exact_values_by_field=exact_values_by_field,
+                exact_lists_by_field=exact_lists_by_field,
+            )
+        return result
+    if isinstance(original, (list, tuple)) and isinstance(projected, list):
+        return [
+            _restore_validated_remote_structure(
+                raw_item,
+                projected[index],
+                exact_values_by_field=exact_values_by_field,
+                exact_lists_by_field=exact_lists_by_field,
+            )
+            for index, raw_item in enumerate(original)
+            if index < len(projected)
+        ]
+    return projected
 
 
 def _collect_private_workspace_literals(value: object) -> tuple[str, ...]:
@@ -639,6 +943,7 @@ def remote_standup_promotion_payload(
     """Project a rich local prep into the only promotion shape Railway may see."""
 
     raw = _mapping_value(value)
+    structure = _validated_remote_promotion_structure(raw)
     private_literals = _collect_private_workspace_literals(raw)
     projected = _remote_standup_value(
         raw,
@@ -668,6 +973,21 @@ def remote_standup_promotion_payload(
         for update in raw.get("pm_updates") or raw.get("recommendation_requests") or []
         if isinstance(update, Mapping) or hasattr(update, "model_dump")
     ]
+    restored = _restore_validated_remote_structure(
+        raw,
+        result,
+        exact_values_by_field=structure["exact_values_by_field"],
+        exact_lists_by_field=structure["exact_lists_by_field"],
+    )
+    if not isinstance(restored, Mapping):  # pragma: no cover - mapping in, mapping out
+        raise ValueError("standup promotion projection is malformed")
+    result = dict(restored)
+    # The top-level writer bindings are mandatory and were fully validated
+    # before any private-context transformation occurred.
+    result["workspace_key"] = structure["workspace_key"]
+    result["standup_kind"] = structure["standup_kind"]
+    if structure["participants_valid"]:
+        result["participants"] = list(structure["participants"])
     return result
 
 

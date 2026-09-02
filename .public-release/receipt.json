@@ -1848,8 +1848,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/standup_truth_service.py",
-        "sha256": "cf9de545f38e82c9e61f31c9fb9523fe3d970b217aa2134cc8738d51ab4409a7",
-        "size": 75888
+        "sha256": "f4c29c64acb59c6960291044cf54be0095bc0c9bd03f25b44eb4506bbcf1b31e",
+        "size": 89269
       },
       {
         "mode": 420,
@@ -2178,8 +2178,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_standup_truth_service.py",
-        "sha256": "a3a0cfa4a089a8e8665156c1b9abd53a2d9b46d3b96744879204e13241aa72f3",
-        "size": 44135
+        "sha256": "5dd108b7f1f25891b3fb738d9fa8b44d08638148332e460d6e001cc9f1a05d92",
+        "size": 52196
       },
       {
         "mode": 420,
@@ -3268,7 +3268,7 @@
         "size": 9830
       }
     ],
-    "tree_sha256": "d695db4ae2170d406878b1ef37d764ad2c0a94a5d5f87236956c197d73641b70"
+    "tree_sha256": "e585781c664548dd277616de043cc4bce220e00bc67565db27f9f75288fc880f"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
