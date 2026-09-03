@@ -322,6 +322,56 @@ class OpsStandupProjectionSyncRequest(BaseModel):
         return self
 
 
+class OpsWorkspaceGoalProjectionSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["ops_workspace_goal_projection_sync/v1"] = (
+        "ops_workspace_goal_projection_sync/v1"
+    )
+    generated_at: str = Field(min_length=1, max_length=64)
+    projection: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "OpsWorkspaceGoalProjectionSyncRequest":
+        _validate_generated_at(self.generated_at)
+        from app.services.ops_workspace_goal_projection_service import (
+            validate_ops_workspace_goal_projection,
+        )
+
+        self.projection = validate_ops_workspace_goal_projection(self.projection)
+        if self.projection.get("state") != "ready":
+            raise ValueError("only a ready workspace-goal projection may be synchronized")
+        if self.projection.get("generated_at") != self.generated_at:
+            raise ValueError("projection generated_at must match the sync envelope")
+        return self
+
+
+class OpsWorkspaceContextProjectionSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["ops_workspace_context_projection_sync/v1"] = (
+        "ops_workspace_context_projection_sync/v1"
+    )
+    generated_at: str = Field(min_length=1, max_length=64)
+    projection: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_projection(self) -> "OpsWorkspaceContextProjectionSyncRequest":
+        _validate_generated_at(self.generated_at)
+        from app.services.ops_workspace_context_projection_service import (
+            validate_ops_workspace_context_projection,
+        )
+
+        self.projection = validate_ops_workspace_context_projection(self.projection)
+        if self.projection.get("state") not in {"ready", "degraded"}:
+            raise ValueError(
+                "only a ready or degraded workspace-context projection may be synchronized"
+            )
+        if self.projection.get("generated_at") != self.generated_at:
+            raise ValueError("projection generated_at must match the sync envelope")
+        return self
+
+
 class IntegratedContentVariantRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

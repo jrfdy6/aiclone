@@ -1,166 +1,35 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { controlApiGet } from '@/lib/control-api';
-import { normalizeDisplayText, safeExternalHttpsUrl } from '@/lib/display-privacy';
+import { safeExternalHttpsUrl } from '@/lib/display-privacy';
 import { opsCanonicalDecisionDisplay } from '@/lib/ops-canonical-decision';
+import {
+  ownerItemText,
+  ownerSafeOpsText,
+  projectPortfolioOwnerTruth,
+  projectWorkspaceOwnerTruth,
+  type OpsOwnerItem,
+  type OpsOwnerProjection,
+  type OpsSharedReconciliation,
+  type OpsWorkspaceGoalProjection,
+  type WorkspaceOwnerTruth,
+  type WorkspaceOwnerTruthState,
+} from '@/lib/ops-owner-truth';
 
-type Item = Record<string, unknown>;
-type WorkspaceRecursion = {
-  workspace_key: string;
-  display_name: string;
-  goal: Record<string, unknown>;
-  changes_since_prior: Item[];
-  system_decisions: Item[];
-  actions_taken: Item[];
-  completed_work: Item[];
-  failed_work: Item[];
-  carried_forward: Item[];
-  owner_decisions: Item[];
-  blocked: Item[];
-  no_action: Item[];
-  recommendations: Item[];
-  reference_only: Item[];
-  next_cycle_inputs: Item[];
-  recommendation_resolutions: Item[];
+const panel: React.CSSProperties = {
+  background: 'rgba(15,23,42,.72)',
+  border: '1px solid #334155',
+  borderRadius: '16px',
+  padding: 'clamp(14px, 3vw, 20px)',
+  display: 'grid',
+  gap: '16px',
+  minWidth: 0,
 };
-type SharedOpsReconciliation = {
-  display_name: string;
-  role: 'portfolio_reconciler';
-  summary: string;
-  goal: Record<string, unknown>;
-  evaluated: Item[];
-  system_decisions: Item[];
-  actions_taken: Item[];
-  owner_calls: Item[];
-  blocked: Item[];
-  no_action: Item[];
-  recommendations: Item[];
-  reference_only: Item[];
-  next_cycle_inputs: Item[];
-};
-type OpsProjection = {
-  generated_at: string;
-  observed_at?: string | null;
-  ops_conclusion_attempt_number?: number | null;
-  state: 'ready' | 'empty' | 'degraded' | 'error';
-  reason_codes: string[];
-  cycle_date?: string | null;
-  status?: string;
-  workspace_updates: Item[];
-  workspace_recursion: WorkspaceRecursion[];
-  shared_ops_reconciliation?: SharedOpsReconciliation | null;
-  ai_clone_process_updates: Record<string, unknown>;
-  endpoint_and_subsystem_health: Record<string, unknown>;
-  work_underway: Item[];
-  completed_work: Item[];
-  blockers: Item[];
-  urgent_escalations: Item[];
-  workspace_decisions: Item[];
-  ops_decisions: Item[];
-  owner_calls: Item[];
-  canonical_decisions: Item[];
-  decision_readiness?: {
-    state?: 'ready' | 'degraded';
-    clock_authority?: string;
-    checked_at?: string;
-    source_updated_at?: string | null;
-    blocking_reason_codes?: string[];
-    context_warnings?: string[];
-  };
-  degraded_system_warnings: string[];
-  supporting_evidence_links: Item[];
-  recommended_next_actions: Item[];
-};
+const quietText: React.CSSProperties = { color: '#94a3b8', fontSize: '12px', margin: 0, lineHeight: 1.5 };
 
-const panel: React.CSSProperties = { background: 'rgba(15,23,42,.72)', border: '1px solid #334155', borderRadius: '16px', padding: '20px', display: 'grid', gap: '16px' };
-const recursionPanel: React.CSSProperties = { display: 'grid', gap: '12px' };
-const recursionCard: React.CSSProperties = { border: '1px solid #334155', borderRadius: '14px', background: 'rgba(2,6,23,.6)', padding: '14px', display: 'grid', gap: '12px' };
-const recursionGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' };
-const recursionField: React.CSSProperties = { border: '1px solid rgba(71,85,105,.7)', borderRadius: '10px', padding: '10px', background: 'rgba(15,23,42,.55)', minWidth: 0 };
-const quietText: React.CSSProperties = { color: '#64748b', fontSize: '12px', margin: 0, lineHeight: 1.45 };
-const INTERNAL_UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
-
-function ownerText(value: unknown, limit = 900): string {
-  const normalized = normalizeDisplayText(String(value ?? ''))
-    .replace(/\[private-workspace-context\]/gi, 'private workspace context')
-    .replace(INTERNAL_UUID_PATTERN, 'record')
-    .replace(/\bai-swag-store\b/gi, 'AI Swag Store')
-    .replace(/\beasyoutfitapp\b/gi, 'Easy Outfit App')
-    .replace(/\bfeezie-os\b/gi, 'FEEZIE OS')
-    .replace(/\bfusion-os\b/gi, 'Fusion OS')
-    .replace(/\bwork-life-tools\b/gi, 'Work Life Tools')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return normalized.slice(0, limit);
-}
-
-function ownerStatus(value: unknown): string {
-  return ownerText(value, 160).replaceAll('_', ' ');
-}
-
-function label(item: Item): string {
-  return ownerText(item.summary ?? item.title ?? item.label ?? item.workspace_key ?? 'Recorded item');
-}
-
-function ownerPreview(value: unknown, limit = 260): string {
-  const text = ownerText(value, Math.max(limit + 1, 80));
-  const firstSentence = text.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
-  const candidate = firstSentence && firstSentence.length >= 28 ? firstSentence : text;
-  return candidate.length > limit ? `${candidate.slice(0, Math.max(0, limit - 1)).trimEnd()}…` : candidate;
-}
-
-function ownerItemSummary(item: Item, limit = 260): string {
-  const rawSummary = String(item.summary ?? '').trim();
-  const trigger = item.future_trigger ?? item.trigger;
-  if (rawSummary === 'participant_receipt_unavailable') {
-    const workspace = ownerStatus(item.workspace_key);
-    const next = trigger ? ` Next: ${ownerPreview(trigger, 190)}` : '';
-    return `${workspace ? `${workspace.toUpperCase()} is waiting because a required participant receipt is unavailable.` : 'A required participant receipt is unavailable.'}${next}`;
-  }
-  if (rawSummary === 'No conclusion receipt received.' && item.workspace_key) {
-    return `${ownerStatus(item.workspace_key)} did not return a conclusion receipt.`;
-  }
-  return ownerPreview(label(item), limit);
-}
-
-function uniqueOwnerItems(items: Item[]): Item[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = [item.workspace_key, item.summary, item.reason_code].map((value) => String(value ?? '')).join('|');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function detailValue(item: Item, key: string): string | null {
-  const value = item[key];
-  if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  if (typeof value === 'string' || typeof value === 'number') {
-    const text = String(value).trim();
-    return text || null;
-  }
-  return null;
-}
-
-function itemKey(item: Item, index: number): string {
-  for (const key of ['recommendation_id', 'result_id', 'action_id', 'decision_id', 'card_id', 'summary', 'title']) {
-    const value = detailValue(item, key);
-    if (value) return `${key}-${value}-${index}`;
-  }
-  return `item-${index}`;
-}
-
-function evidenceUrl(item: Item): string | null {
-  for (const key of ['url', 'href', 'source_url']) {
-    const href = safeExternalHttpsUrl(item[key]);
-    if (href) return href;
-  }
-  return null;
-}
+type ScopeTruth = Pick<WorkspaceOwnerTruth, 'state' | 'currentState' | 'affected' | 'remainsHealthy'>;
 
 function utcLabel(value?: string | null) {
   if (!value) return 'not recorded';
@@ -169,293 +38,270 @@ function utcLabel(value?: string | null) {
   return `${date.toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} UTC`;
 }
 
-function ItemList({ title, items, accent = '#cbd5e1', linkEvidence = false }: { title: string; items: Item[]; accent?: string; linkEvidence?: boolean }) {
-  if (!items.length) return null;
-  return <div><h3 style={{ color: accent, fontSize: '14px', margin: '0 0 8px' }}>{title}</h3><ul style={{ color: '#cbd5e1', margin: 0, paddingLeft: '20px', display: 'grid', gap: '6px' }}>{items.map((item, index) => {
-    const href = linkEvidence ? evidenceUrl(item) : null;
-    return <li key={`${title}-${index}`}>{href ? <a href={href} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>{label(item)}</a> : label(item)}{item.provenance_kind ? <small style={{ color: '#64748b' }}> · {String(item.provenance_kind).replaceAll('_', ' ')}</small> : null}</li>;
-  })}</ul></div>;
+function stateLabel(state: WorkspaceOwnerTruthState): string {
+  if (state === 'no_change') return 'Healthy — no eligible change';
+  if (state === 'unavailable') return 'Unavailable';
+  return `${state.slice(0, 1).toUpperCase()}${state.slice(1)}`;
 }
 
-function CanonicalDecisionList({ items }: { items: Item[] }) {
-  if (!items.length) return null;
-  return <div><h3 style={{ color: '#c4b5fd', fontSize: '14px', margin: '0 0 8px' }}>Canonical decisions</h3><ul style={{ color: '#cbd5e1', margin: 0, paddingLeft: '20px', display: 'grid', gap: '8px' }}>{items.map((item, index) => {
-    const decision = opsCanonicalDecisionDisplay(item);
-    return <li key={`Canonical decisions-${index}`}>
-      <strong>{ownerText(decision.title)}</strong>
-      {decision.status || decision.stateVersion ? <div><small style={{ color: '#94a3b8' }}>{decision.status ? ownerStatus(decision.status) : 'status unavailable'}{decision.stateVersion ? ` · version ${ownerText(decision.stateVersion, 80)}` : ''}</small></div> : null}
-      {decision.resolvedChoice ? <div style={{ color: '#e2e8f0', marginTop: '2px' }}><small style={{ color: '#a78bfa' }}>Resolved choice: </small>{ownerText(decision.resolvedChoice)}</div> : null}
-    </li>;
-  })}</ul></div>;
+function stateTone(state: WorkspaceOwnerTruthState): string {
+  if (state === 'healthy') return '#86efac';
+  if (state === 'no_change') return '#a5f3fc';
+  if (state === 'empty') return '#fcd34d';
+  if (state === 'degraded') return '#fdba74';
+  return '#fda4af';
 }
 
-function ProcessUpdates({ updates }: { updates: Record<string, unknown> }) {
-  const rows = Object.entries(updates);
-  if (!rows.length) return null;
-  return <div>
-    <h3 style={{ color: '#a5f3fc', fontSize: '14px', margin: '0 0 8px' }}>AI Clone process updates</h3>
-    <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-      {rows.length} internal process receipt{rows.length === 1 ? '' : 's'} accompanied this cycle. Open System for bounded health and runtime diagnostics; raw payloads do not belong in owner guidance.
-    </p>
+function factSummary(facts: string[], empty: string): string {
+  if (!facts.length) return empty;
+  if (facts.length === 1) return facts[0];
+  return `${facts[0]} ${facts.length - 1} additional bounded ${facts.length === 2 ? 'item is' : 'items are'} available in supporting details.`;
+}
+
+function resultSummary(truth: WorkspaceOwnerTruth): string {
+  const parts: string[] = [];
+  if (truth.completed.length) parts.push(`Completed: ${truth.completed[0]}`);
+  if (truth.failed.length) parts.push(`Failed: ${truth.failed[0]}`);
+  if (truth.carried.length) parts.push(`Carried forward: ${truth.carried[0]}`);
+  return parts.length
+    ? parts.join(' ')
+    : 'No completed, failed, or carried-forward work was claimed by this conclusion.';
+}
+
+function OwnerTruthRows({ rows }: { rows: Array<{ label: string; value: string; tone?: string }> }) {
+  return <div data-ops-owner-summary="primary" style={{ borderTop: '1px solid #334155', borderBottom: '1px solid #334155' }}>
+    {rows.map((row, index) => <div key={row.label} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: '8px 16px', padding: '11px 0', borderTop: index === 0 ? 'none' : '1px solid rgba(51,65,85,.65)' }}>
+      <p style={{ color: row.tone ?? '#cbd5e1', margin: 0, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>{row.label}</p>
+      <p style={{ color: '#dbe7ff', margin: 0, fontSize: '13px', lineHeight: 1.55, overflowWrap: 'anywhere' }}>{row.value}</p>
+    </div>)}
   </div>;
 }
 
-function RecursionFactList({
-  title,
-  items,
-  accent,
-  detailKeys = [],
-}: {
-  title: string;
-  items: Item[];
-  accent: string;
-  detailKeys?: string[];
-}) {
-  return <div style={recursionField}>
-    <h4 style={{ color: accent, fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '.05em' }}>{title}</h4>
-    {items.length ? <ul style={{ color: '#cbd5e1', margin: 0, paddingLeft: '18px', display: 'grid', gap: '6px', fontSize: '13px' }}>{items.map((item, index) => {
-      const details = detailKeys
-        .map((key) => ({ key, value: detailValue(item, key) }))
-        .filter((detail): detail is { key: string; value: string } => detail.value !== null);
-      return <li key={itemKey(item, index)}>
-        {label(item)}
-        {details.length ? <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '3px', display: 'grid', gap: '2px' }}>{details.map((detail) => <span key={detail.key}><strong>{detail.key.replaceAll('_', ' ')}:</strong> {ownerStatus(detail.value)}</span>)}</div> : null}
+function ScopeNotice({ truth }: { truth: ScopeTruth }) {
+  if (truth.state === 'healthy' || truth.state === 'no_change') {
+    return <p role="status" style={{ margin: 0, color: stateTone(truth.state), lineHeight: 1.55 }}>{truth.currentState}</p>;
+  }
+  return <div role="alert" style={{ borderLeft: `3px solid ${stateTone(truth.state)}`, background: 'rgba(120,53,15,.16)', padding: '11px 13px', color: '#fde68a', display: 'grid', gap: '5px' }}>
+    <strong>{truth.currentState}</strong>
+    {truth.affected ? <p style={{ margin: 0, lineHeight: 1.5 }}><strong>Affected:</strong> {truth.affected}</p> : null}
+    <p style={{ margin: 0, lineHeight: 1.5 }}><strong>What remains healthy:</strong> {truth.remainsHealthy}</p>
+  </div>;
+}
+
+function FactSection({ title, facts }: { title: string; facts: string[] }) {
+  if (!facts.length) return null;
+  return <section style={{ borderTop: '1px solid #1e293b', paddingTop: '10px' }}>
+    <h4 style={{ color: '#cbd5e1', fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '.05em' }}>{title}</h4>
+    <ul style={{ color: '#94a3b8', margin: 0, paddingLeft: '18px', display: 'grid', gap: '5px', fontSize: '12px', lineHeight: 1.5 }}>
+      {facts.map((fact) => <li key={`${title}-${fact}`}>{fact}</li>)}
+    </ul>
+  </section>;
+}
+
+function WorkspaceSupportingDetails({ truth }: { truth: WorkspaceOwnerTruth }) {
+  const hasDetails = Boolean(
+    truth.progressSignals.length
+    || truth.phaseGate
+    || truth.reevaluateWhen
+    || truth.decisions.length
+    || truth.actions.length > 1
+    || truth.completed.length > 1
+    || truth.failed.length > 1
+    || truth.carried.length > 1
+    || truth.changes.length > 1
+    || truth.ownerDecisions.length > 1
+    || truth.blockers.length > 1
+    || truth.noChange.length > 1
+    || truth.recommendations.length > 1
+    || truth.nextDream.length > 1
+    || truth.recommendationResolutions.length
+    || truth.referenceCount,
+  );
+  if (!hasDetails) return null;
+  return <details data-workspace-cycle-evidence="secondary" style={{ borderTop: '1px solid #334155', paddingTop: '11px' }}>
+    <summary style={{ color: '#7dd3fc', cursor: 'pointer', fontWeight: 700 }}>Supporting goal and cycle evidence</summary>
+    <p style={{ ...quietText, marginTop: '8px' }}>These bounded facts support the owner summary above. They do not create a second workspace record or change canonical state.</p>
+    <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+      <FactSection title="What counts as progress" facts={truth.progressSignals} />
+      <FactSection title="Current phase gate" facts={truth.phaseGate ? [truth.phaseGate] : []} />
+      <FactSection title="Reevaluate when" facts={truth.reevaluateWhen ? [truth.reevaluateWhen] : []} />
+      <FactSection title="System decisions" facts={truth.decisions} />
+      <FactSection title="Additional changes" facts={truth.changes.slice(1)} />
+      <FactSection title="Additional actions" facts={truth.actions.slice(1)} />
+      <FactSection title="Additional completed work" facts={truth.completed.slice(1)} />
+      <FactSection title="Additional failures" facts={truth.failed.slice(1)} />
+      <FactSection title="Additional carry-forward" facts={truth.carried.slice(1)} />
+      <FactSection title="Additional owner decisions" facts={truth.ownerDecisions.slice(1)} />
+      <FactSection title="Additional blockers" facts={truth.blockers.slice(1)} />
+      <FactSection title="Additional no-change findings" facts={truth.noChange.slice(1)} />
+      <FactSection title="Additional recommendations" facts={truth.recommendations.slice(1)} />
+      <FactSection title="Additional next-Dream inputs" facts={truth.nextDream.slice(1)} />
+      <FactSection title="Recommendation resolutions" facts={truth.recommendationResolutions} />
+      {truth.referenceCount ? <p style={quietText}>{truth.referenceCount} bounded reference record{truth.referenceCount === 1 ? '' : 's'} support this conclusion. Internal references remain hidden from owner guidance.</p> : null}
+    </div>
+  </details>;
+}
+
+function CanonicalDecisionList({ items }: { items: OpsOwnerItem[] }) {
+  if (!items.length) return null;
+  return <section style={{ borderTop: '1px solid #1e293b', paddingTop: '10px' }}>
+    <h4 style={{ color: '#c4b5fd', fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Canonical decisions</h4>
+    <ul style={{ color: '#cbd5e1', margin: 0, paddingLeft: '18px', display: 'grid', gap: '7px', fontSize: '12px' }}>{items.map((item, index) => {
+      const decision = opsCanonicalDecisionDisplay(item);
+      return <li key={`canonical-decision-${index}`}>
+        <strong>{ownerSafeOpsText(decision.title) || 'Recorded decision'}</strong>
+        {decision.status ? <span style={{ color: '#94a3b8' }}> · {ownerSafeOpsText(decision.status, 80).replaceAll('_', ' ')}</span> : null}
+        {decision.resolvedChoice ? <div style={{ color: '#e2e8f0', marginTop: '2px' }}>Resolved choice: {ownerSafeOpsText(decision.resolvedChoice)}</div> : null}
       </li>;
-    })}</ul> : <p style={quietText}>None recorded for this cycle.</p>}
-  </div>;
-}
-
-function GoalSummary({ goal }: { goal: Record<string, unknown> }) {
-  const goalText = detailValue(goal, 'goal') ?? detailValue(goal, 'summary');
-  const phaseGate = detailValue(goal, 'phase_gate');
-  return <div style={{ ...recursionField, gridColumn: '1 / -1' }}>
-    <h4 style={{ color: '#7dd3fc', fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Goal</h4>
-    <p style={{ color: goalText ? '#e2e8f0' : '#64748b', fontSize: '13px', margin: 0, lineHeight: 1.55 }}>{goalText ? ownerText(goalText) : 'No machine-readable goal was projected for this cycle.'}</p>
-    {phaseGate ? <p style={{ color: '#94a3b8', fontSize: '11px', margin: '6px 0 0', lineHeight: 1.45 }}><strong>Phase gate:</strong> {ownerText(phaseGate)}</p> : null}
-  </div>;
-}
-
-function WorkspaceRecursionList({ items }: { items: WorkspaceRecursion[] }) {
-  if (!items.length) return null;
-  return <section aria-labelledby="workspace-recursion-title" style={recursionPanel}>
-    <div>
-      <h3 id="workspace-recursion-title" style={{ color: '#f8fafc', fontSize: '17px', margin: 0 }}>Workspace recursion truth</h3>
-      <p style={{ color: '#94a3b8', fontSize: '12px', margin: '4px 0 0' }}>What each workspace evaluated, decided, did, completed, carried, or escalated in this canonical Ops cycle.</p>
-    </div>
-    {items.map((workspace) => <article key={workspace.workspace_key} style={recursionCard} aria-labelledby={`recursion-${workspace.workspace_key}`}>
-      <h3 id={`recursion-${workspace.workspace_key}`} style={{ color: 'white', fontSize: '15px', margin: 0 }}>{ownerText(workspace.display_name || workspace.workspace_key)}</h3>
-      <div style={recursionGrid}>
-        <GoalSummary goal={workspace.goal} />
-        <RecursionFactList title="What changed" items={workspace.changes_since_prior} accent="#7dd3fc" />
-        <RecursionFactList title="AI Clone decided" items={workspace.system_decisions} accent="#c4b5fd" />
-        <RecursionFactList title="AI Clone did" items={workspace.actions_taken} accent="#a5f3fc" />
-        <RecursionFactList title="Completed" items={workspace.completed_work} accent="#86efac" />
-        <RecursionFactList title="Failed" items={workspace.failed_work} accent="#fca5a5" detailKeys={['status', 'retryable']} />
-        <RecursionFactList title="Carried forward" items={workspace.carried_forward} accent="#fcd34d" />
-        <RecursionFactList title="Needs owner" items={workspace.owner_decisions} accent="#fde68a" detailKeys={['state', 'trigger']} />
-        <RecursionFactList title="Blocked" items={workspace.blocked} accent="#fdba74" detailKeys={['dependency', 'reason']} />
-        <RecursionFactList title="No eligible change" items={workspace.no_action} accent="#94a3b8" detailKeys={['trigger']} />
-        <RecursionFactList title="AI Clone recommends" items={workspace.recommendations} accent="#c4b5fd" detailKeys={['trigger', 'future_trigger']} />
-        <RecursionFactList title="Reference only" items={workspace.reference_only} accent="#94a3b8" detailKeys={['classification', 'ref']} />
-        <RecursionFactList title="Next-cycle input" items={workspace.next_cycle_inputs} accent="#67e8f9" />
-        <RecursionFactList title="Recommendation resolution" items={workspace.recommendation_resolutions} accent="#d8b4fe" detailKeys={['state', 'explanation', 'future_trigger']} />
-      </div>
-    </article>)}
+    })}</ul>
   </section>;
 }
 
-export function SharedOpsReconciliationSummary({ summary }: { summary?: SharedOpsReconciliation | null }) {
+function EvidenceLinks({ items }: { items: OpsOwnerItem[] }) {
+  const links = items.flatMap((item, index) => {
+    const href = safeExternalHttpsUrl(item.url ?? item.href ?? item.source_url);
+    if (!href) return [];
+    return [{ href, label: ownerItemText(item, 'The portfolio') || `Supporting evidence ${index + 1}` }];
+  }).slice(0, 8);
+  if (!links.length) return null;
+  return <section style={{ borderTop: '1px solid #1e293b', paddingTop: '10px' }}>
+    <h4 style={{ color: '#67e8f9', fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Supporting evidence</h4>
+    <ul style={{ margin: 0, paddingLeft: '18px', display: 'grid', gap: '5px', fontSize: '12px' }}>{links.map((link) => <li key={link.href}><a href={link.href} target="_blank" rel="noreferrer" style={{ color: '#7dd3fc' }}>{link.label}</a></li>)}</ul>
+  </section>;
+}
+
+export function SharedOpsReconciliationSummary({ summary }: { summary?: OpsSharedReconciliation | null }) {
   if (!summary) return null;
-  return <section aria-labelledby="shared-ops-reconciliation-title" style={recursionPanel}>
-    <div>
-      <h3 id="shared-ops-reconciliation-title" style={{ color: '#f8fafc', fontSize: '17px', margin: 0 }}>Shared Ops reconciliation</h3>
-      <p style={{ color: '#94a3b8', fontSize: '12px', margin: '4px 0 0' }}>Read-only portfolio reconciliation. Shared Ops evaluates and routes cross-workspace truth; it does not execute project work or become a seventh project workspace.</p>
+  const name = ownerSafeOpsText(summary.display_name, 120) || 'Shared Ops';
+  const action = (summary.actions_taken ?? []).map((item) => ownerItemText(item, name)).find(Boolean);
+  const recommendation = (summary.recommendations ?? []).map((item) => ownerItemText(item, name)).find(Boolean);
+  const nextDream = (summary.next_cycle_inputs ?? []).map((item) => ownerItemText(item, name)).find((text) => /^The next Dream\b/i.test(text));
+  return <section data-shared-ops-role={summary.role} aria-labelledby="shared-ops-reconciliation-title" style={{ borderTop: '1px solid #334155', paddingTop: '12px' }}>
+    <h3 id="shared-ops-reconciliation-title" style={{ color: '#f8fafc', fontSize: '15px', margin: 0 }}>Shared Ops reconciliation</h3>
+    <p style={{ ...quietText, marginTop: '4px' }}>Read-only portfolio reconciliation. Shared Ops routes cross-workspace truth; it does not execute project work or become a seventh project workspace.</p>
+    <div style={{ display: 'grid', gap: '6px', marginTop: '9px', color: '#cbd5e1', fontSize: '13px', lineHeight: 1.5 }}>
+      <p style={{ margin: 0 }}>{ownerSafeOpsText(summary.summary) || `${(summary.evaluated ?? []).length} project conclusions were evaluated.`}</p>
+      {action ? <p style={{ margin: 0 }}><strong>AI Clone did:</strong> {action}</p> : null}
+      {recommendation ? <p style={{ margin: 0 }}><strong>Recommendation:</strong> {recommendation}</p> : null}
+      {nextDream ? <p style={{ margin: 0 }}><strong>Next Dream:</strong> {nextDream}</p> : null}
     </div>
-    <article style={recursionCard} data-shared-ops-role={summary.role}>
-      <h3 style={{ color: 'white', fontSize: '15px', margin: 0 }}>{ownerText(summary.display_name)}</h3>
-      <p style={{ color: '#cbd5e1', fontSize: '13px', margin: 0, lineHeight: 1.55 }}>{ownerText(summary.summary)}</p>
-      <div style={recursionGrid}>
-        <GoalSummary goal={summary.goal} />
-        <RecursionFactList title="Ops evaluated" items={summary.evaluated} accent="#7dd3fc" />
-        <RecursionFactList title="AI Clone decided" items={summary.system_decisions} accent="#c4b5fd" />
-        <RecursionFactList title="AI Clone did" items={summary.actions_taken} accent="#a5f3fc" detailKeys={['status']} />
-        <RecursionFactList title="Needs owner" items={summary.owner_calls} accent="#fde68a" detailKeys={['state', 'trigger']} />
-        <RecursionFactList title="Blocked" items={summary.blocked} accent="#fdba74" detailKeys={['workspace_key', 'dependency', 'reason']} />
-        <RecursionFactList title="No eligible change" items={summary.no_action} accent="#94a3b8" detailKeys={['trigger']} />
-        <RecursionFactList title="AI Clone recommends" items={summary.recommendations} accent="#c4b5fd" detailKeys={['trigger', 'future_trigger']} />
-        <RecursionFactList title="Reference only" items={summary.reference_only} accent="#94a3b8" detailKeys={['workspace_key', 'classification', 'ref']} />
-        <RecursionFactList title="Next Dream consumes" items={summary.next_cycle_inputs} accent="#67e8f9" detailKeys={['workspace_key', 'trigger']} />
-      </div>
-    </article>
   </section>;
 }
 
-export default function OpsStandupSummary() {
-  const [data, setData] = useState<OpsProjection | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    try {
-      setData(await controlApiGet<OpsProjection>('/api/workspace/ops-standup', { cache: 'no-store' }));
-      setError(null);
-    } catch {
-      setError('The Ops summary could not be loaded. No readiness claim is being made.');
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+function ScopedWorkspaceSummary({ data, workspaceKey, goalProjection }: { data: OpsOwnerProjection; workspaceKey: string; goalProjection?: OpsWorkspaceGoalProjection | null }) {
+  const truth = projectWorkspaceOwnerTruth(data, workspaceKey, goalProjection);
+  const rows = [
+    { label: 'Workspace goal', value: truth.goal ?? 'The canonical goal is unavailable because its bounded owner projection is not synchronized. Current cycle status remains usable.', tone: truth.goal ? '#e2e8f0' : '#fcd34d' },
+    { label: 'What changed', value: factSummary(truth.changes, 'No new canonical change was claimed.'), tone: '#cbd5e1' },
+    { label: 'AI Clone did this', value: factSummary(truth.actions, 'No completed system action was claimed.'), tone: '#a5f3fc' },
+    { label: 'Completed, failed, carried forward', value: resultSummary(truth), tone: truth.failed.length ? '#fda4af' : '#cbd5e1' },
+    { label: 'Needs your decision', value: factSummary(truth.ownerDecisions, 'No owner decision is requested by this workspace conclusion.'), tone: truth.ownerDecisions.length ? '#fde68a' : '#94a3b8' },
+    { label: 'AI Clone recommends', value: factSummary(truth.recommendations, 'No new recommendation is recorded for this cycle.'), tone: '#c4b5fd' },
+    { label: 'Next Dream consumes', value: factSummary(truth.nextDream, 'No next-Dream input is claimed.'), tone: '#67e8f9' },
+  ];
+  return <>
+    <ScopeNotice truth={truth} />
+    <OwnerTruthRows rows={rows} />
+    <WorkspaceSupportingDetails truth={truth} />
+    <Link href={`/ops?workspace=${encodeURIComponent(truth.workspaceKey)}#workspace`} style={{ color: '#7dd3fc', fontSize: '13px', width: 'fit-content' }}>Open {truth.displayName} in Ops</Link>
+  </>;
+}
 
-  const sharedOps = data?.shared_ops_reconciliation;
-  const ownerItems = data
-    ? uniqueOwnerItems([
-        ...(data.owner_calls ?? []),
-        ...(sharedOps?.owner_calls ?? []),
-        ...(data.workspace_recursion ?? []).flatMap((workspace) => (workspace.owner_decisions ?? []).map((item) => ({ workspace_key: workspace.workspace_key, ...item }))),
-      ])
-    : [];
-  const blockedItems = data
-    ? uniqueOwnerItems([
-        ...(data.blockers ?? []),
-        ...(sharedOps?.blocked ?? []),
-        ...(data.workspace_recursion ?? []).flatMap((workspace) => (workspace.blocked ?? []).map((item) => ({ workspace_key: workspace.workspace_key, ...item }))),
-      ])
-    : [];
-  const actionItems = data
-    ? uniqueOwnerItems([
-        ...(sharedOps?.actions_taken ?? []),
-        ...(data.completed_work ?? []),
-        ...(data.workspace_recursion ?? []).flatMap((workspace) => (workspace.actions_taken ?? []).map((item) => ({ workspace_key: workspace.workspace_key, ...item }))),
-      ])
-    : [];
-  const recommendationItems = data
-    ? uniqueOwnerItems([
-        ...(data.recommended_next_actions ?? []),
-        ...(sharedOps?.recommendations ?? []),
-        ...(data.workspace_recursion ?? []).flatMap((workspace) => (workspace.recommendations ?? []).map((item) => ({ workspace_key: workspace.workspace_key, ...item }))),
-      ])
-    : [];
-  const nextCycleItems = data
-    ? uniqueOwnerItems([
-        ...(sharedOps?.next_cycle_inputs ?? []),
-        ...(data.workspace_recursion ?? []).flatMap((workspace) => (workspace.next_cycle_inputs ?? []).map((item) => ({ workspace_key: workspace.workspace_key, ...item }))),
-      ])
-    : [];
-  const recordedWorkspaceUpdates = data?.workspace_updates?.filter((item) => item.state !== 'missing') ?? [];
-  const missingWorkspaceUpdates = data?.workspace_updates?.filter((item) => item.state === 'missing') ?? [];
-  const explicitDreamInput = nextCycleItems.find((item) => /^The next Dream\b/i.test(String(item.summary ?? '')));
-  const ownerSummaryRows = data
-    ? [
-        {
-          label: 'Current state',
-          value:
-            data.state === 'ready'
-              ? 'Ready. The latest bounded portfolio conclusion is available.'
-              : data.state === 'empty'
-                ? 'Empty. No final portfolio conclusion has been recorded yet.'
-                : data.state === 'error'
-                  ? 'Unavailable. The final portfolio conclusion could not be loaded; no readiness claim is being made.'
-                  : 'Degraded. The latest portfolio conclusion is incomplete; affected capabilities and missing workspace conclusions are identified above.',
-          tone: data.state === 'ready' ? '#86efac' : data.state === 'empty' ? '#fcd34d' : '#fda4af',
-        },
-        {
-          label: 'What changed',
-          value: recordedWorkspaceUpdates.length
-            ? `${recordedWorkspaceUpdates.length} workspace update${recordedWorkspaceUpdates.length === 1 ? '' : 's'} returned; ${missingWorkspaceUpdates.length} did not return a conclusion. First recorded change: ${ownerPreview(label(recordedWorkspaceUpdates[0]), 220)}`
-            : missingWorkspaceUpdates.length
-              ? `${missingWorkspaceUpdates.length} project workspace${missingWorkspaceUpdates.length === 1 ? '' : 's'} did not return a conclusion receipt.`
-            : 'No new workspace update is claimed by this cycle.',
-          tone: '#cbd5e1',
-        },
-        {
-          label: 'AI Clone did this',
-          value: actionItems.length
-            ? ownerItemSummary(actionItems[0])
-            : 'No completed system action is recorded for this cycle.',
-          tone: '#a5f3fc',
-        },
-        {
-          label: 'Needs your decision',
-          value: ownerItems.length
-            ? `${ownerItems.length} item${ownerItems.length === 1 ? ' needs' : 's need'} owner attention. First: ${ownerItemSummary(ownerItems[0])}`
-            : 'No owner decision is recorded for this cycle.',
-          tone: ownerItems.length ? '#fde68a' : '#94a3b8',
-        },
-        {
-          label: 'Blocked',
-          value: blockedItems.length
-            ? `${blockedItems.length} bounded blocker${blockedItems.length === 1 ? ' remains' : 's remain'}. First: ${ownerItemSummary(blockedItems[0])}`
-            : 'No blocker is recorded in the current conclusion.',
-          tone: blockedItems.length ? '#fdba74' : '#86efac',
-        },
-        {
-          label: 'What remains healthy',
-          value: data.decision_readiness?.state === 'ready'
-            ? 'Canonical owner-decision checks remain verified; loaded workspace goals and prior cycle evidence remain readable.'
-            : 'Loaded workspace goals and prior cycle evidence remain readable. Decision controls stay paused until their own readiness check passes.',
-          tone: data.decision_readiness?.state === 'ready' ? '#86efac' : '#cbd5e1',
-        },
-        {
-          label: 'AI Clone recommends',
-          value: recommendationItems.length
-            ? ownerItemSummary(recommendationItems[0])
-            : 'No new recommendation is recorded for this cycle.',
-          tone: '#c4b5fd',
-        },
-        {
-          label: 'Next Dream consumes',
-          value: explicitDreamInput
-            ? ownerItemSummary(explicitDreamInput)
-            : nextCycleItems.length
-            ? ownerItemSummary(nextCycleItems[0])
-            : 'The next natural cycle may use the current canonical conclusion and unresolved PM state; no new input is claimed here.',
-          tone: '#67e8f9',
-        },
-      ]
-    : [];
-
-  return <section id="ops-standup-summary" aria-labelledby="ops-summary-title" style={panel}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-      <div><p style={{ color: '#38bdf8', margin: '0 0 4px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '.08em' }}>Daily owner artifact</p><h2 id="ops-summary-title" style={{ color: 'white', margin: 0, fontSize: '24px' }}>Ops Standup Summary and Conclusion</h2><p style={{ color: '#94a3b8', margin: '6px 0 0' }}>{data?.cycle_date ? `Portfolio cycle ${data.cycle_date} · conclusion attempt ${data.ops_conclusion_attempt_number ?? 'unverified'} · observed ${utcLabel(data.observed_at)} on AI Clone UTC` : 'Waiting for the first synchronized portfolio cycle.'}</p></div>
-      <button type="button" onClick={() => void load()} style={{ alignSelf: 'start', color: '#bae6fd', background: '#0c4a6e', border: '1px solid #0369a1', borderRadius: '8px', padding: '8px 12px' }}>Refresh</button>
-    </div>
-    {error ? <p role="alert" style={{ color: '#fca5a5', margin: 0 }}>{error}</p> : null}
-    {!data && !error ? <p role="status" style={{ color: '#94a3b8', margin: 0 }}>Loading the latest Ops conclusion…</p> : null}
-    {data?.state === 'empty' ? <p role="status" style={{ color: '#fbbf24', margin: 0 }}>No final Ops conclusion has been generated yet.</p> : null}
-    {data && (data.state === 'degraded' || data.state === 'error') ? <div role="alert" style={{ border: '1px solid #b45309', background: 'rgba(120,53,15,.25)', borderRadius: '10px', padding: '12px', color: '#fde68a', display: 'grid', gap: '6px' }}>
-      <strong>{data.state === 'error' ? 'Portfolio conclusion unavailable' : 'Portfolio conclusion degraded'}</strong>
-      <p style={{ margin: 0, lineHeight: 1.5 }}>Affected: the complete portfolio conclusion and the missing workspace lanes listed below.</p>
-      <p style={{ margin: 0, lineHeight: 1.5 }}>Still available: loaded workspace goals, prior cycle evidence, and separately verified owner-decision readiness.</p>
-      <p style={{ margin: 0, lineHeight: 1.5 }}>Next: repair the missing conclusion lanes; do not treat this cycle as a portfolio all-clear.</p>
-      {data.reason_codes.length ? <details><summary style={{ cursor: 'pointer' }}>Technical reason codes</summary><ul style={{ marginBottom: 0 }}>{data.reason_codes.map((warning) => <li key={warning}>{ownerStatus(warning)}</li>)}</ul></details> : null}
-    </div> : null}
-    {data && data.degraded_system_warnings.length > 0 ? <div role="alert" data-ops-subsystem-warnings="visible" style={{ border: '1px solid #b45309', background: 'rgba(120,53,15,.18)', borderRadius: '10px', padding: '12px', color: '#fde68a' }}><strong>What is affected</strong><ul style={{ marginBottom: 0 }}>{data.degraded_system_warnings.slice(0, 5).map((warning) => <li key={warning}>{ownerText(warning)}</li>)}</ul>{data.degraded_system_warnings.length > 5 ? <p style={{ margin: '8px 0 0' }}>+{data.degraded_system_warnings.length - 5} more in the cycle audit.</p> : null}</div> : null}
-    {data?.decision_readiness?.state === 'ready' ? <p style={{ color: '#86efac', margin: 0, fontSize: '12px' }}>Canonical owner decisions were checked on {data.decision_readiness.clock_authority === 'ai_clone_utc' ? 'the AI Clone UTC clock' : 'an unverified clock'}. Unrelated health warnings remain visible above without changing that record’s write authority.</p> : null}
-    {data ? <>
-      <div data-ops-owner-summary="primary" style={{ borderTop: '1px solid #334155', borderBottom: '1px solid #334155' }}>
-        {ownerSummaryRows.map((row, index) => <div key={row.label} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '8px 16px', padding: '10px 0', borderTop: index === 0 ? 'none' : '1px solid rgba(51,65,85,.65)' }}>
-          <p style={{ color: row.tone, margin: 0, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>{row.label}</p>
-          <p style={{ color: '#dbe7ff', margin: 0, fontSize: '13px', lineHeight: 1.5 }}>{row.value}</p>
+function PortfolioSummary({ data, goalProjection }: { data: OpsOwnerProjection; goalProjection?: OpsWorkspaceGoalProjection | null }) {
+  const truth = projectPortfolioOwnerTruth(data, [], goalProjection);
+  const rows = [
+    { label: 'What changed', value: truth.whatChanged, tone: '#cbd5e1' },
+    { label: 'AI Clone did this', value: factSummary(truth.actions, 'No completed portfolio action is recorded for this cycle.'), tone: '#a5f3fc' },
+    { label: 'Needs your decision', value: factSummary(truth.ownerDecisions, 'No canonical owner decision is open in this conclusion.'), tone: truth.ownerDecisions.length ? '#fde68a' : '#94a3b8' },
+    { label: 'Needs your attention', value: factSummary(truth.attention, 'No separate owner-attention item is recorded.'), tone: truth.attention.length ? '#fcd34d' : '#94a3b8' },
+    { label: 'AI Clone recommends', value: factSummary(truth.recommendations, 'No new portfolio recommendation is recorded.'), tone: '#c4b5fd' },
+    { label: 'Next Dream consumes', value: truth.nextDream, tone: '#67e8f9' },
+  ];
+  const scopeTruth: ScopeTruth = {
+    state: truth.state,
+    currentState: truth.currentState,
+    affected: truth.affected,
+    remainsHealthy: truth.remainsHealthy,
+  };
+  return <>
+    <ScopeNotice truth={scopeTruth} />
+    <OwnerTruthRows rows={rows} />
+    <section aria-labelledby="workspace-cycle-status-title" style={{ display: 'grid', gap: '8px' }}>
+      <div>
+        <h3 id="workspace-cycle-status-title" style={{ color: '#f8fafc', fontSize: '16px', margin: 0 }}>Project workspace conclusions</h3>
+        <p style={{ ...quietText, marginTop: '4px' }}>One bounded status per project. Open a workspace for its complete owner-facing conclusion.</p>
+      </div>
+      <div style={{ borderTop: '1px solid #334155' }}>
+        {truth.workspaces.map((workspace) => <div key={workspace.workspaceKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '8px 14px', alignItems: 'start', padding: '10px 0', borderBottom: '1px solid #1e293b' }}>
+          <div><strong style={{ color: '#f8fafc', fontSize: '13px' }}>{workspace.displayName}</strong><div style={{ color: stateTone(workspace.state), fontSize: '11px', marginTop: '2px' }}>{stateLabel(workspace.state)}</div></div>
+          <p style={{ color: '#cbd5e1', margin: 0, fontSize: '12px', lineHeight: 1.5 }}>{workspace.state === 'blocked' || workspace.state === 'unavailable' ? workspace.currentState : workspace.goal ?? workspace.currentState}</p>
+          <Link href={`/ops?workspace=${encodeURIComponent(workspace.workspaceKey)}#workspace`} style={{ color: '#7dd3fc', fontSize: '12px', whiteSpace: 'nowrap' }}>Open</Link>
         </div>)}
       </div>
-      <details data-ops-cycle-audit="secondary" style={{ border: '1px solid #334155', borderRadius: '12px', padding: '12px' }}>
-        <summary style={{ color: '#7dd3fc', cursor: 'pointer', fontWeight: 700 }}>Open cycle audit, workspace recursion, and supporting evidence</summary>
-        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>These records explain lineage and subsystem detail. They are secondary to the current state and owner action above.</p>
-        <div style={{ display: 'grid', gap: '16px', marginTop: '14px' }}>
-          <ItemList title="Workspace updates" items={data.workspace_updates} accent="#7dd3fc" />
-          <SharedOpsReconciliationSummary summary={data.shared_ops_reconciliation} />
-          <WorkspaceRecursionList items={data.workspace_recursion ?? []} />
-          <ProcessUpdates updates={data.ai_clone_process_updates} />
-          <ItemList title="Urgent escalations" items={data.urgent_escalations} accent="#fca5a5" />
-          <ItemList title="Owner calls" items={data.owner_calls} accent="#fcd34d" />
-          <ItemList title="Blockers" items={data.blockers} accent="#fdba74" />
-          <ItemList title="Work underway" items={data.work_underway} />
-          <ItemList title="Completed work" items={data.completed_work} accent="#86efac" />
-          <ItemList title="Workspace decisions" items={data.workspace_decisions} />
-          <ItemList title="Ops decisions" items={data.ops_decisions} />
-          <CanonicalDecisionList items={data.canonical_decisions} />
-          <ItemList title="Supporting evidence" items={data.supporting_evidence_links} accent="#67e8f9" linkEvidence />
-          <ItemList title="Recommended next actions" items={data.recommended_next_actions ?? []} accent="#c4b5fd" />
-          <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Endpoint and subsystem diagnostics are available in System, where their scope and health context can be reviewed together.</p>
-        </div>
-      </details>
-    </> : null}
+    </section>
+    <SharedOpsReconciliationSummary summary={data.shared_ops_reconciliation} />
+    <details data-ops-cycle-audit="secondary" style={{ borderTop: '1px solid #334155', paddingTop: '11px' }}>
+      <summary style={{ color: '#7dd3fc', cursor: 'pointer', fontWeight: 700 }}>Supporting cycle evidence</summary>
+      <p style={{ ...quietText, marginTop: '8px' }}>Canonical decisions and safe external evidence remain available here. Workspace recursion is presented once per selected workspace instead of repeated in a portfolio dump.</p>
+      <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+        <CanonicalDecisionList items={data.canonical_decisions ?? []} />
+        <EvidenceLinks items={data.supporting_evidence_links ?? []} />
+        <p style={quietText}>{Object.keys(data.ai_clone_process_updates ?? {}).length} bounded process receipt group{Object.keys(data.ai_clone_process_updates ?? {}).length === 1 ? '' : 's'} accompanied this conclusion. Endpoint and subsystem diagnostics remain in Ops System.</p>
+      </div>
+    </details>
+  </>;
+}
+
+export default function OpsStandupSummary({
+  workspaceKey,
+  projection,
+  goalProjection,
+}: {
+  workspaceKey?: string;
+  projection?: OpsOwnerProjection | null;
+  goalProjection?: OpsWorkspaceGoalProjection | null;
+}) {
+  const controlled = projection !== undefined;
+  const goalsControlled = goalProjection !== undefined;
+  const [loadedData, setLoadedData] = useState<OpsOwnerProjection | null>(null);
+  const [loadedGoals, setLoadedGoals] = useState<OpsWorkspaceGoalProjection | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [goalError, setGoalError] = useState<string | null>(null);
+  const data = controlled ? projection ?? null : loadedData;
+  const goals = goalsControlled ? goalProjection ?? null : loadedGoals;
+  const load = useCallback(async () => {
+    await Promise.all([
+      controlled
+        ? Promise.resolve()
+        : controlApiGet<OpsOwnerProjection>('/api/workspace/ops-standup', { cache: 'no-store' })
+          .then((value) => { setLoadedData(value); setError(null); })
+          .catch(() => setError('The Ops conclusion could not be loaded. Affected: current cycle status only. Still available: the rest of this workspace. Next: retry this bounded read; no readiness claim is being made.')),
+      goalsControlled
+        ? Promise.resolve()
+        : controlApiGet<OpsWorkspaceGoalProjection>('/api/workspace/ops-workspace-goals', { cache: 'no-store' })
+          .then((value) => { setLoadedGoals(value); setGoalError(null); })
+          .catch(() => setGoalError('Workspace goals could not be loaded. Affected: canonical goal text and criteria only. Still available: current cycle status and prior records. Next: retry this bounded read.')),
+    ]);
+  }, [controlled, goalsControlled]);
+  useEffect(() => { void load(); }, [load]);
+  const title = workspaceKey ? `${projectWorkspaceOwnerTruth(data, workspaceKey, goals).displayName} cycle conclusion` : 'Ops Standup Summary and Conclusion';
+  const cycleContext = useMemo(() => data?.cycle_date
+    ? `Cycle ${data.cycle_date} · conclusion attempt ${data.ops_conclusion_attempt_number ?? 'unverified'} · observed ${utcLabel(data.observed_at)} on AI Clone UTC`
+    : 'Waiting for the first synchronized portfolio cycle.', [data?.cycle_date, data?.observed_at, data?.ops_conclusion_attempt_number]);
+
+  return <section id="ops-standup-summary" aria-labelledby="ops-summary-title" style={panel}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ color: '#38bdf8', margin: '0 0 4px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.08em' }}>{workspaceKey ? 'Selected workspace truth' : 'Daily owner artifact'}</p>
+        <h2 id="ops-summary-title" style={{ color: 'white', margin: 0, fontSize: 'clamp(20px, 4vw, 24px)' }}>{title}</h2>
+        <p style={{ color: '#94a3b8', margin: '5px 0 0', fontSize: '13px', lineHeight: 1.5 }}>{workspaceKey ? 'Understand what this workspace concluded, what needs you, and what the next Dream cycle may consume.' : 'Understand the portfolio conclusion, then open one workspace only when its detail matters.'}</p>
+        <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: '12px' }}>{cycleContext}</p>
+      </div>
+      {!controlled ? <button type="button" onClick={() => void load()} style={{ alignSelf: 'start', color: '#bae6fd', background: '#0c4a6e', border: '1px solid #0369a1', borderRadius: '8px', padding: '8px 12px' }}>Refresh</button> : null}
+    </div>
+    {error ? <p role="alert" style={{ color: '#fca5a5', margin: 0, lineHeight: 1.5 }}>{error}</p> : null}
+    {goalError ? <p role="alert" style={{ color: '#fcd34d', margin: 0, lineHeight: 1.5 }}>{goalError}</p> : null}
+    {!data && !error ? <p role={controlled ? 'alert' : 'status'} style={{ color: controlled ? '#fca5a5' : '#94a3b8', margin: 0 }}>{controlled ? 'The current Ops projection is unavailable. Other loaded Ops capabilities remain usable; no cycle-success claim is being made.' : 'Loading the latest bounded conclusion…'}</p> : null}
+    {data ? workspaceKey ? <ScopedWorkspaceSummary data={data} workspaceKey={workspaceKey} goalProjection={goals} /> : <PortfolioSummary data={data} goalProjection={goals} /> : null}
   </section>;
 }

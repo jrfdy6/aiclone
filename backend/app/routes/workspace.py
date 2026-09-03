@@ -84,6 +84,20 @@ from app.services.ops_standup_projection_service import (
     unavailable_ops_standup_projection,
     validate_ops_standup_projection,
 )
+from app.services.ops_workspace_goal_projection_service import (
+    SNAPSHOT_TYPE as OPS_WORKSPACE_GOAL_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as OPS_WORKSPACE_GOAL_WORKSPACE_KEY,
+    build_ops_workspace_goal_projection,
+    unavailable_ops_workspace_goal_projection,
+    validate_ops_workspace_goal_projection,
+)
+from app.services.ops_workspace_context_projection_service import (
+    SNAPSHOT_TYPE as OPS_WORKSPACE_CONTEXT_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as OPS_WORKSPACE_CONTEXT_WORKSPACE_KEY,
+    build_ops_workspace_context_projection,
+    unavailable_ops_workspace_context_projection,
+    validate_ops_workspace_context_projection,
+)
 router = APIRouter(tags=["Workspace"], prefix="/api/workspace")
 
 WORKSPACE_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
@@ -628,6 +642,74 @@ def get_ops_standup_projection(response: Response):
         return validate_ops_standup_projection(payload)
     except Exception:
         return unavailable_ops_standup_projection("projection_invalid")
+
+
+@router.get("/ops-workspace-goals")
+def get_ops_workspace_goal_projection(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    try:
+        payload = get_snapshot_payload(
+            OPS_WORKSPACE_GOAL_WORKSPACE_KEY,
+            OPS_WORKSPACE_GOAL_SNAPSHOT_TYPE,
+        )
+    except Exception:
+        if _local_canonical_projection_enabled():
+            try:
+                return build_ops_workspace_goal_projection()
+            except Exception:
+                pass
+        return unavailable_ops_workspace_goal_projection(
+            "workspace_goal_projection_storage_unavailable"
+        )
+    if payload is None:
+        if _local_canonical_projection_enabled():
+            try:
+                return build_ops_workspace_goal_projection()
+            except Exception:
+                pass
+        return unavailable_ops_workspace_goal_projection(
+            "workspace_goal_projection_not_synced"
+        )
+    try:
+        return validate_ops_workspace_goal_projection(payload)
+    except Exception:
+        return unavailable_ops_workspace_goal_projection(
+            "workspace_goal_projection_invalid"
+        )
+
+
+@router.get("/ops-workspace-context")
+def get_ops_workspace_context_projection(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    try:
+        payload = get_snapshot_payload(
+            OPS_WORKSPACE_CONTEXT_WORKSPACE_KEY,
+            OPS_WORKSPACE_CONTEXT_SNAPSHOT_TYPE,
+        )
+    except Exception:
+        if _local_canonical_projection_enabled():
+            try:
+                return build_ops_workspace_context_projection()
+            except Exception:
+                pass
+        return unavailable_ops_workspace_context_projection(
+            "workspace_context_projection_storage_unavailable"
+        )
+    if payload is None:
+        if _local_canonical_projection_enabled():
+            try:
+                return build_ops_workspace_context_projection()
+            except Exception:
+                pass
+        return unavailable_ops_workspace_context_projection(
+            "workspace_context_projection_not_synced"
+        )
+    try:
+        return validate_ops_workspace_context_projection(payload)
+    except Exception:
+        return unavailable_ops_workspace_context_projection(
+            "workspace_context_projection_invalid"
+        )
 
 
 @router.post("/integrated-content/variants")

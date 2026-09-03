@@ -29,8 +29,8 @@ test('Ops Today exposes the canonical final daily conclusion without creating a 
   assert.match(opsSource, /import OpsStandupSummary from '@\/app\/workspace\/OpsStandupSummary'/);
   const todayPanel = opsSource.match(/function TodayOpsPanel\([\s\S]*?\n}\n\nfunction PortfolioPulseSection/);
   assert.ok(todayPanel, 'expected the bounded Today panel implementation');
-  assert.match(todayPanel[0], /<PortfolioPulseSection[\s\S]*<OpsStandupSummary \/>[\s\S]*<ExecutiveDecisionQueue/);
-  assert.equal((todayPanel[0].match(/<OpsStandupSummary \/>/g) ?? []).length, 1);
+  assert.match(todayPanel[0], /<PortfolioPulseSection[\s\S]*<OpsStandupSummary projection=\{opsProjection\} goalProjection=\{goalProjection\} \/>[\s\S]*<ExecutiveDecisionQueue/);
+  assert.equal((todayPanel[0].match(/<OpsStandupSummary projection=\{opsProjection\} goalProjection=\{goalProjection\} \/>/g) ?? []).length, 1);
 });
 
 test('project cards and direct links keep the selected workspace in one shared state', () => {
@@ -46,15 +46,18 @@ test('project cards and direct links keep the selected workspace in one shared s
 test('the selected workspace leads with owner truth while selector cards stay bounded', () => {
   const workspaceHub = opsSource.match(/function WorkspaceHubPanel\([\s\S]*?\n}\n\nfunction WorkspaceActivitySurface/);
   assert.ok(workspaceHub, 'expected the canonical workspace hub');
-  assert.match(workspaceHub[0], /portfolioPulse\?\.workspaces\?\.find/);
+  assert.match(workspaceHub[0], /projectWorkspaceOwnerTruth\(opsProjection, selectedWorkspaceId, goalProjection\)/);
   assert.match(workspaceHub[0], /data-workspace-owner-truth=/);
   assert.match(workspaceHub[0], /Current meaningful state/);
+  assert.match(workspaceHub[0], /Latest governed cycle/);
+  assert.match(workspaceHub[0], /activeReadinessLabel/);
+  assert.match(workspaceHub[0], /activeOwnerTruth\.currentState/);
   assert.match(workspaceHub[0], /What changed/);
   assert.match(workspaceHub[0], /AI Clone did this/);
   assert.match(workspaceHub[0], /AI Clone recommends/);
   assert.match(workspaceHub[0], /Needs your decision/);
   assert.match(workspaceHub[0], /Next Dream consumes/);
-  assert.match(workspaceHub[0], /Technical status, operating rules, and cycle receipt/);
+  assert.match(workspaceHub[0], /Goal criteria, operating rules, and cycle receipt/);
   assert.match(workspaceHub[0], /const \[selectorOpen, setSelectorOpen\] = useState\(false\)/);
   const selectorStart = workspaceHub[0].indexOf('data-workspace-selector="projects"');
   const selectorEnd = workspaceHub[0].indexOf("{selectedWorkspaceId === 'feezie-os'", selectorStart);
