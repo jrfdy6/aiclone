@@ -2130,8 +2130,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_ops_standup_projection_service.py",
-        "sha256": "3deb9e6c2e742c0737a719537cd59d6c4cabd6bd0f18c783b15fad24b3e0fc24",
-        "size": 77583
+        "sha256": "0d1e7b664f0ad3f424b1e78853ff35fa5f4e67753e547364124b91d6a14ced3c",
+        "size": 80775
       },
       {
         "mode": 420,
@@ -2166,8 +2166,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_release_builder.py",
-        "sha256": "b376408cf378a099ca35a4b0bd6f7e512220eb02e4a6e0da490cea466e59374f",
-        "size": 29689
+        "sha256": "112a8e75bbd222fa5d8f86a81fa7100316e60b16a1ccd0554376979cb7a893cd",
+        "size": 30199
       },
       {
         "mode": 420,
@@ -3288,11 +3288,11 @@
       {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "3a7b649ce483c735ee1e675ed224fd79826d726530e02b12883da548d467f0cc",
-        "size": 9830
+        "sha256": "13334580f9bb5bcf18bee7144156e0371fd9e8a8f93630b2cd917712bb474521",
+        "size": 9541
       }
     ],
-    "tree_sha256": "690030bd7a3252c258a3aa2ff470e5d33f84edb0a209a2d43b0db034e42122d1"
+    "tree_sha256": "166838fda6b6fd6821f72f7f7f2ab0f46b32a2b9faedab1d2ddd2b98ebfb30dc"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

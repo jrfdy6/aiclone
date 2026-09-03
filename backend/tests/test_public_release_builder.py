@@ -26,6 +26,20 @@ APPROVED_PUBLIC_WORKSPACE_REFERENCE_LITERALS = {
 }
 
 
+def test_public_application_gate_runs_from_the_projected_candidate_root() -> None:
+    verifier = (REPO_ROOT / "scripts" / "verify_public_release.sh").read_text(
+        encoding="utf-8"
+    )
+    candidate_cd = verifier.index('cd "$PUBLIC_CANDIDATE"')
+    backend_tests = verifier.index(
+        '"backend/tests/test_public_release_builder.py"',
+        candidate_cd,
+    )
+
+    assert candidate_cd < backend_tests
+    assert '$PUBLIC_CANDIDATE/backend/tests/test_public_release_builder.py' not in verifier
+
+
 def _write_manifest(
     source_root: Path,
     *,
