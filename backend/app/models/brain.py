@@ -721,6 +721,7 @@ class BrainPersonaReviewRequest(BaseModel):
     response_kind: Literal["agree", "disagree", "nuance", "story", "language"] = "nuance"
     reflection_excerpt: str = Field(min_length=1, max_length=20_000)
     resolution_capture_id: str | None = Field(default=None, max_length=128)
+    expected_owner_response_revision: int | None = Field(default=None, ge=0, le=1_000_000)
     selected_promotion_items: list[PromotionItemPayload] = Field(default_factory=list, max_length=25)
     complete_review: bool = False
 

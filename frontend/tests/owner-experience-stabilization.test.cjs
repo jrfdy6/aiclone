@@ -12,6 +12,7 @@ const runtimeChromeSource = fs.readFileSync(path.join(frontendRoot, 'components'
 const globalStylesSource = fs.readFileSync(path.join(frontendRoot, 'app', 'globals.css'), 'utf8');
 const workspaceSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'WorkspaceClient.tsx'), 'utf8');
 const requestWorkSource = fs.readFileSync(path.join(frontendRoot, 'app', 'ops', 'RequestWorkForm.tsx'), 'utf8');
+const nextConfigSource = fs.readFileSync(path.join(frontendRoot, 'next.config.js'), 'utf8');
 
 test('Ops scopes partial failures without covering healthy capabilities', () => {
   assert.match(opsSource, /const sectionErrorItems = useMemo/);
@@ -22,6 +23,14 @@ test('Ops scopes partial failures without covering healthy capabilities', () => 
   assert.match(opsSource, /Why each capability is unavailable/);
   assert.match(opsSource, /ownerSafeFailureExplanation/);
   assert.doesNotMatch(opsSource, /messages\.join\('\s*\|\s*'\)/);
+});
+
+test('Ops polling stays read-only and leaves PM maintenance to its automation runner', () => {
+  assert.doesNotMatch(opsSource, /review-hygiene\/auto-resolve/);
+  assert.doesNotMatch(opsSource, /review-hygiene\/auto-progress/);
+  assert.doesNotMatch(opsSource, /owner-review\/sync/);
+  assert.match(opsSource, /review-hygiene\/audit\?limit=8&hours=24/);
+  assert.match(opsSource, /const interval = setInterval\(loadTelemetry, 60_000\)/);
 });
 
 test('Ops project cards separate current state from historical Dream receipts', () => {
@@ -35,6 +44,21 @@ test('Ops project cards separate current state from historical Dream receipts', 
   assert.doesNotMatch(pulse[0], /workspaceCycleEvaluationCopy|Cycle checked|Last canonical workspace observation/);
 });
 
+test('Ops workspace goals come from canonical bounded recursion, never a generic description', () => {
+  assert.match(opsSource, /raw\.schema_version !== 'workspace_goal_contract\/v1'/);
+  assert.match(opsSource, /function projectedWorkspaceRecursionGoals/);
+  assert.match(opsSource, /Array\.isArray\(projection\.workspace_recursion\)/);
+  assert.match(opsSource, /const workspaceGoals = useMemo/);
+  assert.match(opsSource, /workspaceGoals\.get\(normalizeWorkspaceBoardKey\(workspace\.workspace_key\)\)/);
+  assert.match(opsSource, /const activeGoal = workspaceGoals\.get\(selectedWorkspaceId\)/);
+  assert.doesNotMatch(opsSource, /activeCycleEvaluation\?\.goal/);
+  assert.match(opsSource, /projectedGoal\?\.goal \|\| 'Canonical goal unavailable in the current Ops cycle projection\.'/);
+  assert.match(opsSource, /activeGoal\?\.progressSignals\.join\(' '\)/);
+  assert.match(opsSource, /activeGoal\?\.phaseGate/);
+  assert.match(opsSource, /activeGoal\?\.noActionTrigger/);
+  assert.match(opsSource, /Scope: \{activeWorkspace\.description\}/);
+});
+
 test('Brain source errors state scope, healthy remainder, and next action', () => {
   assert.match(brainSource, /YouTube source inventory is unavailable/);
   assert.match(brainSource, /Affected: live YouTube discovery only/);
@@ -42,6 +66,15 @@ test('Brain source errors state scope, healthy remainder, and next action', () =
   assert.match(brainSource, /Affected: this source&apos;s live lookup and full-coverage claim only/);
   assert.match(brainSource, /do not treat the visible counts as complete/);
   assert.doesNotMatch(brainSource, />\{youtubeWatchlistError\}<\/p>/);
+  assert.doesNotMatch(brainSource, /memory_vectors\.last_refreshed_at/);
+  assert.doesNotMatch(opsSource, /memory_vectors\.last_refreshed_at/);
+});
+
+test('Brain never turns a missing Persona projection into a false zero', () => {
+  assert.match(brainSource, /persona_review_available/);
+  assert.match(brainSource, /Persona queue projection unavailable/);
+  assert.match(brainSource, /Projection unavailable; open Persona for the live queue/);
+  assert.doesNotMatch(brainSource, /Pending Review" value=\{verified \? pendingReviewCount \?\? 0/);
 });
 
 test('Persona owner guidance hides internal receipt identifiers', () => {
@@ -57,6 +90,14 @@ test('Persona save confirmation survives automatic advance and names the downstr
   assert.match(brainSource, /It is now available in Persona review history/);
   assert.match(brainSource, /The next Dream cycle will not consume it unless you later use an eligible canon or routing action/);
   assert.doesNotMatch(brainSource, /maxHeight: '360px', overflowY: 'auto'/);
+});
+
+test('Persona save retries bind one capture to one expected owner-response revision', () => {
+  assert.match(brainSource, /resolved_capture_id: resolvedCaptureId/);
+  assert.match(brainSource, /expected_owner_response_revision: currentOwnerResponseRevision/);
+  assert.match(brainSource, /nextOwnerResponseRevision: currentOwnerResponseRevision \+ 1/);
+  assert.match(brainSource, /crypto\?\.subtle/);
+  assert.match(brainSource, /persona-review:r\$\{currentOwnerResponseRevision \+ 1\}/);
 });
 
 test('Daily Briefs bound history and translate legacy runtime detail for owner guidance', () => {
@@ -76,14 +117,39 @@ test('Docs require explicit selection and keep the initial index bounded', () =>
   assert.match(brainSource, /Opening or reading one is passive and does not modify canon or create owner evidence/);
 });
 
-test('Control-surface tabs wrap on phones instead of hiding behind horizontal scrolling', () => {
+test('Control-surface chrome stays readable without covering tablet or phone content', () => {
   const tabs = runtimeChromeSource.match(/function RuntimeTabs\([\s\S]*?\n}\n\nfunction ModuleDock/);
   assert.ok(tabs, 'expected RuntimeTabs');
   assert.match(tabs[0], /flexWrap: 'wrap'/);
   assert.doesNotMatch(tabs[0], /overflowX: 'auto'/);
+  assert.match(runtimeChromeSource, /className="runtime-tab"/);
   assert.match(runtimeChromeSource, /className="runtime-module-dock"/);
-  assert.match(globalStylesSource, /@media \(max-width: 640px\)/);
+  assert.match(globalStylesSource, /@media \(max-width: 1280px\), \(max-height: 800px\)/);
+  assert.match(globalStylesSource, /@media \(max-width: 1024px\)/);
   assert.match(globalStylesSource, /\.runtime-module-dock \{[\s\S]*?position: static !important/);
+  assert.match(globalStylesSource, /\.ops-panel-header-meta \{[\s\S]*?flex-direction: row !important/);
+  assert.match(opsSource, /className="ops-panel-header-meta"/);
+  assert.match(opsSource, /data-ops-portfolio-project-grid="true"[\s\S]*?minmax\(min\(280px, 100%\), 1fr\)/);
+  assert.match(opsSource, /data-ops-system-summary-grid="true"[\s\S]*?minmax\(min\(240px, 100%\), 1fr\)/);
+});
+
+test('Persona presents one source title and flattens supporting context', () => {
+  const activeSourceContext = brainSource.match(/Why this is in review[\s\S]*?Technical provenance and routing hints/);
+  assert.ok(activeSourceContext, 'expected active Persona source context');
+  assert.doesNotMatch(activeSourceContext[0], />Review the source</);
+  assert.doesNotMatch(activeSourceContext[0], /\{sourceTitle\}/);
+  assert.match(brainSource, /borderLeft: '2px solid #0e7490'/);
+  assert.match(brainSource, /backgroundColor: 'transparent'/);
+  assert.match(brainSource, /stackPersonaDetail = viewportWidth < 900/);
+  assert.match(brainSource, /minHeight: stackPersonaDetail \? '160px' : compactPersonaChrome \? '72px' : '220px'/);
+  assert.match(brainSource, /display: 'contents'/);
+  assert.match(brainSource, /Save records one owner-response receipt/);
+});
+
+test('local development hydration gets only the CSP exception Next requires', () => {
+  assert.match(nextConfigSource, /process\.env\.NODE_ENV === 'development'/);
+  assert.match(nextConfigSource, /developmentScriptSource/);
+  assert.match(nextConfigSource, /script-src 'self' 'unsafe-inline'/);
 });
 
 test('FEEZIE leads with owner truth and defers its dense inventories', () => {

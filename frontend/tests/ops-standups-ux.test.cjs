@@ -19,7 +19,10 @@ test('Ops separates Today decisions from the detailed execution surface', () => 
   assert.match(opsSource, /\{ key: 'execution', label: 'Execution'/);
   assert.match(opsSource, /<TodayOpsPanel/);
   assert.match(opsSource, /activePanel === 'execution'/);
-  assert.match(opsSource, /<PortfolioPulseSection snapshot=\{portfolioPulse\}/);
+  assert.match(
+    opsSource,
+    /<PortfolioPulseSection[\s\S]{0,180}?snapshot=\{portfolioPulse\}[\s\S]{0,180}?workspaceGoals=\{workspaceGoals\}/,
+  );
 });
 
 test('Ops Today exposes the canonical final daily conclusion without creating a second authority', () => {

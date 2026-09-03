@@ -1384,6 +1384,7 @@ def submit_brain_persona_review(delta_id: str, payload: BrainPersonaReviewReques
             response_kind=payload.response_kind,
             reflection_excerpt=payload.reflection_excerpt,
             resolution_capture_id=payload.resolution_capture_id,
+            expected_owner_response_revision=payload.expected_owner_response_revision,
             selected_promotion_items=[item.model_dump(exclude_none=True) for item in payload.selected_promotion_items],
             complete_review=payload.complete_review,
         )

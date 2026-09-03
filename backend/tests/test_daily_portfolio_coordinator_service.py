@@ -15,6 +15,9 @@ from app.services.daily_portfolio_coordinator_service import (
 )
 from app.services.integrated_memory_readiness_service import IntegratedMemoryReadinessService
 from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.ops_standup_projection_service import (
+    build_ops_standup_projection,
+)
 from app.services.portfolio_cycle_service import PortfolioCycleService
 from app.services.standup_relevance_service import build_standup_relevance_plan
 
@@ -141,6 +144,17 @@ def _feezie_evaluation(
                 "decision_record_schema_version": "standup_decision_record/v1",
                 "decision_record_id": "standup-decision-0123456789abcdef01234567",
                 "decision_record_owner_role": "jean_claude",
+            }
+        )
+    elif status == "failed":
+        evaluation.update(
+            {
+                "promotion_suppressed": False,
+                "failure_kind": (
+                    "verified_async_role_contribution_unavailable"
+                ),
+                "failure_stage": "async_role_contribution",
+                "canonical_update_accepted": False,
             }
         )
     return evaluation
@@ -1220,6 +1234,253 @@ def test_feezie_collapse_becomes_healthy_no_change_with_exact_goal_trigger(
             "trigger": goal["no_action_trigger"],
         }
     ]
+
+
+def test_failed_feezie_async_handoff_projects_goal_failure_scope_and_retained_state(
+    tmp_path,
+    monkeypatch,
+):
+    cycle_id = "daily-2026-09-03@20260903T101500590123Z"
+    observed_at = datetime(
+        2026,
+        9,
+        3,
+        10,
+        15,
+        0,
+        590123,
+        tzinfo=timezone.utc,
+    )
+    goal = _feezie_goal()
+    monkeypatch.setattr(
+        coordinator,
+        "workspace_registry_entry",
+        lambda _workspace_key: {"goal_contract": copy.deepcopy(goal)},
+    )
+    evaluation = _feezie_evaluation(
+        cycle_id=cycle_id,
+        observed_at="2026-09-03T10:15:00Z",
+        status="failed",
+    )
+
+    adapted = adapt_daily_workspace_evaluations(
+        [evaluation],
+        cycle_id=cycle_id,
+        cycle_date=date(2026, 9, 3),
+        observed_at=observed_at,
+        expected_workspaces=["feezie-os"],
+    )
+
+    feezie = adapted["feezie-os"]
+    assert feezie["goal"] == goal
+    assert feezie["_conclusion_kind"] == "conclusion"
+    assert feezie["actions_taken"] == []
+    assert feezie["decisions"] == []
+    assert feezie["owner_decisions"] == []
+    assert feezie["recommended_next_actions"] == []
+    assert feezie["failed_work"][0]["reason_code"] == (
+        "verified_async_role_contribution_unavailable"
+    )
+    assert "cannot be treated as a current FEEZIE update" in (
+        feezie["failed_work"][0]["impact"]
+    )
+    assert "remain available" in feezie["blockers"][0]["still_healthy"]
+    assert "later natural ai_clone_utc cycle" in (
+        feezie["blockers"][0]["future_trigger"]
+    )
+    assert "do not consume the failed handoff" in (
+        feezie["next_cycle_inputs"][0]["summary"]
+    )
+
+    store, service, readiness_id = _ready_portfolio_service(
+        tmp_path,
+        cycle_id=cycle_id,
+        observed_at=observed_at,
+    )
+    ops = run_portfolio_coordination(
+        service=service,
+        portfolio_cycle_id=cycle_id,
+        cycle_date=date(2026, 9, 3),
+        observed_at=observed_at,
+        expected_workspaces=["feezie-os"],
+        readiness_id=readiness_id,
+        standup_rows=[],
+        system_health={"workspace_standup_execution": "failed"},
+        workspace_cycle_evaluations=[evaluation],
+    )
+
+    assert ops["status"] == "degraded"
+    assert ops["workspace_updates"] == [
+        {
+            "workspace_key": "feezie-os",
+            "state": "conclusion",
+            "summary": feezie["summary"],
+            "provenance_kind": "deterministic_policy",
+        }
+    ]
+    assert len(ops["workspace_recursion"]) == 1
+    recursion = ops["workspace_recursion"][0]
+    assert recursion["goal"] == goal
+    assert recursion["failed_work"][0]["reason_code"] == (
+        "verified_async_role_contribution_unavailable"
+    )
+    assert recursion["blocked"][0]["affected"] == (
+        "New FEEZIE cycle conclusion only."
+    )
+
+
+def test_failed_feezie_evaluation_fails_closed_when_authority_shape_drifts(
+    monkeypatch,
+):
+    cycle_id = "daily-2026-09-03@20260903T101500590123Z"
+    observed_at = datetime(
+        2026,
+        9,
+        3,
+        10,
+        15,
+        0,
+        590123,
+        tzinfo=timezone.utc,
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "workspace_registry_entry",
+        lambda _workspace_key: {"goal_contract": _feezie_goal()},
+    )
+    valid = _feezie_evaluation(
+        cycle_id=cycle_id,
+        observed_at="2026-09-03T10:15:00Z",
+        status="failed",
+    )
+    malformed = []
+    for key, value in (
+        ("failure_kind", "generic_failure"),
+        ("failure_stage", "canonical_promotion"),
+        ("canonical_update_accepted", True),
+        ("meeting_held", True),
+        ("owner_decision_count", 1),
+        ("async_role_contribution_id", "forged-id"),
+        ("goal", _bounded_goal(_feezie_goal())),
+    ):
+        item = copy.deepcopy(valid)
+        item[key] = value
+        malformed.append(item)
+
+    for evaluation in malformed:
+        assert adapt_daily_workspace_evaluations(
+            [evaluation],
+            cycle_id=cycle_id,
+            cycle_date=date(2026, 9, 3),
+            observed_at=observed_at,
+            expected_workspaces=["feezie-os"],
+        ) == {}
+
+
+def test_all_six_workspace_goals_and_failed_feezie_scope_reach_ops_projection(
+    tmp_path,
+    monkeypatch,
+):
+    cycle_id = "daily-2026-09-03@20260903T101500590123Z"
+    observed_at = datetime(
+        2026,
+        9,
+        3,
+        10,
+        15,
+        0,
+        590123,
+        tzinfo=timezone.utc,
+    )
+    workspace_keys = [
+        "agc",
+        "ai-swag-store",
+        "easyoutfitapp",
+        "feezie-os",
+        "fusion-os",
+        "work-life-tools",
+    ]
+    goals = {
+        key: {
+            **_feezie_goal(),
+            "goal": f"Synthetic isolated goal for {key}.",
+            "no_action_trigger": f"New verified {key} evidence arrives.",
+        }
+        for key in workspace_keys
+    }
+    monkeypatch.setattr(
+        coordinator,
+        "workspace_registry_entry",
+        lambda workspace_key: {
+            "goal_contract": copy.deepcopy(goals[workspace_key])
+        },
+    )
+    standup_rows = [
+        _workspace_cycle_plan_row(
+            cycle_id=cycle_id,
+            observed_at="2026-09-03T10:15:00Z",
+            workspace_key=workspace_key,
+        )
+        for workspace_key in workspace_keys
+        if workspace_key != "feezie-os"
+    ]
+    feezie_failure = _feezie_evaluation(
+        cycle_id=cycle_id,
+        observed_at="2026-09-03T10:15:00Z",
+        status="failed",
+    )
+    store, service, readiness_id = _ready_portfolio_service(
+        tmp_path,
+        cycle_id=cycle_id,
+        observed_at=observed_at,
+    )
+
+    ops = run_portfolio_coordination(
+        service=service,
+        portfolio_cycle_id=cycle_id,
+        cycle_date=date(2026, 9, 3),
+        observed_at=observed_at,
+        expected_workspaces=workspace_keys,
+        readiness_id=readiness_id,
+        standup_rows=standup_rows,
+        system_health={"workspace_standup_execution": "failed"},
+        workspace_cycle_evaluations=[feezie_failure],
+    )
+    projection = build_ops_standup_projection(store=store)
+
+    assert ops["status"] == "degraded"
+    assert len(ops["workspace_updates"]) == 6
+    assert all(item["state"] != "missing" for item in ops["workspace_updates"])
+    assert len(projection["workspace_recursion"]) == len(workspace_keys)
+    assert {
+        item["workspace_key"] for item in projection["workspace_recursion"]
+    } == set(workspace_keys)
+    assert projection["state"] == "degraded"
+    assert "ops_conclusion_missing_active_workspace_recursion" not in (
+        projection["reason_codes"]
+    )
+    projected_by_workspace = {
+        item["workspace_key"]: item
+        for item in projection["workspace_recursion"]
+    }
+    assert all(
+        projected_by_workspace[key]["goal"]["goal"] == goals[key]["goal"]
+        for key in workspace_keys
+    )
+    feezie = projected_by_workspace["feezie-os"]
+    assert feezie["actions_taken"] == []
+    assert feezie["owner_decisions"] == []
+    assert feezie["recommendations"] == []
+    assert feezie["failed_work"][0]["reason_code"] == (
+        "verified_async_role_contribution_unavailable"
+    )
+    assert feezie["blocked"][0]["still_healthy"].endswith(
+        "remain available."
+    )
+    assert projection["workspace_cycle_evaluations"][0]["status"] == "failed"
+    assert projection["workspace_cycle_evaluations"][0][
+        "canonical_update_accepted"
+    ] is False
 
 
 def test_feezie_cycle_evaluation_missing_or_malformed_fails_closed(

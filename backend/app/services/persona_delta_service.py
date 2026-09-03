@@ -678,6 +678,7 @@ def apply_brain_review(
     response_kind: str,
     reflection_excerpt: str,
     resolution_capture_id: str | None = None,
+    expected_owner_response_revision: int | None = None,
     selected_promotion_items: list[dict] | None = None,
     complete_review: bool = False,
 ) -> Optional[PersonaDelta]:
@@ -698,6 +699,20 @@ def apply_brain_review(
         raise ValueError("At least one promotion item is required for approval.")
 
     existing_metadata = existing.metadata if isinstance(existing.metadata, dict) else {}
+    current_response_revision = int(existing_metadata.get("owner_response_revision") or 0)
+    if current_response_revision <= 0 and existing_metadata.get("owner_response_excerpt"):
+        current_response_revision = 1
+    if expected_owner_response_revision is not None and current_response_revision != expected_owner_response_revision:
+        same_completed_save = (
+            current_response_revision == expected_owner_response_revision + 1
+            and str(existing_metadata.get("resolution_capture_id") or "") == str(resolution_capture_id or "")
+            and str(existing_metadata.get("owner_response_excerpt") or "").strip() == trimmed_excerpt
+            and str(existing_metadata.get("owner_response_kind") or "nuance") == response_kind
+            and bool(existing_metadata.get("review_completed")) is bool(complete_review)
+        )
+        if same_completed_save:
+            return existing
+        raise ValueError("This Persona response changed after it was opened. Reload the review item before saving again.")
     keep_selectable_source_open = (
         normalized_mode == "reviewed"
         and not complete_review

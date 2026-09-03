@@ -18,6 +18,10 @@ from app.services.brain_response_privacy_service import sanitize_brain_text
 from app.services.execution_artifact_reference_service import contains_private_filesystem_reference
 from app.services.integrated_content_projection_service import _decision_summary
 from app.services.integrated_system_store import IntegratedSystemStore
+from app.services.portfolio_cycle_service import (
+    WORKSPACE_CYCLE_EVALUATION_MAX_ITEMS,
+    WORKSPACE_CYCLE_EVALUATION_SCALAR_FIELDS,
+)
 from app.services.workspace_registry_service import (
     ACTIVE_PORTFOLIO_WORKSPACE_STATUSES,
     workspace_registry_entries,
@@ -117,11 +121,13 @@ _SAFE_ITEM_FIELDS = frozenset(
     {
         "action_at",
         "action_id",
+        "affected",
         "approval_state",
         "authorization_current",
         "backup_status",
         "basis_created_at",
         "card_id",
+        "canonical_update_accepted",
         "claim_id",
         "classification",
         "commitment",
@@ -142,8 +148,11 @@ _SAFE_ITEM_FIELDS = frozenset(
         "evaluation_schema_version",
         "explanation",
         "future_trigger",
+        "failure_kind",
+        "failure_stage",
         "gate_decision",
         "href",
+        "impact",
         "kind",
         "label",
         "latest_created_at",
@@ -172,11 +181,13 @@ _SAFE_ITEM_FIELDS = frozenset(
         "standup_kind",
         "state",
         "status",
+        "still_healthy",
         "summary",
         "title",
         "top_status",
         "trigger",
         "type",
+        "next_step",
         "source_url",
         "url",
         "verified_receipt",
@@ -445,6 +456,52 @@ def _bounded_items(value: Any, *, evidence: bool = False) -> list[dict[str, Any]
         if len(result) >= MAX_ITEMS:
             break
     return result
+
+
+def _bounded_workspace_cycle_evaluations(value: Any) -> list[dict[str, Any]]:
+    """Project the closed structural cycle schema without field-order loss."""
+
+    evaluations: list[dict[str, Any]] = []
+    for raw in value if isinstance(value, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        item: dict[str, Any] = {}
+        for key in WORKSPACE_CYCLE_EVALUATION_SCALAR_FIELDS:
+            if key not in raw:
+                continue
+            cell = raw.get(key)
+            if isinstance(cell, bool):
+                item[key] = cell
+            elif isinstance(cell, (int, float)):
+                if not isinstance(cell, float) or math.isfinite(cell):
+                    item[key] = cell
+            elif cell is None:
+                item[key] = None
+            elif isinstance(cell, str):
+                item[key] = _bounded_text(cell, limit=500)
+        terminal_dispositions: list[dict[str, str]] = []
+        raw_terminal_dispositions = raw.get(
+            "async_recommendation_terminal_dispositions"
+        )
+        for raw_disposition in (
+            raw_terminal_dispositions[:100]
+            if isinstance(raw_terminal_dispositions, list)
+            else []
+        ):
+            if not isinstance(raw_disposition, dict):
+                continue
+            state = _bounded_text(raw_disposition.get("state"), limit=120)
+            if state:
+                terminal_dispositions.append({"state": state})
+        if terminal_dispositions:
+            item[
+                "async_recommendation_terminal_dispositions"
+            ] = terminal_dispositions
+        if item:
+            evaluations.append(item)
+        if len(evaluations) >= WORKSPACE_CYCLE_EVALUATION_MAX_ITEMS:
+            break
+    return evaluations
 
 
 def _bounded_process_updates(value: Any) -> dict[str, Any]:
@@ -855,7 +912,7 @@ def _upgrade_legacy_projection(payload: dict[str, Any]) -> dict[str, Any]:
         "workspace_updates": _bounded_items(payload.get("workspace_updates")),
         "workspace_recursion": legacy_workspace_recursion,
         "shared_ops_reconciliation": legacy_shared_ops_reconciliation,
-        "workspace_cycle_evaluations": _bounded_items(
+        "workspace_cycle_evaluations": _bounded_workspace_cycle_evaluations(
             payload.get("workspace_cycle_evaluations")
         ),
         "ai_clone_process_updates": _bounded_process_updates(
@@ -908,6 +965,37 @@ def _valid_projected_item(value: Any, *, allow_urls: bool = False) -> bool:
         if isinstance(cell, float) and not math.isfinite(cell):
             return False
         if isinstance(cell, str) and len(cell) > 1000:
+            return False
+    return True
+
+
+def _valid_workspace_cycle_evaluation(value: Any) -> bool:
+    allowed = set(WORKSPACE_CYCLE_EVALUATION_SCALAR_FIELDS) | {
+        "async_recommendation_terminal_dispositions"
+    }
+    if not isinstance(value, dict) or not value or set(value) - allowed:
+        return False
+    for key, cell in value.items():
+        if key == "async_recommendation_terminal_dispositions":
+            if (
+                not isinstance(cell, list)
+                or len(cell) > 100
+                or any(
+                    not isinstance(disposition, dict)
+                    or set(disposition) != {"state"}
+                    or not isinstance(disposition.get("state"), str)
+                    or not disposition["state"]
+                    or len(disposition["state"]) > 120
+                    for disposition in cell
+                )
+            ):
+                return False
+            continue
+        if not isinstance(cell, (str, int, float, bool, type(None))):
+            return False
+        if isinstance(cell, float) and not math.isfinite(cell):
+            return False
+        if isinstance(cell, str) and len(cell) > 500:
             return False
     return True
 
@@ -1423,7 +1511,9 @@ def build_ops_standup_projection(*, store: IntegratedSystemStore | None = None) 
         "workspace_updates": _bounded_items(payload.get("workspace_updates")),
         "workspace_recursion": workspace_recursion,
         "shared_ops_reconciliation": shared_ops_reconciliation,
-        "workspace_cycle_evaluations": _bounded_items(payload.get("workspace_cycle_evaluations")),
+        "workspace_cycle_evaluations": _bounded_workspace_cycle_evaluations(
+            payload.get("workspace_cycle_evaluations")
+        ),
         "ai_clone_process_updates": _bounded_process_updates(payload.get("ai_clone_process_updates")),
         "endpoint_and_subsystem_health": _bounded_subsystem_health(payload.get("endpoint_and_subsystem_health")),
         "work_underway": _bounded_items(payload.get("work_underway")),
@@ -1619,12 +1709,21 @@ def validate_ops_standup_projection(payload: Any) -> dict[str, Any]:
         "supporting_evidence_links",
         "recommended_next_actions",
     ):
-        if not isinstance(payload.get(key), list) or len(payload[key]) > MAX_ITEMS:
+        item_limit = (
+            WORKSPACE_CYCLE_EVALUATION_MAX_ITEMS
+            if key == "workspace_cycle_evaluations"
+            else MAX_ITEMS
+        )
+        if not isinstance(payload.get(key), list) or len(payload[key]) > item_limit:
             raise OpsStandupProjectionError(f"invalid {key}")
         if any(
-            not _valid_projected_item(
-                item,
-                allow_urls=key == "supporting_evidence_links",
+            not (
+                _valid_workspace_cycle_evaluation(item)
+                if key == "workspace_cycle_evaluations"
+                else _valid_projected_item(
+                    item,
+                    allow_urls=key == "supporting_evidence_links",
+                )
             )
             for item in payload[key]
         ):

@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const developmentScriptSource = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -9,7 +11,7 @@ const contentSecurityPolicy = [
   "frame-src 'self'",
   "img-src 'self' data: blob: https:",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${developmentScriptSource}`,
   "style-src 'self' 'unsafe-inline'",
   "worker-src 'self' blob:",
 ].join('; ');

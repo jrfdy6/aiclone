@@ -522,6 +522,8 @@ type WorkspaceFeedbackSummary = {
 };
 
 type PersonaReviewSummary = {
+  available?: boolean;
+  state?: string;
   counts?: {
     total?: number;
     brain_pending_review?: number;
@@ -717,8 +719,9 @@ export type BrainControlPlanePayload = {
     capture_count?: number;
     doc_count?: number;
     workspace_file_count?: number;
-    pending_review_count?: number;
-    workspace_saved_count?: number;
+    persona_review_available?: boolean;
+    pending_review_count?: number | null;
+    workspace_saved_count?: number | null;
     source_asset_count?: number;
     brain_memory_sync_queue_count?: number;
     portfolio_workspace_count?: number;
@@ -1801,7 +1804,8 @@ function BrainControlPlanePanel({
   const degraded = loadState === 'error';
   const sourceCounts = workspaceSnapshot?.source_assets?.counts;
   const routeCounts = workspaceSnapshot?.long_form_routes?.primary_route_counts ?? workspaceSnapshot?.long_form_routes?.route_counts ?? {};
-  const personaCounts = workspaceSnapshot?.persona_review_summary?.counts;
+  const personaReviewSummary = workspaceSnapshot?.persona_review_summary;
+  const personaCounts = personaReviewSummary?.counts;
   const relationCounts = workspaceSnapshot?.persona_review_summary?.belief_relation_counts ?? {};
   const brainMemorySync = controlPlane?.brain_memory_sync ?? null;
   const brainMemorySyncFresh = isRecentTimestamp(brainMemorySync?.generated_at, 6 * 60 * 60 * 1000);
@@ -1813,7 +1817,17 @@ function BrainControlPlanePanel({
     : 'Sync idle';
   const sourceIndex = controlPlane?.source_intelligence_index ?? null;
   const memorySyncItems = (brainMemorySync?.processed_items ?? []).slice(0, 4);
-  const pendingReviewCount = personaCounts?.brain_pending_review ?? controlPlane?.summary?.pending_review_count;
+  const personaReviewAvailable = controlPlane?.summary?.persona_review_available ?? Boolean(
+    personaReviewSummary?.available ||
+    personaCounts?.brain_pending_review !== undefined ||
+    personaCounts?.workspace_saved !== undefined,
+  );
+  const pendingReviewCount = personaReviewAvailable
+    ? personaCounts?.brain_pending_review ?? controlPlane?.summary?.pending_review_count ?? null
+    : null;
+  const workspaceSavedCount = personaReviewAvailable
+    ? personaCounts?.workspace_saved ?? controlPlane?.summary?.workspace_saved_count ?? null
+    : null;
   const staleSyncCount = brainMemorySync?.sync_live && !brainMemorySyncFresh ? 1 : 0;
   const recentSourceCount = sourceIndex?.recent_source_count ?? 0;
   const activeYouTubeJobs = youtubeIngestJobs.filter((job) =>
@@ -1822,9 +1836,11 @@ function BrainControlPlanePanel({
   const executiveFrontDoor = [
     {
       label: 'Needs me',
-      value: verified ? (pendingReviewCount ?? 0) + staleSyncCount : '—',
+      value: verified && pendingReviewCount !== null ? pendingReviewCount + staleSyncCount : '—',
       detail: verified
-        ? `${pendingReviewCount ?? 0} persona review${staleSyncCount ? ' · stale memory sync' : ''}`
+        ? pendingReviewCount !== null
+          ? `${pendingReviewCount} persona review${staleSyncCount ? ' · stale memory sync' : ''}`
+          : `Persona queue projection unavailable${staleSyncCount ? ' · memory sync is stale' : '; open Persona for the live queue'}`
         : 'Awaiting a verified control-plane snapshot.',
       tone: '#f97316',
     },
@@ -1961,8 +1977,18 @@ function BrainControlPlanePanel({
         />
         <TelemetryStat label="Docs" value={docCount} tone="#34d399" detail="Docs visible in Brain" />
         <TelemetryStat label="Captures" value={telemetry ? telemetry.captures.total : '—'} tone="#818cf8" detail="Open Brain all time" />
-        <TelemetryStat label="Pending Review" value={verified ? pendingReviewCount ?? 0 : '—'} tone="#f97316" detail="Brain queue" />
-        <TelemetryStat label="Workspace Saved" value={verified ? personaCounts?.workspace_saved ?? 0 : '—'} tone="#22c55e" detail="Already approved" />
+        <TelemetryStat
+          label="Pending Review"
+          value={verified && pendingReviewCount !== null ? pendingReviewCount : '—'}
+          tone="#f97316"
+          detail={personaReviewAvailable ? 'Brain queue' : 'Projection unavailable; open Persona for the live queue'}
+        />
+        <TelemetryStat
+          label="Workspace Saved"
+          value={verified && workspaceSavedCount !== null ? workspaceSavedCount : '—'}
+          tone="#22c55e"
+          detail={personaReviewAvailable ? 'Already approved' : 'Projection unavailable'}
+        />
         <TelemetryStat label="Brain Signals" value={controlPlane?.summary?.brain_signal_count ?? '—'} tone="#38bdf8" detail="Recent review objects" />
         <TelemetryStat
           label="Source Index"
@@ -4640,7 +4666,7 @@ function PersonaPanel({
     ? lifecycleGroups.find((group) => group.key === requestedLifecycleView)?.title ?? 'Canon Audit'
     : null;
   const usePersonaPhoneLayout = viewportWidth <= PERSONA_PHONE_MAX_WIDTH;
-  const stackPersonaDetail = viewportWidth < 1040;
+  const stackPersonaDetail = viewportWidth < 900;
   const compactPersonaChrome = viewportWidth < 1440 || viewportHeight < 900;
   const reflectionToneColor = reflectionState.tone === 'success' ? '#22c55e' : reflectionState.tone === 'error' ? '#f87171' : '#64748b';
   const triageToneColor = triageState.tone === 'success' ? '#22c55e' : triageState.tone === 'error' ? '#f87171' : '#64748b';
@@ -5026,6 +5052,10 @@ function PersonaPanel({
   ) {
     const routeAfterSave = options.routeAfterSave ?? false;
     const advanceAfterSave = options.advanceAfterSave ?? false;
+    if (!selectedDelta) {
+      setReflectionState({ tone: 'error', message: 'This review item is no longer available. Reopen the Persona queue before saving.' });
+      return;
+    }
     const trimmedReflection = reflectionText.trim();
     const effectivePromotionItems =
       mode === 'approved' && selectedPromotionItems.length === 0 && recommendedSelectableItems.length > 0
@@ -5085,6 +5115,17 @@ function PersonaPanel({
       let canonOutcome: 'none' | 'queued' | 'committed' = 'none';
       let routeOutcomeMessage = '';
       let routeFailureMessage = '';
+      const promotionPayloads = effectivePromotionItems.map(promotionItemRequestPayload);
+      const currentOwnerResponseRevision = personaOwnerResponseRevision(selectedDelta.metadata);
+      const resolvedCaptureId = await personaReviewResolvedCaptureId({
+        deltaId: selectedDelta.id,
+        currentOwnerResponseRevision,
+        mode,
+        responseKind: selectedResponseKind,
+        reflectionExcerpt: effectiveReflection,
+        completeReview: advanceAfterSave,
+        promotionItems: promotionPayloads,
+      });
       const payload = {
         text: buildReflectionCaptureText({
           delta: selectedDelta,
@@ -5099,6 +5140,7 @@ function PersonaPanel({
         metadata: {
           capture_kind: 'persona_reflection',
           origin: 'brain.persona.ui',
+          resolved_capture_id: resolvedCaptureId,
           owner_response_kind: selectedResponseKind,
           linked_delta_id: selectedDelta?.id ?? null,
           linked_capture_id: selectedDelta?.capture_id ?? null,
@@ -5107,7 +5149,7 @@ function PersonaPanel({
           trait: selectedDelta?.trait ?? null,
           reference_pack: referencePack,
           input_mode: 'text',
-          selected_promotion_items: effectivePromotionItems.map(promotionItemRequestPayload),
+          selected_promotion_items: promotionPayloads,
         },
       };
 
@@ -5117,8 +5159,9 @@ function PersonaPanel({
           mode,
           response_kind: selectedResponseKind,
           resolution_capture_id: result.capture_id,
+          expected_owner_response_revision: currentOwnerResponseRevision,
           reflection_excerpt: effectiveReflection.slice(0, 4000),
-          selected_promotion_items: effectivePromotionItems.map(promotionItemRequestPayload),
+          selected_promotion_items: promotionPayloads,
           complete_review: advanceAfterSave,
         };
         const updatedDelta = await controlApiPost<PersonaDeltaEntry>(
@@ -6225,10 +6268,10 @@ function PersonaPanel({
     >
       <section
         style={{
-          borderRadius: '18px',
-          border: '1px solid #1f2937',
-          backgroundColor: '#050b19',
-          padding: compactPersonaChrome ? '14px' : '18px',
+          borderRadius: 0,
+          border: 'none',
+          backgroundColor: 'transparent',
+          padding: 0,
           display: 'grid',
           gap: compactPersonaChrome ? '10px' : '12px',
           alignItems: 'start',
@@ -6432,8 +6475,7 @@ function PersonaPanel({
               }}
             >
               <div>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Review the source</p>
-                <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600, lineHeight: 1.45, margin: '0 0 8px' }}>{sourceTitle}</p>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Why this is in review</p>
                 <p style={{ color: '#94a3b8', fontSize: compactPersonaChrome ? '13px' : '14px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>
                   {compactPersonaChrome ? truncateText(reviewReason, 260) : reviewReason}
                 </p>
@@ -6471,11 +6513,10 @@ function PersonaPanel({
               <div style={{ minHeight: 0, overflowY: 'visible' }}>
                 <div
                   style={{
-                    borderRadius: '12px',
-                    border: '1px solid #1f2937',
-                    backgroundColor: '#010617',
-                    padding: '12px',
-                    marginBottom: '14px',
+                    borderTop: '1px solid #1f2937',
+                    borderBottom: '1px solid #1f2937',
+                    padding: '12px 0',
+                    marginBottom: '4px',
                     display: 'grid',
                     gap: '12px',
                   }}
@@ -6493,7 +6534,7 @@ function PersonaPanel({
                       </a>
                     )}
                   </div>
-                  <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px 12px' }}>
+                  <div style={{ borderLeft: '2px solid #0e7490', padding: '0 0 0 10px' }}>
                     <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 6px' }}>Decision prompt</p>
                     <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{reviewAsk}</p>
                   </div>
@@ -6899,17 +6940,14 @@ function PersonaPanel({
             >
               <div
                 style={{
-                  borderRadius: '12px',
-                  border: '1px solid #1f2937',
-                  backgroundColor: '#010617',
-                  padding: compactPersonaChrome ? '12px' : '14px',
-                  display: 'grid',
-                  gap: compactPersonaChrome ? '9px' : '10px',
+                  display: 'contents',
                 }}
               >
                 <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Your response</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
-                  Say what you agree with, reject, or would change. Saving creates owner evidence in Open Brain; it does not automatically make the source or suggested fragments canonical.
+                  {compactPersonaChrome
+                    ? 'Write your view, then Save. A successful save creates owner evidence; it never promotes the source or draft to canon.'
+                    : 'Say what you agree with, reject, or would change. Saving creates owner evidence in Open Brain; it does not automatically make the source or suggested fragments canonical.'}
                 </p>
                 <div
                   data-persona-save-state={hasUnconfirmedPersonaDraft ? 'unsaved' : savedResponseExcerpt ? 'saved' : 'empty'}
@@ -6924,13 +6962,19 @@ function PersonaPanel({
                   </p>
                   <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
                     {hasUnconfirmedPersonaDraft
-                      ? 'Kept on this device only. It is excluded from Persona evidence, canon, Dream, and learning until Save succeeds.'
+                      ? compactPersonaChrome
+                        ? 'Kept only on this device until Save succeeds.'
+                        : 'Kept on this device only. It is excluded from Persona evidence, canon, Dream, and learning until Save succeeds.'
                       : savedResponseExcerpt
-                      ? 'The saved response is owner evidence available to its recorded downstream lane. Canon still requires an explicit eligible Finalize action.'
-                      : 'Passive review, navigation, and page refreshes create no owner evidence.'}
+                      ? compactPersonaChrome
+                        ? 'Saved as owner evidence; canon still requires a separate eligible Finalize action.'
+                        : 'The saved response is owner evidence available to its recorded downstream lane. Canon still requires an explicit eligible Finalize action.'
+                      : compactPersonaChrome
+                        ? 'Browsing, navigation, refreshes, and unsaved typing create no owner evidence.'
+                        : 'Passive review, navigation, and page refreshes create no owner evidence.'}
                   </p>
                 </div>
-                <div style={{ display: 'grid', gap: '8px' }}>
+                <div style={{ display: 'grid', gap: '8px', order: 2 }}>
                   <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Source call</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <QuickFillButton label="Not useful" onClick={() => seedSourceDecision('not_useful')} />
@@ -6942,7 +6986,7 @@ function PersonaPanel({
                     </Link>
                   </div>
                 </div>
-                <div style={{ display: 'grid', gap: '8px' }}>
+                <div style={{ display: 'grid', gap: '8px', order: 2 }}>
                   <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Response</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
@@ -6956,12 +7000,12 @@ function PersonaPanel({
                   type="button"
                   aria-expanded={showTriageControls}
                   onClick={() => setShowTriageControls((current) => !current)}
-                  style={{ ...triageChoiceButtonStyle(showTriageControls), justifySelf: 'start' }}
+                  style={{ ...triageChoiceButtonStyle(showTriageControls), justifySelf: 'start', order: 2 }}
                 >
                   {showTriageControls ? 'Hide optional canon & routing' : 'Review optional canon & routing'}
                 </button>
                 {showTriageControls && (
-                <div style={{ display: 'grid', gap: '10px', padding: '10px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#010617' }}>
+                <div style={{ display: 'grid', gap: '10px', padding: '10px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#010617', order: 2 }}>
                   <div style={{ display: 'grid', gap: '4px' }}>
                     <p style={{ color: '#cbd5f5', fontSize: '12px', fontWeight: 700, margin: 0 }}>
                       Routing
@@ -7128,6 +7172,7 @@ function PersonaPanel({
                   display: 'grid',
                   gap: '12px',
                   minHeight: 0,
+                  order: 1,
                 }}
               >
                 <textarea
@@ -7145,7 +7190,7 @@ function PersonaPanel({
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    minHeight: '220px',
+                    minHeight: stackPersonaDetail ? '160px' : compactPersonaChrome ? '72px' : '220px',
                     resize: 'vertical',
                     borderRadius: '14px',
                     border: '1px solid #1f2937',
@@ -7162,17 +7207,19 @@ function PersonaPanel({
                 <div
                   style={{
                     display: 'grid',
-                    gap: '10px',
+                    gap: compactPersonaChrome ? '8px' : '10px',
                     borderRadius: '14px',
                     border: '1px solid #1f2937',
                     backgroundColor: '#020617',
-                    padding: '12px',
+                    padding: compactPersonaChrome ? '10px' : '12px',
                   }}
                 >
                   <div style={{ display: 'grid', gap: '4px' }}>
-                    <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Primary action</p>
+                    <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0, display: compactPersonaChrome && !stackPersonaDetail ? 'none' : 'block' }}>Primary action</p>
                     <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
-                      Save response creates one explicit owner-response receipt in Open Brain. It does not make a source claim, suggested fragment, or draft canonical.
+                      {compactPersonaChrome
+                        ? 'Save records one owner-response receipt. It does not make this source or any draft canonical.'
+                        : 'Save response creates one explicit owner-response receipt in Open Brain. It does not make a source claim, suggested fragment, or draft canonical.'}
                     </p>
                     {mobileSaveDisabled && !isFinalizePending && (
                       <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>
@@ -8033,7 +8080,7 @@ function CaptureTelemetryPanel({
         <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
           <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Last refresh run</p>
           <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600 }}>{metrics?.vectors.last_refresh_at ? formatTimestamp(metrics.vectors.last_refresh_at) : '—'}</p>
-          <p style={{ color: '#475569', fontSize: '12px' }}>memory_vectors.last_refreshed_at</p>
+          <p style={{ color: '#475569', fontSize: '12px', overflowWrap: 'anywhere' }}>Most recent indexed-memory update</p>
         </div>
       </div>
       <div style={{ overflowX: 'auto' }}>
@@ -8617,6 +8664,62 @@ function metadataStringArray(metadata: Record<string, unknown> | undefined, key:
 
 function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string) {
   return metadata?.[key] === true;
+}
+
+function personaOwnerResponseRevision(metadata: Record<string, unknown> | undefined) {
+  const parsed = Number(metadata?.owner_response_revision ?? 0);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.trunc(parsed);
+  }
+  return metadataText(metadata, 'owner_response_excerpt') ? 1 : 0;
+}
+
+async function personaReviewResolvedCaptureId({
+  deltaId,
+  currentOwnerResponseRevision,
+  mode,
+  responseKind,
+  reflectionExcerpt,
+  completeReview,
+  promotionItems,
+}: {
+  deltaId: string;
+  currentOwnerResponseRevision: number;
+  mode: 'reviewed' | 'approved';
+  responseKind: PersonaResponseKind;
+  reflectionExcerpt: string;
+  completeReview: boolean;
+  promotionItems: unknown[];
+}) {
+  const semanticReceipt = JSON.stringify({
+    deltaId,
+    nextOwnerResponseRevision: currentOwnerResponseRevision + 1,
+    mode,
+    responseKind,
+    reflectionExcerpt,
+    completeReview,
+    promotionItems,
+  });
+  let fingerprint = '';
+  try {
+    if (globalThis.crypto?.subtle) {
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(semanticReceipt));
+      fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {
+    fingerprint = '';
+  }
+  if (!fingerprint) {
+    let first = 2166136261;
+    let second = 2246822519;
+    for (let index = 0; index < semanticReceipt.length; index += 1) {
+      const code = semanticReceipt.charCodeAt(index);
+      first = Math.imul(first ^ code, 16777619) >>> 0;
+      second = Math.imul(second ^ code, 3266489917) >>> 0;
+    }
+    fingerprint = `${first.toString(16).padStart(8, '0')}${second.toString(16).padStart(8, '0')}`;
+  }
+  return `persona-review:r${currentOwnerResponseRevision + 1}:${fingerprint.slice(0, 48)}`;
 }
 
 function isPersonaResponseKind(value: unknown): value is PersonaResponseKind {

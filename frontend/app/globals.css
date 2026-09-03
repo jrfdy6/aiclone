@@ -26,7 +26,11 @@ body {
     rgb(var(--background-start-rgb));
 }
 
-@media (max-width: 640px) {
+.ops-panel-header-meta p {
+  margin: 0;
+}
+
+@media (max-width: 1280px), (max-height: 800px) {
   .runtime-page {
     padding-bottom: 24px !important;
   }
@@ -34,5 +38,30 @@ body {
   .runtime-module-dock {
     position: static !important;
     padding: 24px 10px 12px !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .runtime-tab {
+    padding: 12px 14px !important;
+  }
+
+  .ops-panel-header {
+    align-items: flex-start !important;
+  }
+
+  .ops-panel-header-copy {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .ops-panel-header-meta {
+    width: 100%;
+    align-items: center !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    gap: 8px 14px !important;
+    justify-content: flex-start;
+    text-align: left !important;
   }
 }

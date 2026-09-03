@@ -194,6 +194,7 @@ export function RuntimePage({
 function RuntimeTabs({ tabs, accent }: { tabs: RuntimeTab[]; accent: string }) {
   return (
     <div
+      className="runtime-tabs"
       style={{
         display: 'flex',
         gap: '2px',
@@ -203,6 +204,7 @@ function RuntimeTabs({ tabs, accent }: { tabs: RuntimeTab[]; accent: string }) {
       {tabs.map((tab) => (
         <button
           key={tab.key}
+          className="runtime-tab"
           type="button"
           aria-pressed={tab.active}
           onClick={tab.onSelect}

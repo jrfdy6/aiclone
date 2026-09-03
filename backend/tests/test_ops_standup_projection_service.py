@@ -20,6 +20,7 @@ from app.services.ops_standup_projection_service import (
     PROJECTION_SCHEMA,
     _MISSING_SHARED_OPS_RECONCILIATION_REASON,
     OpsStandupProjectionError,
+    _bounded_workspace_cycle_evaluations,
     build_ops_standup_projection,
     ops_projection_semantic_sha256,
     unavailable_ops_standup_projection,
@@ -211,6 +212,60 @@ def _store_semantic_ops_payload(
         )
         connection.commit()
     return store
+
+
+def test_workspace_cycle_projection_preserves_governed_authority_and_terminal_states():
+    raw = {
+        "workspace_key": "feezie-os",
+        "standup_kind": "workspace_sync",
+        "status": "async_contribution",
+        "reason": "new_cycle_observation",
+        "cycle_id": "daily-2026-09-03@20260903T101500590123Z",
+        "observed_at": "2026-09-03T10:15:00Z",
+        "evaluation_schema_version": "workspace_cycle_evaluation/v1",
+        "cycle_evaluation_only": True,
+        "meeting_held": False,
+        "promotion_suppressed": False,
+        "owner_decision_count": 1,
+        "created_standup_id": "bounded-coordination-row",
+        "async_role_contribution_id": "bounded-contribution",
+        "async_role_participant_report_run_id": "bounded-run",
+        "async_role_display_name": "Neo",
+        "canonical_pm_execution_authority": "Jean-Claude",
+        "pm_execution_authority_transferred": False,
+        "canonical_update_accepted": True,
+        "async_recommendation_terminal_dispositions": [
+            {
+                "state": "bounded_owner_decision",
+                "request_sha256": "private-lineage-is-not-owner-guidance",
+            },
+            {
+                "state": "placed_in_execution_queue",
+                "card_id": "private-card-id",
+            },
+        ],
+        "goal": {"goal": "Private authority must come from recursion."},
+        "promotion_error": "/private/provider/body",
+    }
+
+    projected = _bounded_workspace_cycle_evaluations([raw])
+
+    assert len(projected) == 1
+    evaluation = projected[0]
+    assert evaluation["canonical_update_accepted"] is True
+    assert evaluation["canonical_pm_execution_authority"] == "Jean-Claude"
+    assert evaluation["pm_execution_authority_transferred"] is False
+    assert evaluation["owner_decision_count"] == 1
+    assert evaluation["async_recommendation_terminal_dispositions"] == [
+        {"state": "bounded_owner_decision"},
+        {"state": "placed_in_execution_queue"},
+    ]
+    assert "goal" not in evaluation
+    assert "promotion_error" not in evaluation
+    assert "request_sha256" not in json.dumps(projected)
+    projection = _semantic_projection()
+    projection["workspace_cycle_evaluations"] = projected
+    assert validate_ops_standup_projection(projection) == projection
 
 
 def _daily_cycle_clock_run(

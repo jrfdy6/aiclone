@@ -34,7 +34,6 @@ const API_URL = '/api/control';
 const API_NO_STORE: RequestCache = 'no-store';
 const TELEMETRY_TIMEOUT_MS = 40_000;
 const SNAPSHOT_TIMEOUT_MS = 40_000;
-const PM_MAINTENANCE_TIMEOUT_MS = 12_000;
 // ai_clone_utc remains the sole machine-time authority. This timezone is only
 // the owner's calendar projection for weekday/week/month grouping in the UI.
 const OWNER_CALENDAR_TIME_ZONE = 'America/New_York';
@@ -270,6 +269,14 @@ type AutomationRun = {
   metadata?: Record<string, unknown>;
 };
 
+type WorkspaceGoalProjection = {
+  schemaVersion: 'workspace_goal_contract/v1';
+  goal: string;
+  progressSignals: string[];
+  phaseGate: string;
+  noActionTrigger: string;
+};
+
 type WorkspaceCycleEvaluation = {
   workspaceKey: string;
   standupKind: string;
@@ -283,6 +290,7 @@ type WorkspaceCycleEvaluation = {
   authorityTransferred: boolean;
   terminalDispositions: string[];
   ownerDecisionCount: number;
+  failureKind: string | null;
 };
 
 type OpsWorkspaceCycleProjection = {
@@ -292,6 +300,7 @@ type OpsWorkspaceCycleProjection = {
   cycle_date?: string | null;
   observed_at?: string | null;
   clock?: Record<string, unknown> | null;
+  workspace_recursion?: Array<Record<string, unknown>>;
   workspace_cycle_evaluations?: Array<Record<string, unknown>>;
 };
 
@@ -340,17 +349,6 @@ type ExecutionGatePayload = {
   authorization_current?: boolean;
 };
 
-type PMReviewHygieneResult = {
-  resolved_count?: number;
-  resolved?: Array<{
-    card_id: string;
-    title: string;
-    workspace_key: string;
-    rule?: string;
-    reason?: string;
-  }>;
-};
-
 type PMAutoProgressItem = {
   card_id: string;
   title: string;
@@ -363,17 +361,6 @@ type PMAutoProgressItem = {
   successor_card_title?: string | null;
   host_action_card_id?: string | null;
   host_action_card_title?: string | null;
-};
-
-type PMAutoProgressResult = {
-  processed_count?: number;
-  advanced_count?: number;
-  returned_count?: number;
-  escalated_count?: number;
-  closed_count?: number;
-  continued_count?: number;
-  processed?: PMAutoProgressItem[];
-  audit_entry?: PMAutoProgressAuditEntry;
 };
 
 const OWNER_REVIEW_ACTIVE_WIP_LIMIT = 3;
@@ -2358,7 +2345,6 @@ export default function OpsClient({
   const [workspaceRegistryError, setWorkspaceRegistryError] = useState<string | null>(null);
   const [portfolioPulse, setPortfolioPulse] = useState<PortfolioPulseSnapshot | null>(null);
   const [portfolioPulseError, setPortfolioPulseError] = useState<string | null>(null);
-  const [reviewProgressSummary, setReviewProgressSummary] = useState<PMAutoProgressResult | null>(null);
   const [reviewProgressAudit, setReviewProgressAudit] = useState<PMAutoProgressAuditReport | null>(null);
   const [executionQueue, setExecutionQueue] = useState<ExecutionQueueEntry[]>([]);
   const [standups, setStandups] = useState<StandupEntry[]>([]);
@@ -2387,7 +2373,6 @@ export default function OpsClient({
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const pmMaintenanceInFlightRef = useRef(false);
   const effectiveWorkspaceFiles = liveWorkspaceFiles ?? workspaceFiles;
   const initialDocEntries = useMemo(() => sortDocEntries(docEntries), [docEntries]);
   const effectiveDocEntries = useMemo(() => sortDocEntries(liveDocEntries ?? initialDocEntries), [initialDocEntries, liveDocEntries]);
@@ -2571,53 +2556,6 @@ export default function OpsClient({
     await loadWorkspaceSnapshot();
   }, [loadWorkspaceSnapshot]);
 
-  const runPmMaintenance = useCallback(async () => {
-    if (pmMaintenanceInFlightRef.current) {
-      return;
-    }
-    pmMaintenanceInFlightRef.current = true;
-    try {
-      const [autoResolveResp, ownerReviewSyncResp, autoProgressResp] = await Promise.allSettled([
-        controlApiPost<PMReviewHygieneResult>(
-          legacyOwnerReviewCompatibilityEnabled
-            ? '/api/pm/review-hygiene/auto-resolve?legacy_compatibility=true'
-            : '/api/pm/review-hygiene/auto-resolve',
-          undefined,
-          {
-          timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
-          },
-        ),
-        legacyOwnerReviewCompatibilityEnabled
-          ? controlApiPost<Record<string, unknown>>('/api/pm/owner-review/sync?legacy_compatibility=true', undefined, {
-              timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
-            })
-          : Promise.resolve({ skipped: true, reason: 'legacy_owner_review_disabled' }),
-        controlApiPost<PMAutoProgressResult>(
-          legacyOwnerReviewCompatibilityEnabled
-            ? '/api/pm/review-hygiene/auto-progress?legacy_compatibility=true'
-            : '/api/pm/review-hygiene/auto-progress',
-          undefined,
-          {
-          timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
-          },
-        ),
-      ]);
-
-      if (autoProgressResp.status === 'fulfilled') {
-        setReviewProgressSummary(autoProgressResp.value ?? null);
-      }
-
-      const maintenanceErrors = [autoResolveResp, ownerReviewSyncResp, autoProgressResp]
-        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-        .map((result) => toErrorMessage(result.reason));
-      if (maintenanceErrors.length > 0) {
-        console.warn('PM maintenance skipped after telemetry load', maintenanceErrors.join(' | '));
-      }
-    } finally {
-      pmMaintenanceInFlightRef.current = false;
-    }
-  }, [legacyOwnerReviewCompatibilityEnabled]);
-
   const loadTelemetry = useCallback(async () => {
     setIsRefreshing(true);
     setGlobalError(null);
@@ -2781,8 +2719,7 @@ export default function OpsClient({
     setCheckedAt(new Date());
     setLoading(false);
     setIsRefreshing(false);
-    void runPmMaintenance();
-  }, [legacyOwnerReviewCompatibilityEnabled, runPmMaintenance, updateSectionError]);
+  }, [legacyOwnerReviewCompatibilityEnabled, updateSectionError]);
 
   const promoteStandup = useCallback(
     async (prep: StandupPrepPacket, recommendationPacket: PMRecommendationPacket | null, chronicleEntry: ChronicleEntry | null) => {
@@ -3041,6 +2978,10 @@ export default function OpsClient({
     () => projectedWorkspaceCycleEvaluations(opsWorkspaceCycle, automationRuns),
     [automationRuns, opsWorkspaceCycle],
   );
+  const workspaceGoals = useMemo(
+    () => projectedWorkspaceRecursionGoals(opsWorkspaceCycle),
+    [opsWorkspaceCycle],
+  );
 
   const activityRows = useMemo(
     () =>
@@ -3216,13 +3157,13 @@ export default function OpsClient({
   return (
     <RuntimePage module="ops" tabs={tabs}>
       <header style={{ marginBottom: '18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-          <div>
+        <div className="ops-panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div className="ops-panel-header-copy">
             <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>{activeHeader.eyebrow}</p>
             <h1 style={{ fontSize: 'clamp(30px, 6vw, 40px)', fontWeight: 700, color: 'white', margin: '4px 0' }}>{activeHeader.title}</h1>
             <p style={{ color: '#8ea0bd', maxWidth: '760px', lineHeight: 1.55 }}>{activeHeader.description}</p>
           </div>
-          <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: '13px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+          <div className="ops-panel-header-meta" style={{ textAlign: 'right', color: '#94a3b8', fontSize: '13px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
             <p>Browser received: {checkedAt ? formatUiTime(checkedAt) : loading ? 'Checking...' : '-'}</p>
             <p>Refresh cadence: 60s poll + manual trigger</p>
             <button
@@ -3283,6 +3224,7 @@ export default function OpsClient({
         <TodayOpsPanel
           portfolioPulse={portfolioPulse}
           portfolioPulseError={portfolioPulseError}
+          workspaceGoals={workspaceGoals}
           onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
           onOpenExecution={() => selectPanel('execution')}
           onOpenWorkspace={openWorkspaceFromPulse}
@@ -3295,7 +3237,6 @@ export default function OpsClient({
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryState={workspaceRegistryState}
           workspaceRegistryError={workspaceRegistryError}
-          reviewProgressSummary={reviewProgressSummary}
           reviewProgressAudit={reviewProgressAudit}
           executionQueue={visibleExecutionQueue}
           standups={standups}
@@ -3337,6 +3278,7 @@ export default function OpsClient({
         <WorkspaceHubPanel
           portfolioPulse={portfolioPulse}
           cycleEvaluations={workspaceCycleEvaluations}
+          workspaceGoals={workspaceGoals}
           workspaceRegistry={workspaceRegistry}
           selectedWorkspaceId={selectedWorkspaceId}
           onWorkspaceChange={selectWorkspace}
@@ -3564,7 +3506,7 @@ function HeroCard({ metrics, sessions, automationCount }: { metrics: ComplianceM
           <p>Bottom dock routes across Ops, Brain, and Lab</p>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+      <div data-ops-system-summary-grid="true" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: '16px' }}>
         {cards.map((card) => (
           <div key={card.label} style={{ padding: '16px', borderRadius: '18px', backgroundColor: '#060b18', border: '1px solid rgba(30,41,59,0.9)' }}>
             <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{card.label}</p>
@@ -3775,7 +3717,7 @@ function OpenBrainPanel({ metrics, health }: { metrics: OpenBrainTelemetry | nul
           <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600 }}>
             {metrics?.vectors.last_refresh_at ? formatTimestamp(new Date(metrics.vectors.last_refresh_at)) : '-'}
           </p>
-          <p style={{ color: '#475569', fontSize: '12px' }}>memory_vectors.last_refreshed_at</p>
+          <p style={{ color: '#475569', fontSize: '12px', overflowWrap: 'anywhere' }}>Most recent indexed-memory update</p>
         </div>
       </div>
       <div style={{ overflowX: 'auto' }}>
@@ -3924,6 +3866,7 @@ const STANDUP_ROOMS: StandupRoom[] = [
 function TodayOpsPanel({
   portfolioPulse,
   portfolioPulseError,
+  workspaceGoals,
   onExecutiveDecisionMutation,
   onOpenExecution,
   onOpenWorkspace,
@@ -3931,6 +3874,7 @@ function TodayOpsPanel({
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
   portfolioPulseError: string | null;
+  workspaceGoals: Map<string, WorkspaceGoalProjection>;
   onExecutiveDecisionMutation: () => Promise<void>;
   onOpenExecution: () => void;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
@@ -3939,7 +3883,12 @@ function TodayOpsPanel({
   const counts = portfolioPulse?.counts;
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} onOpenWorkspace={onOpenWorkspace} />
+      <PortfolioPulseSection
+        snapshot={portfolioPulse}
+        error={portfolioPulseError}
+        workspaceGoals={workspaceGoals}
+        onOpenWorkspace={onOpenWorkspace}
+      />
       <OpsStandupSummary />
       <ExecutiveDecisionQueue
         onActionComplete={onExecutiveDecisionMutation}
@@ -3980,10 +3929,12 @@ function TodayOpsPanel({
 function PortfolioPulseSection({
   snapshot,
   error,
+  workspaceGoals,
   onOpenWorkspace,
 }: {
   snapshot: PortfolioPulseSnapshot | null;
   error: string | null;
+  workspaceGoals: Map<string, WorkspaceGoalProjection>;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
 }) {
   const workspaces = snapshot?.workspaces ?? [];
@@ -4013,6 +3964,7 @@ function PortfolioPulseSection({
     const operatorCount =
       Number(workspace.counts?.needs_owner_pm_cards ?? 0) + Number(workspace.counts?.needs_host_pm_cards ?? 0);
     const latestStandup = workspace.latest_standups?.[0];
+    const projectedGoal = workspaceGoals.get(normalizeWorkspaceBoardKey(workspace.workspace_key)) ?? null;
     return (
       <button
         type="button"
@@ -4039,9 +3991,12 @@ function PortfolioPulseSection({
           </div>
           <span style={{ width: '9px', height: '9px', borderRadius: '999px', backgroundColor: tone, flexShrink: 0, marginTop: '4px' }} />
         </div>
-        <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '9px 0 0' }}>
-          {workspace.description || 'This workspace has not published a purpose description yet.'}
+        <p style={{ color: projectedGoal ? '#cbd5f5' : '#fbbf24', fontSize: '11px', lineHeight: 1.45, margin: '9px 0 0' }}>
+          {projectedGoal?.goal || 'Canonical goal unavailable in the current Ops cycle projection.'}
         </p>
+        {projectedGoal && workspace.description ? (
+          <p style={{ color: '#64748b', fontSize: '10px', lineHeight: 1.4, margin: '5px 0 0' }}>Scope: {workspace.description}</p>
+        ) : null}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginTop: '12px' }}>
           <div>
             <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', margin: 0 }}>Needs you</p>
@@ -4093,7 +4048,7 @@ function PortfolioPulseSection({
       {projects.length > 0 ? (
         <div style={{ marginTop: '14px' }}>
           <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 7px' }}>Projects</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
+          <div data-ops-portfolio-project-grid="true" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '10px' }}>
             {projects.map(renderPulseCard)}
           </div>
         </div>
@@ -4107,7 +4062,6 @@ function PMBoardPanel({
   workspaceRegistry,
   workspaceRegistryState,
   workspaceRegistryError,
-  reviewProgressSummary,
   reviewProgressAudit,
   executionQueue,
   standups,
@@ -4131,7 +4085,6 @@ function PMBoardPanel({
   workspaceRegistry: WorkspaceRegistryEntry[];
   workspaceRegistryState: 'loading' | 'live' | 'error';
   workspaceRegistryError: string | null;
-  reviewProgressSummary: PMAutoProgressResult | null;
   reviewProgressAudit: PMAutoProgressAuditReport | null;
   executionQueue: ExecutionQueueEntry[];
   standups: StandupEntry[];
@@ -4498,7 +4451,7 @@ function PMBoardPanel({
           ))}
         </div>
       </section>
-      {(Number(reviewProgressSummary?.processed_count ?? 0) > 0 || Number(reviewProgressWindowSummary?.processed_count ?? 0) > 0) && (
+      {Number(reviewProgressWindowSummary?.processed_count ?? 0) > 0 && (
         <section style={{ borderRadius: '16px', border: '1px solid rgba(34,197,94,0.22)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '10px' }}>
             <div>
@@ -4533,15 +4486,6 @@ function PMBoardPanel({
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: recentAutoProgressItems.length > 0 ? '12px' : 0 }}>
-            <div style={{ borderRadius: '999px', border: '1px solid rgba(34,197,94,0.28)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '7px 11px', color: '#dcfce7', fontSize: '12px' }}>
-              This refresh: advanced {reviewProgressSummary?.advanced_count ?? 0}
-            </div>
-            <div style={{ borderRadius: '999px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '7px 11px', color: '#fef3c7', fontSize: '12px' }}>
-              Returned: {reviewProgressSummary?.returned_count ?? 0}
-            </div>
-            <div style={{ borderRadius: '999px', border: '1px solid rgba(248,113,113,0.28)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '7px 11px', color: '#fecaca', fontSize: '12px' }}>
-              Escalated: {reviewProgressSummary?.escalated_count ?? 0}
-            </div>
             <div style={{ borderRadius: '999px', border: '1px solid rgba(148,163,184,0.24)', backgroundColor: 'rgba(148,163,184,0.08)', padding: '7px 11px', color: '#cbd5e1', fontSize: '12px' }}>
               Last 24h: advanced {reviewProgressWindowSummary?.advanced_count ?? 0}, returned {reviewProgressWindowSummary?.returned_count ?? 0}, escalated {reviewProgressWindowSummary?.escalated_count ?? 0}
             </div>
@@ -10384,6 +10328,7 @@ function MeetingMonthlyView({ entries, observedAtMs }: { entries: StandupEntry[]
 function WorkspaceHubPanel({
   portfolioPulse,
   cycleEvaluations,
+  workspaceGoals,
   workspaceRegistry,
   selectedWorkspaceId,
   onWorkspaceChange,
@@ -10408,6 +10353,7 @@ function WorkspaceHubPanel({
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
   cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
+  workspaceGoals: Map<string, WorkspaceGoalProjection>;
   workspaceRegistry: WorkspaceRegistryEntry[];
   selectedWorkspaceId: WorkspaceHubKey;
   onWorkspaceChange: (workspaceKey: WorkspaceHubKey) => void;
@@ -10445,6 +10391,7 @@ function WorkspaceHubPanel({
   const activeCanonicalUpdate = activePortfolioWorkspace?.latest_standups?.[0];
   const activeCanonicalObservedAt = portfolioStandupSemanticObservedAt(activeCanonicalUpdate);
   const activeCycleEvaluation = cycleEvaluations.get(selectedWorkspaceId);
+  const activeGoal = workspaceGoals.get(selectedWorkspaceId) ?? null;
   const workspaceFiles = useMemo(
     () => files.filter((file) => workspaceFileBelongsToHub(file, selectedWorkspaceId)),
     [files, selectedWorkspaceId],
@@ -10616,7 +10563,9 @@ function WorkspaceHubPanel({
   const latestCycleAction = !activeCycleEvaluation
     ? 'No bounded Dream-cycle receipt is available for this workspace.'
     : activeCycleEvaluation.status === 'failed'
-      ? 'AI Clone attempted the last workspace handoff, but no canonical update was accepted.'
+      ? activeCycleEvaluation.failureKind === 'verified_async_role_contribution_unavailable'
+        ? 'AI Clone attempted the bounded FEEZIE handoff, but a verified participant receipt was unavailable, so no canonical update was accepted.'
+        : 'AI Clone attempted the last workspace handoff, but no canonical update was accepted.'
       : activeCycleEvaluation.status === 'promoted'
         ? 'AI Clone produced and promoted a new canonical workspace update.'
         : activeCycleEvaluation.status === 'skipped' && activeCycleEvaluation.reason === 'fresh'
@@ -10629,7 +10578,7 @@ function WorkspaceHubPanel({
   const latestCycleResult = !activeCycleEvaluation
     ? 'Completed: none verified. Failed: none claimed. Carried forward: current workspace files and PM state.'
     : activeCycleEvaluation.status === 'failed'
-      ? 'Completed: the bounded check ran. Failed: the canonical handoff. Carried forward: current files, PM cards, and execution truth remain available.'
+      ? 'Completed: the bounded check ran. Failed: the verified canonical handoff. Carried forward: current files, prior receipts, PM cards, and execution truth remain available.'
       : activeCycleEvaluation.status === 'promoted'
         ? 'Completed: a new canonical workspace update. Failed: none reported by this receipt. Carried forward: unresolved PM work.'
         : 'Completed: the recorded bounded cycle action. Failed: none claimed by this receipt. Carried forward: unresolved PM and owner work.';
@@ -10637,7 +10586,9 @@ function WorkspaceHubPanel({
     ? `AI Clone needs your decision on ${activeOwnerDecisionCount} PM item${activeOwnerDecisionCount === 1 ? '' : 's'}.${activeHostActionCount > 0 ? ` ${activeHostActionCount} additional host action${activeHostActionCount === 1 ? '' : 's'} also require you.` : ''}`
     : activeHostActionCount > 0
       ? `No judgment call is reported, but ${activeHostActionCount} host action${activeHostActionCount === 1 ? '' : 's'} require you because AI Clone cannot perform them safely.`
-      : 'No owner decision is currently reported. Continue only if the workspace goal or current recommendation needs review.';
+      : activeGoal
+        ? 'No owner decision is currently reported. Continue only if the workspace goal or current recommendation needs review.'
+        : 'No owner decision is currently reported. The canonical goal is unavailable in this projection, so this page will not invent one.';
   const cycleDispositionLabel = activeCycleEvaluation?.status === 'failed'
     ? 'Blocked'
     : activeCycleEvaluation?.status === 'collapse_freshness' || (activeCycleEvaluation?.status === 'skipped' && activeCycleEvaluation.reason === 'fresh')
@@ -10649,13 +10600,35 @@ function WorkspaceHubPanel({
     ? 'Review one highest-priority decision in Execution. AI Clone will not choose for you.'
     : activeHostActionCount > 0
       ? 'Complete one clearly labeled host action in Execution; the rest of this workspace remains readable.'
-      : activeCycleEvaluation?.status === 'failed'
+    : activeCycleEvaluation?.status === 'failed'
         ? 'Keep using current workspace data while the scheduler-owned handoff is repaired; do not treat the failed cycle as a successful update.'
-        : 'No owner action is recommended until the goal, evidence, or eligibility state changes.';
+        : activeGoal
+          ? 'No owner action is recommended until the goal, evidence, or eligibility state changes.'
+          : 'No recommendation is made until a bounded canonical goal returns in the Ops cycle projection.';
   const nextDreamTruth = activeCanonicalObservedAt
     ? `The next Dream cycle can consume the canonical workspace update observed ${formatTimestamp(new Date(activeCanonicalObservedAt))}, plus unresolved PM and execution state.`
     : 'The next Dream cycle can consume current canonical project files and unresolved PM/execution state; it must not treat the failed or missing handoff as a successful update.';
   const workspaceOwnerTruthRows = [
+    {
+      label: 'Workspace goal',
+      value: activeGoal?.goal ?? 'Canonical goal unavailable in the current Ops cycle projection.',
+      tone: activeGoal ? '#e2e8f0' : '#fbbf24',
+    },
+    {
+      label: 'What counts as progress',
+      value: activeGoal?.progressSignals.join(' ') ?? 'Progress criteria are unavailable with the missing goal projection.',
+      tone: activeGoal ? '#cbd5f5' : '#fbbf24',
+    },
+    {
+      label: 'Current phase gate',
+      value: activeGoal?.phaseGate ?? 'Phase completion cannot be confirmed from this projection.',
+      tone: activeGoal ? '#cbd5f5' : '#fbbf24',
+    },
+    {
+      label: 'Reevaluate when',
+      value: activeGoal?.noActionTrigger ?? 'The no-action trigger is unavailable with the missing goal projection.',
+      tone: activeGoal ? '#cbd5f5' : '#fbbf24',
+    },
     { label: 'Current meaningful state', value: `${activeReadinessLabel}. ${activeReadinessReason}`, tone: activeReadinessTone },
     {
       label: 'What changed',
@@ -10845,7 +10818,10 @@ function WorkspaceHubPanel({
           <div>
             <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace goal</p>
             <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
-            <p style={{ color: '#cbd5f5', maxWidth: '760px', fontSize: '14px', lineHeight: 1.6 }}>{activeWorkspace.description}</p>
+            <p style={{ color: activeGoal ? '#cbd5f5' : '#fbbf24', maxWidth: '760px', fontSize: '14px', lineHeight: 1.6 }}>
+              {activeGoal?.goal ?? 'Canonical goal unavailable in the current Ops cycle projection.'}
+            </p>
+            <p style={{ color: '#64748b', maxWidth: '760px', fontSize: '12px', lineHeight: 1.5 }}>Scope: {activeWorkspace.description}</p>
           </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <button
@@ -17869,10 +17845,62 @@ function workspaceCycleEvaluationMap(
       ownerDecisionCount: typeof item.owner_decision_count === 'number'
         ? Math.max(0, Math.trunc(item.owner_decision_count))
         : 0,
+      failureKind: typeof item.failure_kind === 'string' && item.failure_kind.trim()
+        ? item.failure_kind.trim().toLowerCase()
+        : null,
     });
   });
 
   return evaluations;
+}
+
+function projectedWorkspaceRecursionGoals(
+  projection: OpsWorkspaceCycleProjection | null,
+): Map<string, WorkspaceGoalProjection> {
+  const goals = new Map<string, WorkspaceGoalProjection>();
+  if (
+    projection?.schema_version !== 'ops_standup_summary_conclusion/v3'
+    || !Array.isArray(projection.workspace_recursion)
+  ) {
+    return goals;
+  }
+  projection.workspace_recursion.forEach((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+    const row = raw as Record<string, unknown>;
+    const workspaceKey = normalizeWorkspaceBoardKey(String(row.workspace_key ?? ''));
+    const goal = projectedWorkspaceGoal(row.goal);
+    if (workspaceKey && goal && !goals.has(workspaceKey)) {
+      goals.set(workspaceKey, goal);
+    }
+  });
+  return goals;
+}
+
+function projectedWorkspaceGoal(value: unknown): WorkspaceGoalProjection | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const goal = typeof raw.goal === 'string' ? raw.goal.trim() : '';
+  const phaseGate = typeof raw.phase_gate === 'string' ? raw.phase_gate.trim() : '';
+  const noActionTrigger = typeof raw.no_action_trigger === 'string' ? raw.no_action_trigger.trim() : '';
+  const progressSignals = Array.isArray(raw.progress_signals)
+    ? raw.progress_signals.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
+    : [];
+  if (
+    raw.schema_version !== 'workspace_goal_contract/v1'
+    || !goal
+    || !phaseGate
+    || !noActionTrigger
+    || progressSignals.length === 0
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: 'workspace_goal_contract/v1',
+    goal,
+    progressSignals,
+    phaseGate,
+    noActionTrigger,
+  };
 }
 
 function automationCycleSemanticObservedAt(metadata: Record<string, unknown>): string | null {
@@ -17965,7 +17993,7 @@ function projectedWorkspaceCycleEvaluations(
     ? workspaceCycleEvaluationMap(
         projection.workspace_cycle_evaluations,
         opsProjectionSemanticObservedAt(projection),
-      )
+    )
     : new Map<string, WorkspaceCycleEvaluation>();
   return projected.size > 0 ? projected : latestWorkspaceCycleEvaluations(automationRuns);
 }
@@ -18005,6 +18033,9 @@ function workspaceCycleEvaluationCopy(evaluation: WorkspaceCycleEvaluation): str
     return 'a new workspace artifact was prepared but has not yet completed its canonical handoff.';
   }
   if (evaluation.status === 'failed') {
+    if (evaluation.failureKind === 'verified_async_role_contribution_unavailable') {
+      return 'the verified participant receipt was unavailable, so the workspace handoff was withheld and no new canonical update was accepted.';
+    }
     return 'the workspace handoff failed and requires system attention before this lane can be treated as current.';
   }
   return `${humanizeStatusLabel(evaluation.status)} · ${evaluation.reason ? humanizeStatusLabel(evaluation.reason) : 'no additional cycle reason recorded'}.`;

@@ -36,7 +36,7 @@ def fetch_health() -> OpenBrainHealth:
     configured_dimension = payload.get("configured_dimension")
     if configured_dimension is None:
         configured_dimension = _parse_vector_dimension(embedding_type)
-    sample_hit = payload.get("sample_hit")
+    search_probe_ok = bool(payload.get("search_probe_ok"))
 
     return OpenBrainHealth(
         database_connected=bool(payload.get("database_connected")),
@@ -49,8 +49,7 @@ def fetch_health() -> OpenBrainHealth:
         capture_count=int(payload.get("capture_count") or 0),
         vector_count=int(payload.get("vector_count") or 0),
         non_expired_vector_count=int(payload.get("non_expired_vector_count") or 0),
-        search_ready=bool(sample_hit),
-        sample_hit=OpenBrainSearchHit(**sample_hit) if sample_hit else None,
+        search_ready=search_probe_ok,
     )
 
 

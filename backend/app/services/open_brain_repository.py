@@ -546,7 +546,7 @@ def fetch_vector_health() -> Dict[str, Any]:
         "capture_count": 0,
         "vector_count": 0,
         "non_expired_vector_count": 0,
-        "sample_hit": None,
+        "search_probe_ok": False,
     }
 
     with pool.connection() as conn:
@@ -590,56 +590,22 @@ def fetch_vector_health() -> Dict[str, Any]:
                 if embedding_literal:
                     cur.execute(
                         f"""
-                        SELECT
-                            mv.id AS chunk_id,
-                            kc.id AS capture_id,
-                            mv.chunk_index,
-                            mv.chunk,
-                            kc.source,
-                            kc.topic,
-                            kc.importance,
-                            kc.markdown_path,
-                            kc.metadata,
-                            kc.created_at,
-                            1 - (mv.embedding <=> %s::vector) AS similarity_score
+                        SELECT 1 AS search_probe_ok
                         FROM memory_vectors mv
                         JOIN knowledge_capture kc ON {join_condition}
                         WHERE mv.expires_at IS NULL OR mv.expires_at > NOW()
                         ORDER BY mv.embedding <=> %s::vector, kc.created_at DESC
                         LIMIT 1
                         """,
-                        (embedding_literal, embedding_literal),
+                        (embedding_literal,),
                     )
                     row = cur.fetchone() or {}
                     if row:
-                        summary["sample_hit"] = {
-                            "chunk_id": str(row["chunk_id"]),
-                            "capture_id": str(row["capture_id"]),
-                            "chunk_index": int(row.get("chunk_index") or 0),
-                            "chunk": row.get("chunk") or "",
-                            "similarity_score": float(row.get("similarity_score") or 0.0),
-                            "source": row.get("source"),
-                            "topics": row.get("topic") or [],
-                            "importance": int(row.get("importance") or 0),
-                            "markdown_path": row.get("markdown_path"),
-                            "created_at": row.get("created_at"),
-                            "metadata": row.get("metadata") or {},
-                        }
+                        summary["search_probe_ok"] = True
             elif summary["storage_backend"] == "jsonb" and summary["non_expired_vector_count"] > 0:
                 cur.execute(
                     f"""
-                    SELECT
-                        mv.id AS chunk_id,
-                        kc.id AS capture_id,
-                        mv.chunk_index,
-                        mv.chunk,
-                        mv.embedding_json,
-                        kc.source,
-                        kc.topic,
-                        kc.importance,
-                        kc.markdown_path,
-                        kc.metadata,
-                        kc.created_at
+                    SELECT mv.embedding_json
                     FROM memory_vectors mv
                     JOIN knowledge_capture kc ON {join_condition}
                     WHERE (mv.expires_at IS NULL OR mv.expires_at > NOW())
@@ -652,6 +618,6 @@ def fetch_vector_health() -> Dict[str, Any]:
                 embedding = _coerce_embedding(row.get("embedding_json"))
                 if row and embedding:
                     summary["configured_dimension"] = len(embedding)
-                    summary["sample_hit"] = _hit_from_row(row, 1.0)
+                    summary["search_probe_ok"] = True
 
     return summary

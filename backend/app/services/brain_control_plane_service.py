@@ -302,6 +302,16 @@ def build_brain_control_plane() -> dict[str, Any]:
     recent_brain_signals = [signal.model_dump(mode="json") for signal in signal_preview]
     source_intelligence_index = _load_source_intelligence_index()
     persona_counts = ((workspace_snapshot.get("persona_review_summary") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
+    persona_counts_available = any(
+        key in persona_counts
+        for key in (
+            "brain_pending_review",
+            "workspace_saved",
+            "approved_unpromoted",
+            "pending_promotion",
+            "committed",
+        )
+    )
     source_asset_counts = ((workspace_snapshot.get("source_assets") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_intelligence_counts = (source_intelligence_index or {}).get("counts") or {}
     doc_count = count_brain_docs()
@@ -320,8 +330,9 @@ def build_brain_control_plane() -> dict[str, Any]:
             "capture_count": int(((telemetry.get("captures") or {}).get("total")) or 0),
             "doc_count": doc_count,
             "workspace_file_count": len((workspace_snapshot.get("workspace_files") or [])) if isinstance(workspace_snapshot, dict) else 0,
-            "pending_review_count": int(persona_counts.get("brain_pending_review") or 0),
-            "workspace_saved_count": int(persona_counts.get("workspace_saved") or 0),
+            "persona_review_available": persona_counts_available,
+            "pending_review_count": int(persona_counts.get("brain_pending_review") or 0) if persona_counts_available else None,
+            "workspace_saved_count": int(persona_counts.get("workspace_saved") or 0) if persona_counts_available else None,
             "source_asset_count": int(source_asset_counts.get("total") or 0),
             "brain_memory_sync_queue_count": int(((brain_memory_sync or {}).get("queued_route_count")) or 0),
             "brain_signal_count": brain_signal_count,

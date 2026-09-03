@@ -732,9 +732,12 @@ def adapt_daily_workspace_evaluations(
     Zero selected roles may produce a governed no-change evaluation. Exactly
     one selected role has conclusion authority only after a signed contribution,
     non-meeting coordination record, canonical decision/event linkage, and a
-    terminal PM disposition all exist. The historical decision-record JSONL is
-    compatibility evidence only and can never produce a PortfolioCycle
-    conclusion. Other workspace evaluation shapes have no authority here.
+    terminal PM disposition all exist. A strictly bounded failed one-role
+    evaluation may record only failure, retained canonical state, and the next
+    natural retry boundary; it never gains action or decision authority. The
+    historical decision-record JSONL is compatibility evidence only and can
+    never produce a PortfolioCycle conclusion. Other workspace evaluation
+    shapes have no authority here.
     """
 
     freshness_reference = _ai_clone_utc_observation(observed_at)
@@ -756,16 +759,18 @@ def adapt_daily_workspace_evaluations(
     if status not in {
         "async_contribution",
         "collapse_freshness",
+        "failed",
     }:
         return {}
     is_async_contribution = status == "async_contribution"
+    is_failed_contribution = status == "failed"
     if (
         str(evaluation.get("evaluation_schema_version") or "").strip()
         != _WORKSPACE_CYCLE_EVALUATION_SCHEMA_VERSION
         or str(evaluation.get("standup_kind") or "").strip() != "workspace_sync"
         or str(evaluation.get("cycle_id") or "").strip() != cycle_id
         or evaluation.get("promotion_suppressed")
-        is not (False if is_async_contribution else True)
+        is not (status == "collapse_freshness")
         or evaluation.get("cycle_evaluation_only") is not True
         or evaluation.get("meeting_held") is not False
         or type(evaluation.get("owner_decision_count")) is not int
@@ -788,6 +793,152 @@ def adapt_daily_workspace_evaluations(
         )
     ):
         return {}
+    if is_failed_contribution:
+        if (
+            str(evaluation.get("failure_kind") or "").strip()
+            != "verified_async_role_contribution_unavailable"
+            or str(evaluation.get("failure_stage") or "").strip()
+            != "async_role_contribution"
+            or evaluation.get("canonical_update_accepted") is not False
+            or any(
+                evaluation.get(key) not in (None, "", [], {})
+                for key in (
+                    "async_role_contribution_id",
+                    "async_role_participant_report_run_id",
+                    "async_role_display_name",
+                    "canonical_decision_id",
+                    "canonical_event_id",
+                    "async_recommendation_terminal_dispositions",
+                    "decision_record_id",
+                    "decision_record_owner_role",
+                    "decision_record_schema_version",
+                    "decision_record_authority_state",
+                )
+            )
+            or any(
+                key in evaluation
+                for key in (
+                    "goal",
+                    "goal_contract",
+                    "progress_signals",
+                    "phase_gate",
+                    "no_action_trigger",
+                    "safe_internal_boundary",
+                    "owner_required_boundary",
+                    "authority_refs",
+                    "future_trigger",
+                    "actions_taken",
+                    "owner_decisions",
+                    "recommendation_resolutions",
+                )
+            )
+        ):
+            return {}
+        failed_observed_at = _parse_explicit_time(evaluation.get("observed_at"))
+        if (
+            failed_observed_at is None
+            or not same_utc_observation_second(
+                failed_observed_at,
+                freshness_reference,
+            )
+            or failed_observed_at.date() != cycle_date
+        ):
+            return {}
+        canonical_goal = _canonical_workspace_goal(_FEEZIE_WORKSPACE_KEY)
+        if canonical_goal is None:
+            return {}
+        observed_text = failed_observed_at.isoformat()
+        retry_trigger = (
+            "A later natural ai_clone_utc cycle obtains a complete verified "
+            "participant receipt for this FEEZIE lane."
+        )
+        still_healthy = (
+            "Existing canonical FEEZIE files, prior receipts, and PM/execution "
+            "state remain available."
+        )
+        return {
+            _FEEZIE_WORKSPACE_KEY: {
+                "cycle_id": cycle_id,
+                "observed_at": observed_text,
+                "goal": canonical_goal,
+                **_non_meeting_conclusion_fields(),
+                "summary": (
+                    "FEEZIE could not complete its verified async contribution; "
+                    "no new canonical workspace update, recommendation, owner "
+                    "decision, meeting, or PM action was accepted."
+                ),
+                "system_decisions": [
+                    {
+                        "kind": "withhold_unverified_workspace_handoff",
+                        "summary": (
+                            "AI Clone kept the incomplete participant handoff out "
+                            "of canonical FEEZIE progress."
+                        ),
+                    }
+                ],
+                "failed_work": [
+                    {
+                        "kind": "workspace_cycle_handoff",
+                        "reason_code": (
+                            "verified_async_role_contribution_unavailable"
+                        ),
+                        "summary": (
+                            "The bounded async contribution attempt did not produce "
+                            "a verified participant receipt."
+                        ),
+                        "impact": (
+                            "This cycle cannot be treated as a current FEEZIE update."
+                        ),
+                    }
+                ],
+                "carried_forward": [
+                    {
+                        "kind": "last_verified_canonical_state",
+                        "summary": still_healthy,
+                    }
+                ],
+                "blockers": [
+                    {
+                        "kind": "dependency_degraded",
+                        "reason_code": (
+                            "verified_async_role_contribution_unavailable"
+                        ),
+                        "summary": (
+                            "A verified participant receipt was unavailable for "
+                            "the new FEEZIE handoff."
+                        ),
+                        "affected": "New FEEZIE cycle conclusion only.",
+                        "still_healthy": still_healthy,
+                        "next_step": (
+                            "AI Clone will retry through the scheduler-owned lane "
+                            "on a later natural cycle."
+                        ),
+                        "future_trigger": retry_trigger,
+                    }
+                ],
+                "next_cycle_inputs": [
+                    {
+                        "kind": "failed_workspace_cycle_receipt",
+                        "summary": (
+                            "Consume the prior verified canonical FEEZIE state and "
+                            "this failure marker; do not consume the failed handoff "
+                            "as successful progress."
+                        ),
+                        "trigger": retry_trigger,
+                    }
+                ],
+                "evidence_links": [
+                    {
+                        "ref": (
+                            f"workspace-cycle-evaluation:{cycle_id}:"
+                            f"{_FEEZIE_WORKSPACE_KEY}"
+                        ),
+                        "source_observed_at": observed_text,
+                    }
+                ],
+                "_conclusion_kind": "conclusion",
+            }
+        }
     if is_async_contribution:
         contribution_id = str(
             evaluation.get("async_role_contribution_id") or ""

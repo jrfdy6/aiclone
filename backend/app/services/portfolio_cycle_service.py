@@ -40,6 +40,51 @@ WORKSPACE_GOAL_AUTHORITY_FUTURE_TRIGGER = (
     "workspace_goal_contract/v1 entry for this workspace, then rerun the workspace cycle."
 )
 SHARED_OPS_WORKSPACE_KEY = "shared_ops"
+WORKSPACE_CYCLE_EVALUATION_MAX_ITEMS = 24
+WORKSPACE_CYCLE_EVALUATION_SCALAR_FIELDS = (
+    "workspace_key",
+    "standup_kind",
+    "status",
+    "reason",
+    "cycle_id",
+    "observed_at",
+    "evaluation_schema_version",
+    "cycle_evaluation_only",
+    "meeting_held",
+    "promotion_suppressed",
+    "decision_record_id",
+    "decision_record_owner_role",
+    "decision_record_schema_version",
+    "decision_record_authority_state",
+    "decision_record_compatibility_state",
+    "decision_record_compatibility_error_class",
+    "latest_standup_id",
+    "latest_created_at",
+    "created_standup_id",
+    "owner_decision_count",
+    "owner_decision_bridge_replayed",
+    "failure_kind",
+    "failure_stage",
+    "canonical_update_accepted",
+    "recommendation_handoff_reconciled",
+    "legacy_recommendation_handoff_reconciled",
+    "recommendation_resolution_replayed",
+    "reconciliation_mode",
+    "reconciled_standup_id",
+    "reconciled_card_count",
+    "reconciled_canonical_execution_count",
+    "reconciled_reference_only_count",
+    "post_reconciliation_reason",
+    "replay_failure_stage",
+    "replay_failure_reason",
+    "async_role_contribution_id",
+    "async_role_participant_report_run_id",
+    "async_role_display_name",
+    "canonical_pm_execution_authority",
+    "pm_execution_authority_transferred",
+    "canonical_decision_id",
+    "canonical_event_id",
+)
 
 
 class PortfolioCycleConflict(ValueError):
@@ -716,7 +761,7 @@ class PortfolioCycleService:
                 "degraded_system_warnings": degraded_warnings,
                 "supporting_evidence_links": evidence_links,
                 "recommended_next_actions": deduped_recommendations,
-                "workspace_cycle_evaluations": self._bounded_event_items(
+                "workspace_cycle_evaluations": self._bounded_workspace_cycle_evaluations(
                     workspace_cycle_evaluations
                 ),
             }
@@ -897,6 +942,60 @@ class PortfolioCycleService:
             if len(items) >= 12:
                 break
         return items
+
+    @staticmethod
+    def _bounded_workspace_cycle_evaluations(
+        value: Any,
+    ) -> list[dict[str, Any]]:
+        """Preserve the closed structural cycle schema without private bodies.
+
+        Generic event items intentionally cap mappings at 12 keys. Workspace
+        evaluations have a wider governed schema, and field-order truncation
+        must not erase failure truth, PM authority, or terminal dispositions.
+        """
+
+        evaluations: list[dict[str, Any]] = []
+        for raw in value if isinstance(value, list) else []:
+            if not isinstance(raw, Mapping):
+                continue
+            item: dict[str, Any] = {}
+            for key in WORKSPACE_CYCLE_EVALUATION_SCALAR_FIELDS:
+                if key not in raw:
+                    continue
+                cell = raw.get(key)
+                if isinstance(cell, bool) or isinstance(cell, int) or cell is None:
+                    item[key] = cell
+                elif isinstance(cell, float):
+                    if cell == cell and cell not in {float("inf"), float("-inf")}:
+                        item[key] = cell
+                elif isinstance(cell, str):
+                    item[key] = " ".join(cell.split())[:500]
+            terminal_dispositions: list[dict[str, str]] = []
+            raw_terminal_dispositions = raw.get(
+                "async_recommendation_terminal_dispositions"
+            )
+            bounded_terminal_dispositions = (
+                raw_terminal_dispositions[:100]
+                if isinstance(raw_terminal_dispositions, list)
+                else []
+            )
+            for raw_disposition in bounded_terminal_dispositions:
+                if not isinstance(raw_disposition, Mapping):
+                    continue
+                state = " ".join(
+                    str(raw_disposition.get("state") or "").split()
+                )[:120]
+                if state:
+                    terminal_dispositions.append({"state": state})
+            if terminal_dispositions:
+                item[
+                    "async_recommendation_terminal_dispositions"
+                ] = terminal_dispositions
+            if item:
+                evaluations.append(item)
+            if len(evaluations) >= WORKSPACE_CYCLE_EVALUATION_MAX_ITEMS:
+                break
+        return evaluations
 
     @staticmethod
     def _append_event(

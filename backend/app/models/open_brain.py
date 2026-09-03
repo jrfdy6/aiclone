@@ -45,4 +45,3 @@ class OpenBrainHealth(BaseModel):
     vector_count: int = 0
     non_expired_vector_count: int = 0
     search_ready: bool = False
-    sample_hit: Optional[OpenBrainSearchHit] = None

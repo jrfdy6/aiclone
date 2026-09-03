@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any, List
@@ -16,13 +18,22 @@ except ImportError:  # pragma: no cover - local fallback when DB deps are absent
 
 from app.models import DailyBrief
 from app.services import brief_reaction_service
-from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 from app.services.daily_brief_parser import ParsedBrief, parse_briefs_markdown
 from app.services.workspace_snapshot_store import list_snapshot_payloads
 from app.utils.runtime_workspace_root import resolve_runtime_workspace_root
 
+WORKSPACE_ROOT = resolve_runtime_workspace_root(__file__)
+PRIVATE_STATE_ROOT = Path(
+    os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+).expanduser()
+_SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from runtime_paths import resolve_memory_read_path  # noqa: E402
+
 _WORKSPACE_CANDIDATES = (
-    resolve_runtime_workspace_root(__file__),
+    WORKSPACE_ROOT,
     Path(__file__).resolve().parents[3],
 )
 
@@ -139,7 +150,11 @@ def _load_from_local_files(limit: int) -> List[DailyBrief]:
     for workspace in _WORKSPACE_CANDIDATES:
         if not workspace:
             continue
-        current_file = resolve_snapshot_fallback_path(workspace, "memory/daily-briefs.md")
+        current_file = resolve_memory_read_path(
+            "daily-briefs.md",
+            project_root=workspace,
+            state_root=PRIVATE_STATE_ROOT,
+        )
         if current_file.exists():
             stat = current_file.stat()
             parsed = parse_briefs_markdown(current_file.read_text(), source_ref=str(current_file))

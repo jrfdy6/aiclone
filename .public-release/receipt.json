@@ -102,8 +102,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/brain.py",
-        "sha256": "7392bcd30ddbfa9f3ad46d0d8060a27bc3c0934df9ecc434025c85f95719e67d",
-        "size": 41397
+        "sha256": "5c1585a686f2a822d922a0891315d604e0067cfdffa72d2043cff90bafa09404",
+        "size": 41488
       },
       {
         "mode": 420,
@@ -198,8 +198,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/open_brain.py",
-        "sha256": "943b1635d0078e945d146fb348ba41e2fc748dd95791f0d55b20a1474c743f57",
-        "size": 1363
+        "sha256": "fdfd447403a227244532bc28c9e4e41364c4ff0696ce7df0b70c014b62882b6c",
+        "size": 1311
       },
       {
         "mode": 420,
@@ -366,8 +366,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/brain.py",
-        "sha256": "ad14404b85d310fd0f213dc1cf3488a5d79c263d33bea4545f946c3f3b5ba021",
-        "size": 65454
+        "sha256": "f4d0f204c7ce36403017e65660733b15e19d0c3470d525c68e00d596c5f1a846",
+        "size": 65541
       },
       {
         "mode": 420,
@@ -762,8 +762,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/brain_control_plane_service.py",
-        "sha256": "36ec9e5d950722d04502e61078445c83a3df26106fd5ff8312db4256a2d922e0",
-        "size": 12781
+        "sha256": "38ae9cbf7634de82de0a657f26015b2d14de9df7acc6cf3ba542fa40c56ed314",
+        "size": 13186
       },
       {
         "mode": 420,
@@ -924,14 +924,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/daily_brief_service.py",
-        "sha256": "8095489890226a231c89cc5109f1b85800209d57680e6b92ecc01b342b26a729",
-        "size": 21821
+        "sha256": "acd527e32760291476c6ac3c5ddfef6a4deb41cb10509fec11d6b8e8ad8cd76e",
+        "size": 22189
       },
       {
         "mode": 420,
         "path": "backend/app/services/daily_portfolio_coordinator_service.py",
-        "sha256": "fd911c25dc3cd1e72cbda6be1474c97c92de8f98b5f8698e869581d38425d23e",
-        "size": 41620
+        "sha256": "8ee0959aa8b18a9d2833826d54f70c1655d315908bade7f2dd91b2d192cd7f3c",
+        "size": 47932
       },
       {
         "mode": 420,
@@ -1236,14 +1236,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/open_brain_repository.py",
-        "sha256": "908b66f38a40c454341a8b2c50c344bf3440a3a9c84d94c7e471383b4341e6c7",
-        "size": 24874
+        "sha256": "dc24982f2903a2b8cd29a8873209083daa40fa249c225a58ae5ff20e278ced0a",
+        "size": 23175
       },
       {
         "mode": 420,
         "path": "backend/app/services/open_brain_service.py",
-        "sha256": "da67d09d6d95421fa6e6fd115fe40ace0f7f68a677dbd4b944fe1bb1ac5a12dc",
-        "size": 2244
+        "sha256": "c4e5a01b4d7f2406a93101ff5a4ab415087dca9b36eaecbad6093b1a651533c8",
+        "size": 2182
       },
       {
         "mode": 420,
@@ -1254,8 +1254,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/ops_standup_projection_service.py",
-        "sha256": "bccecb8969d718e42116e9a25c6d290cbf5b4acd350d71707e5a4f4487e6beb3",
-        "size": 78611
+        "sha256": "b4d23b52aa1cdff4e201fe3629d17818f5af4cd63619d31cd1c51c14b413e6ee",
+        "size": 82277
       },
       {
         "mode": 420,
@@ -1314,8 +1314,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/persona_delta_service.py",
-        "sha256": "31f927be0c85ee1233be840cc97f086a023edb8bdd8592010bd1604c9de3fdb3",
-        "size": 30653
+        "sha256": "299145dbe2d505d49d02bb5309708fb888cee08d7a509a3e3f28d03d40fa5da5",
+        "size": 31748
       },
       {
         "mode": 420,
@@ -1416,8 +1416,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/portfolio_cycle_service.py",
-        "sha256": "2e52ab64488ab7f61ed3fe8404c1f362705acd08c89d58e5d6b0ac86f5c346b3",
-        "size": 46959
+        "sha256": "9a6889dc9b167ce5b966e70fd4234d6722af425ae17c842dbb2468f348b542b8",
+        "size": 50683
       },
       {
         "mode": 420,
@@ -2094,8 +2094,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_daily_portfolio_coordinator_service.py",
-        "sha256": "316d4a469460ac68be936d889e1856a3350a00cee2fbcb4e2615819aa3910723",
-        "size": 56029
+        "sha256": "34d6040697af72ccf519f1bd709fb1c7253ec19673b306f074ce7c577c1a505f",
+        "size": 63979
       },
       {
         "mode": 420,
@@ -2124,8 +2124,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_ops_standup_projection_service.py",
-        "sha256": "c59a3b37cd4ba8bf93a83e9f560bc0ef523d825353720825bccc7737afcdd38d",
-        "size": 68877
+        "sha256": "97a7f27b228363edda339ebdb98a52f86753c130aa8980b3ec89c7a385f46731",
+        "size": 71227
       },
       {
         "mode": 420,
@@ -2304,8 +2304,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/BrainClient.tsx",
-        "sha256": "47e858c13cde1e242d14a632c3f5338dcdb42b22aa9d31d785264fbda4415616",
-        "size": 472436
+        "sha256": "33c511cb534ed0b025d8b8389e62c642e4c9aaee52c7b466432921b5c8131902",
+        "size": 476614
       },
       {
         "mode": 420,
@@ -2364,8 +2364,8 @@
       {
         "mode": 420,
         "path": "frontend/app/globals.css",
-        "sha256": "10bc8e3139e2ce33a402c14d0ce8390f42279dba48e6b6d3018ef20471023a5c",
-        "size": 731
+        "sha256": "312e3354ee345851c1e2fc8144e394b024c2a18b375c4dedd51186e41e2bbceb",
+        "size": 1259
       },
       {
         "mode": 420,
@@ -2508,8 +2508,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "25b06dd07064e38a1f14446f3f8af8baf73e0f3a3c7d492a77ff12c7b8d39d48",
-        "size": 863019
+        "sha256": "e0858a3a835a8aceffb4ff7ee60b31e57021d459ac4020f8db980c37f0da1b6f",
+        "size": 864514
       },
       {
         "mode": 420,
@@ -2766,8 +2766,8 @@
       {
         "mode": 420,
         "path": "frontend/components/runtime/RuntimeChrome.tsx",
-        "sha256": "f155b9634e67a78629d63be8e42b262ed8482c67c7f219394e61abab69fded44",
-        "size": 9384
+        "sha256": "d86e79de663476f9c46dcc8edb65552c5791fe0e8da2a29751a6329c2df70374",
+        "size": 9449
       },
       {
         "mode": 420,
@@ -2970,8 +2970,8 @@
       {
         "mode": 420,
         "path": "frontend/next.config.js",
-        "sha256": "21b555c15fa83405ebb450d916f26ce56cb731fc2439ffbd702196e85ea3f123",
-        "size": 1647
+        "sha256": "b6871b152b7ffbd0019f1e3761ad49f435752211110eb65ab048e0cf74e21a6f",
+        "size": 1770
       },
       {
         "mode": 420,
@@ -3024,8 +3024,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/content-generation-topology.test.cjs",
-        "sha256": "4b229ccd3397eb241e32071b9b80d5c64db991d91ac39e4b1a16cb5e9124fd80",
-        "size": 4878
+        "sha256": "31fe3e4d80f2b743b4927e52e8f4b408be2a83fcf0b7ff64246bb69eacbf03be",
+        "size": 5000
       },
       {
         "mode": 420,
@@ -3150,14 +3150,14 @@
       {
         "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "0b159dffb0a801ad8dde52712c79b9c5bc1288357a756386c76cc98d984aa677",
-        "size": 33799
+        "sha256": "f07dcef42b102faefe94b04aec92c474bee720f1f1f08b19b58473ab32d11397",
+        "size": 33872
       },
       {
         "mode": 420,
         "path": "frontend/tests/owner-experience-stabilization.test.cjs",
-        "sha256": "63812601f37e2153d7b76252e0a7a71d80e863d4c3aed54c4c9874e3f337474f",
-        "size": 8728
+        "sha256": "4d361015614911eeab9ed9877319d05235e39c2928ecc059a23a1219959a57ff",
+        "size": 13055
       },
       {
         "mode": 420,
@@ -3274,7 +3274,7 @@
         "size": 9830
       }
     ],
-    "tree_sha256": "f3d38f3a14d8627732149a3a1dd8dc2eb5c49d4441fe52bcdffe6d57e7d6818b"
+    "tree_sha256": "a619abc08a9991a6d41472935f6d3dfb0c542b9fe3e2606bd520c90bb6e84598"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

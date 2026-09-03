@@ -74,7 +74,11 @@ test('legacy owner-review requests carry the rollback marker only behind the com
     assert.match(source, /send-to-review\?legacy_compatibility=true/);
   }
   assert.match(workspaceSource, /linkedin-os-owner-review\/\$\{item\.queue_id\}\?legacy_compatibility=true/);
-  assert.match(opsSource, /owner-review\/sync\?legacy_compatibility=true/);
+  assert.doesNotMatch(
+    opsSource,
+    /owner-review\/sync/,
+    'passive Ops reads must never trigger the legacy owner-review writer',
+  );
   assert.match(opsSource, /cards\/\$\{cardId\}\/owner-review\?legacy_compatibility=true/);
   assert.match(
     opsSource,
@@ -87,7 +91,10 @@ test('legacy owner-review requests carry the rollback marker only behind the com
   ]) {
     assert.match(opsSource, endpoint);
   }
-  assert.match(opsSource, /legacyOwnerReviewCompatibilityEnabled\s*\? controlApiPost/);
+  assert.match(
+    opsSource,
+    /if \(!legacyOwnerReviewCompatibilityEnabled\)[\s\S]{0,300}?historical owner-review decision writer/,
+  );
   assert.match(
     executiveDecisionQueueSource,
     /legacyOwnerReviewCompatibilityEnabled \|\| decision\.source_type !== 'workspace_review'/,
