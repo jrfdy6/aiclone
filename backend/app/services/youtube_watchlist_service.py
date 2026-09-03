@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
@@ -285,6 +286,16 @@ def _truncate(value: str, limit: int = 280) -> str:
 def _safe_runtime_error_code(exc: BaseException) -> str:
     """Return a stable diagnostic without commands, paths, URLs, or stderr."""
 
+    if isinstance(exc, HTTPError):
+        if exc.code == 404:
+            return "youtube_source_not_found"
+        if exc.code in {401, 403}:
+            return "youtube_source_access_denied"
+        if exc.code == 429:
+            return "youtube_rate_limited"
+        if 500 <= exc.code <= 599:
+            return "youtube_service_unavailable"
+        return "youtube_feed_http_error"
     if isinstance(exc, subprocess.TimeoutExpired):
         return "youtube_media_timeout"
     if isinstance(exc, subprocess.CalledProcessError):
@@ -293,6 +304,8 @@ def _safe_runtime_error_code(exc: BaseException) -> str:
         return "youtube_metadata_invalid"
     if isinstance(exc, ET.ParseError):
         return "youtube_feed_invalid"
+    if isinstance(exc, URLError):
+        return "youtube_network_unavailable"
     if isinstance(exc, (TimeoutError, OSError)):
         return "youtube_runtime_unavailable"
     return f"youtube_{re.sub(r'(?<!^)(?=[A-Z])', '_', type(exc).__name__).lower()}"
@@ -700,7 +713,7 @@ def _fetch_youtube_feed_entries(
 def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls: set[str]) -> dict[str, Any]:
     channel_url = _clean_text(channel.get("url"))
     feed_url, channel_id = _resolve_channel_feed_url(channel_url)
-    return _fetch_youtube_feed_entries(
+    payload = _fetch_youtube_feed_entries(
         channel,
         limit=limit,
         existing_urls=existing_urls,
@@ -709,6 +722,90 @@ def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls
         source_id_key="channel_id",
         fallback_name="YouTube channel",
     )
+    if not payload.get("error"):
+        return payload
+    try:
+        fallback = _fetch_flat_channel_entries(channel, limit=limit, existing_urls=existing_urls)
+    except Exception as exc:  # pragma: no cover - network/runtime dependent
+        payload["fallback_error"] = _safe_runtime_error_code(exc)
+        return payload
+    fallback["feed_warning"] = payload.get("error")
+    return fallback
+
+
+def _fetch_flat_channel_entries(
+    channel: dict[str, Any],
+    *,
+    limit: int,
+    existing_urls: set[str],
+) -> dict[str, Any]:
+    """Use the existing local yt-dlp runtime when a channel's Atom feed is unavailable."""
+
+    channel_url = _clean_text(channel.get("url"))
+    executable = shutil.which("yt-dlp")
+    if not executable:
+        raise RuntimeError("yt-dlp is unavailable for bounded channel discovery")
+    result = subprocess.run(
+        [
+            executable,
+            "--flat-playlist",
+            "--playlist-end",
+            str(max(1, limit)),
+            "--dump-single-json",
+            "--no-warnings",
+            "--no-update",
+            channel_url,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=PLAYLIST_MANIFEST_TIMEOUT_SECONDS,
+        shell=False,
+    )
+    decoded = json.loads(result.stdout)
+    raw_entries = decoded.get("entries") if isinstance(decoded, dict) else None
+    if not isinstance(raw_entries, list):
+        raise RuntimeError("YouTube channel manifest did not contain entries")
+
+    source_name = _clean_text(channel.get("name")) or _clean_text(decoded.get("title")) or "YouTube channel"
+    purpose = _clean_text(channel.get("purpose"))
+    priority_lane = _clean_text(channel.get("priority_lane")) or "ai"
+    channel_id = _clean_text(decoded.get("channel_id")) or _clean_text(decoded.get("uploader_id")) or _extract_channel_id(channel_url)
+    videos: list[dict[str, Any]] = []
+    seen_video_ids: set[str] = set()
+    for raw_entry in raw_entries[: max(1, limit)]:
+        if not isinstance(raw_entry, dict):
+            continue
+        video_id = _clean_text(raw_entry.get("id")) or _youtube_video_id(_clean_text(raw_entry.get("url")))
+        if not video_id or video_id in seen_video_ids:
+            continue
+        seen_video_ids.add(video_id)
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        videos.append(
+            {
+                "title": _clean_text(raw_entry.get("title")) or f"YouTube video {video_id}",
+                "url": video_url,
+                "video_id": video_id,
+                "author": _clean_text(raw_entry.get("channel")) or _clean_text(raw_entry.get("uploader")) or source_name,
+                "published_at": _published_at_from_flat_entry(raw_entry),
+                "summary": "",
+                "priority_lane": priority_lane,
+                "channel_name": source_name,
+                "channel_url": _clean_text(raw_entry.get("channel_url")) or _clean_text(raw_entry.get("uploader_url")) or channel_url,
+                "already_ingested": video_url in existing_urls,
+            }
+        )
+    return {
+        "name": source_name,
+        "url": channel_url,
+        "purpose": purpose,
+        "priority_lane": priority_lane,
+        "channel_id": channel_id or None,
+        "feed_url": None,
+        "discovery_mode": "yt_dlp_channel_fallback",
+        "inspection_window_count": len(videos),
+        "videos": videos,
+    }
 
 
 def _published_at_from_flat_entry(entry: dict[str, Any]) -> str | None:

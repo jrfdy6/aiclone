@@ -125,12 +125,19 @@ test('derives safe YouTube thumbnail URLs from supported public video URLs', () 
 test('Persona keeps the approved iPhone review inside the existing surface', () => {
   assert.match(clientSource, /const usePersonaPhoneLayout = viewportWidth <= PERSONA_PHONE_MAX_WIDTH/);
   assert.match(clientSource, /aria-label="Persona mobile review"/);
-  assert.match(clientSource, /height: 'min\(660px, calc\(100dvh - 184px\)\)'/);
+  assert.match(clientSource, /data-persona-main-scroll="document"/);
+  assert.doesNotMatch(clientSource, /height: 'min\(660px, calc\(100dvh - 184px\)\)'/);
+  assert.match(clientSource, /overflow: 'visible'/);
   assert.match(clientSource, /groupPersonaReviewDeltas\(reviewQueue\)/);
   assert.match(clientSource, /onTouchStart=/);
   assert.match(clientSource, /onTouchEnd=/);
   assert.match(clientSource, /Review details · \{selectedPromotionItems\.length\} selected/);
-  assert.match(clientSource, /Save & next \$\{mobileAdvanceLabel\}/);
+  assert.match(clientSource, /Save response & next \$\{mobileAdvanceLabel\}/);
+  assert.match(clientSource, /Save creates one explicit owner-response receipt in Open Brain/);
+  assert.match(clientSource, /Passive review, navigation, and page refreshes create no owner evidence/);
+  assert.match(clientSource, /data-persona-save-state=/);
+  assert.match(clientSource, /Unsaved thought/);
+  assert.match(clientSource, /Saved owner response/);
   assert.match(clientSource, /complete_review: advanceAfterSave/);
   assert.match(clientSource, /resolvePersonaReviewSelection\(reviewQueue, selectedDeltaId, pendingPersonaAdvanceDeltaId\)/);
   assert.match(clientSource, /setPendingPersonaAdvanceDeltaId\(options\.nextDeltaId \?\? null\)/);
@@ -138,7 +145,10 @@ test('Persona keeps the approved iPhone review inside the existing surface', () 
   assert.match(clientSource, /expected next \$\{advanceNoun\} changed during refresh/);
   assert.match(clientSource, /no different source was selected automatically/);
   assert.match(clientSource, /aiclone\.brain\.persona-review-drafts\.v1/);
-  assert.match(clientSource, /excluded from canon, Dream, and learning/);
+  assert.match(clientSource, /persistPersonaReflectionImmediately\(event\.target\.value\)/);
+  assert.match(clientSource, /excluded from Persona evidence, canon, Dream, and learning/);
+  assert.match(clientSource, />\s*← Previous\s*</);
+  assert.match(clientSource, />\s*Next →\s*</);
   assert.match(clientSource, />\s*Skip claim\s*</);
   assert.match(clientSource, />\s*Skip source\s*</);
   assert.match(clientSource, /Skip records no opinion\. The source stays attributed external knowledge\./);

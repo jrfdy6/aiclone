@@ -2919,7 +2919,42 @@ export function LinkedinWorkspaceSurface({
           </div>
         </section>
 
-        <SocialEngagementAssist />
+        <section data-feezie-owner-orientation="primary" style={{ ...panelStyle, padding: '16px 18px', gap: '10px' }}>
+          <div>
+            <p style={sectionLabelStyle('#38bdf8')}>Start here</p>
+            <h2 style={{ color: '#f8fafc', fontSize: '22px', margin: '4px 0 6px' }}>
+              {todaysCreateItems.length + todaysEngageItems.length > 0
+                ? `Review ${todaysCreateItems.length + todaysEngageItems.length} eligible distribution item${todaysCreateItems.length + todaysEngageItems.length === 1 ? '' : 's'}`
+                : 'No distribution decision is eligible right now'}
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              FEEZIE is for reviewing grounded ideas and prepared conversation drafts. Viewing this page does not create feedback, Persona evidence, publication evidence, or any native social action.
+            </p>
+          </div>
+          <div style={{ borderTop: '1px solid #334155', display: 'grid' }}>
+            {[
+              ['Current state', `${humanizeFeezieWorkspaceLabel(snapshotEditorialState)} editorial projection; HTTP availability is tracked separately.`],
+              ['What changed', `A previous-cycle comparison is unavailable in this projection. The current load contains ${todaysCreateItems.length} eligible create recommendation${todaysCreateItems.length === 1 ? '' : 's'} and ${todaysEngageItems.length} eligible engage recommendation${todaysEngageItems.length === 1 ? '' : 's'}.`],
+              ['AI Clone did this', `Loaded the current bounded projection and found ${todaysCreateItems.length} create recommendation${todaysCreateItems.length === 1 ? '' : 's'} and ${todaysEngageItems.length} engage recommendation${todaysEngageItems.length === 1 ? '' : 's'} eligible for today.`],
+              ['Needs your decision', todaysCreateItems.length + todaysEngageItems.length > 0 ? 'Yes. Review one item in Today’s Distribution; AI Clone will not publish or engage for you.' : 'No. Wait for a fresh eligible item, or optionally prepare owner-supplied text below.'],
+              ['What remains usable', 'Saved engagement opportunities, current source inventory, prior owner decisions, and canonical evidence remain readable even while other projections are incomplete.'],
+              ['AI Clone recommends', todaysCreateItems.length + todaysEngageItems.length > 0 ? 'Review the first eligible item below and decide whether to keep, revise, or skip it.' : 'Do not force a distribution action. Restore the missing projections and wait for a grounded eligible item.'],
+              ['Next Dream consumes', 'The next Dream cycle consumes canonical source, decision, feedback, and performance artifacts—not this page view or unsaved text.'],
+            ].map(([label, value], index) => (
+              <div key={label} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '6px 14px', padding: '9px 0', borderTop: index === 0 ? 'none' : '1px solid rgba(51,65,85,.65)' }}>
+                <p style={{ color: '#7dd3fc', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: 0 }}>{label}</p>
+                <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.5, margin: 0 }}>{value}</p>
+              </div>
+            ))}
+          </div>
+          {todaysCreateItems.length + todaysEngageItems.length > 0 ? <a href="#feezie-today-distribution" style={headerLinkStyle('#38bdf8')}>Review Today&apos;s Distribution</a> : null}
+        </section>
+
+        <details data-feezie-assisted-review="secondary" style={{ border: '1px solid #334155', borderRadius: '14px', padding: '12px' }}>
+          <summary style={{ color: '#bae6fd', cursor: 'pointer', fontWeight: 700 }}>Optional: prepare an owner-supplied social item</summary>
+          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>Use this only when you have an exact visible item to provide. Saving stores a reviewable opportunity; it never performs a social action.</p>
+          <div style={{ marginTop: '12px' }}><SocialEngagementAssist /></div>
+        </details>
 
         <section
           data-snapshot-editorial-state={snapshotEditorialState}
@@ -2999,7 +3034,7 @@ export function LinkedinWorkspaceSurface({
           ) : null}
         </section>
 
-        <section style={{ ...panelStyle, border: '1px solid rgba(56,189,248,0.3)', background: 'linear-gradient(145deg, rgba(8,47,73,0.34), rgba(2,6,23,0.96))' }}>
+        <section id="feezie-today-distribution" style={{ ...panelStyle, border: '1px solid rgba(56,189,248,0.3)', background: 'linear-gradient(145deg, rgba(8,47,73,0.34), rgba(2,6,23,0.96))', scrollMarginTop: '150px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '16px' }}>
             <div>
               <p style={sectionLabelStyle('#38bdf8')}>Today&apos;s Distribution</p>
@@ -3186,7 +3221,11 @@ export function LinkedinWorkspaceSurface({
 
         <OwnerDecisionSurface />
 
-        <IntegratedContentPortfolio />
+        <details data-feezie-content-intelligence="secondary" style={{ border: '1px solid #334155', borderRadius: '14px', padding: '12px' }}>
+          <summary style={{ color: '#bae6fd', cursor: 'pointer', fontWeight: 700 }}>Open source intelligence and content-creation tools</summary>
+          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>This is the dense working inventory for source lineage, opportunity creation, and post revisions. It is secondary to Today&apos;s Distribution and opens only when you choose it.</p>
+          <div style={{ display: 'grid', gap: '20px', marginTop: '12px' }}>
+            <IntegratedContentPortfolio />
 
         {legacyTwoOptionCompatibilityEnabled ? (
         <section data-content-generation-authority="legacy_two_option_compatibility" style={panelStyle}>
@@ -3583,6 +3622,8 @@ export function LinkedinWorkspaceSurface({
             </div>
           </section>
         )}
+          </div>
+        </details>
 
         {legacyTwoOptionCompatibilityEnabled ? (
         <section id="owner-review-lane" data-legacy-owner-review-compatibility="true" style={panelStyle}>

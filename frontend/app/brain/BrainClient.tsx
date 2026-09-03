@@ -15,7 +15,7 @@ import {
   parseBrainLocation,
   personaDeltaElementId,
 } from './brainNavigation';
-import { normalizeBrainDisplayText } from './brainPrivacy';
+import { normalizeBrainDisplayText, normalizeBrainOwnerGuidanceText } from './brainPrivacy';
 import {
   adjacentPersonaReviewDeltaId,
   findPersonaReviewPosition,
@@ -2967,7 +2967,17 @@ function BrainLongFormIngestPanel({
             </div>
           </div>
 
-          {youtubeWatchlistError && <p role="alert" style={{ color: '#f87171', fontSize: '12px' }}>{youtubeWatchlistError}</p>}
+          {youtubeWatchlistError && (
+            <div role="alert" style={{ borderLeft: '3px solid #fb7185', padding: '9px 12px', backgroundColor: 'rgba(127,29,29,0.12)' }}>
+              <p style={{ color: '#fecaca', fontSize: '12px', fontWeight: 700, margin: 0 }}>YouTube source inventory is unavailable</p>
+              <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: '4px 0 0' }}>Affected: live YouTube discovery only. Still available: existing Brain sources, saved transcripts, Persona review, and manual intake.</p>
+              <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: '3px 0 0' }}>Next: retry after the source runner is available; do not read retained counts as a fresh inventory.</p>
+              <details style={{ marginTop: '5px' }}>
+                <summary style={{ color: '#fb7185', fontSize: '11px', cursor: 'pointer' }}>What the system knows</summary>
+                <p style={{ color: '#cbd5e1', fontSize: '11px', margin: '5px 0 0' }}>The authenticated source inventory request did not return a fresh bounded projection.</p>
+              </details>
+            </div>
+          )}
           {queueStatus && <p role="status" aria-live="polite" style={{ color: '#22c55e', fontSize: '12px' }}>{queueStatus}</p>}
           {queueError && <p role="alert" style={{ color: '#f87171', fontSize: '12px' }}>{queueError}</p>}
 
@@ -3037,7 +3047,19 @@ function BrainLongFormIngestPanel({
                   </div>
 
                   {source.error ? (
-                    <p style={{ color: '#fca5a5', fontSize: '12px' }}>{ownerSafeErrorMessage(source.error, sourceErrorLabel)}</p>
+                    <div role="alert" style={{ borderLeft: '3px solid #f97316', padding: '8px 11px', backgroundColor: 'rgba(124,45,18,0.12)' }}>
+                      <p style={{ color: '#fed7aa', fontSize: '12px', fontWeight: 700, margin: 0 }}>{sourceErrorLabel}</p>
+                      <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: '4px 0 0' }}>
+                        Affected: this source&apos;s live lookup and full-coverage claim only. Still available: retained source context, other Brain sources, and manual intake.
+                      </p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: '3px 0 0' }}>
+                        Next: retry after the local source runner is available; do not treat the visible counts as complete.
+                      </p>
+                      <details style={{ marginTop: '5px' }}>
+                        <summary style={{ color: '#f97316', fontSize: '11px', cursor: 'pointer' }}>What the system knows</summary>
+                        <p style={{ color: '#cbd5e1', fontSize: '11px', margin: '5px 0 0' }}>The local YouTube source runner did not complete this lookup.</p>
+                      </details>
+                    </div>
                   ) : source.videos && source.videos.length > 0 ? (
                     <div style={{ display: 'grid', gap: '10px' }}>
                       {source.videos.map((video, videoIndex) => (
@@ -3434,6 +3456,20 @@ function MirrorEmptyState({ message }: { message: string }) {
   );
 }
 
+function dailyBriefSection(content: string, requestedHeading: string): string {
+  const knownHeadings = new Set(['what changed', 'why it matters', 'action now', 'routing', 'brain context', 'source', 'alerts']);
+  const lines = content.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => line.replace(/^#+\s*/, '').replace(/:\s*$/, '').trim().toLowerCase() === requestedHeading.toLowerCase());
+  if (headingIndex < 0) return '';
+  const section: string[] = [];
+  for (const line of lines.slice(headingIndex + 1)) {
+    const normalized = line.replace(/^#+\s*/, '').replace(/:\s*$/, '').trim().toLowerCase();
+    if (knownHeadings.has(normalized)) break;
+    section.push(line);
+  }
+  return section.join('\n').trim();
+}
+
 function DailyBriefsPanel({
   briefs,
   selected,
@@ -3451,34 +3487,47 @@ function DailyBriefsPanel({
 }) {
   const selectedSourceIntelligence = selected ? briefSourceIntelligence(selected) : null;
   const streamItems = selected ? briefStreamItems(selected) : [];
+  const selectedActionNow = selected ? dailyBriefSection(selected.content_markdown, 'Action Now') : '';
+  const currentBriefs = briefs.slice(0, 7);
+  const olderBriefs = briefs.slice(7);
+  const renderBriefButton = (entry: DailyBriefEntry) => (
+    <button
+      key={entry.id}
+      type="button"
+      aria-pressed={entry === selected}
+      onClick={() => onSelect(entry)}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        marginBottom: '8px',
+        padding: '10px',
+        borderRadius: '12px',
+        border: entry === selected ? '1px solid #38bdf8' : '1px solid transparent',
+        backgroundColor: entry === selected ? '#0f172a' : 'transparent',
+        color: 'white',
+        cursor: 'pointer',
+      }}
+    >
+      <p style={{ fontSize: '12px', color: '#94a3b8' }}>{entry.brief_date}</p>
+      <p style={{ fontSize: '14px', fontWeight: 600 }}>{normalizeBrainDisplayText(entry.title)}</p>
+    </button>
+  );
   return (
     <section style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '520px' }}>
-      <div style={{ width: 'min(100%, 280px)', flex: '1 1 240px', borderRight: '1px solid #0f172a', paddingRight: '14px', maxHeight: '480px', overflowY: 'auto' }}>
+      <div style={{ flex: '1 0 100%', borderBottom: '1px solid #172036', paddingBottom: '12px' }}>
+        <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.1em', margin: '0 0 5px' }}>Daily Briefs</p>
+        <h2 style={{ color: '#f8fafc', fontSize: '22px', margin: '0 0 5px' }}>Understand what changed, then decide whether anything deserves action</h2>
+        <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>Start with Action Now in the selected saved brief. Reading, switching dates, and opening details are passive and create no owner evidence.</p>
+      </div>
+      <div style={{ width: 'min(100%, 280px)', flex: '1 1 240px', borderRight: '1px solid #0f172a', paddingRight: '14px' }}>
         {error && <p role="alert" style={{ color: '#f87171' }}>{error}</p>}
         {loadState === 'loading' && briefs.length === 0 && <p role="status" style={{ color: '#94a3b8' }}>Loading daily briefs…</p>}
         {loadState === 'ready' && briefs.length === 0 && <p style={{ color: '#475569' }}>No daily briefs saved yet.</p>}
-        {briefs.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            aria-pressed={entry === selected}
-            onClick={() => onSelect(entry)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              marginBottom: '8px',
-              padding: '10px',
-              borderRadius: '12px',
-              border: entry === selected ? '1px solid #38bdf8' : '1px solid transparent',
-              backgroundColor: entry === selected ? '#0f172a' : 'transparent',
-              color: 'white',
-              cursor: 'pointer',
-            }}
-          >
-            <p style={{ fontSize: '12px', color: '#94a3b8' }}>{entry.brief_date}</p>
-            <p style={{ fontSize: '14px', fontWeight: 600 }}>{normalizeBrainDisplayText(entry.title)}</p>
-          </button>
-        ))}
+        {currentBriefs.map(renderBriefButton)}
+        {olderBriefs.length > 0 && <details style={{ marginTop: '8px' }}>
+          <summary style={{ color: '#94a3b8', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Older saved briefs ({olderBriefs.length})</summary>
+          <div style={{ marginTop: '8px' }}>{olderBriefs.map(renderBriefButton)}</div>
+        </details>}
       </div>
       <div style={{ flex: '999 1 520px', minWidth: 0 }}>
         {selected ? (
@@ -3486,8 +3535,16 @@ function DailyBriefsPanel({
             <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selected.brief_date}</p>
             <div>
               <h2 style={{ color: 'white', fontSize: '26px', marginBottom: '8px' }}>{normalizeBrainDisplayText(selected.title)}</h2>
-              {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{normalizeBrainDisplayText(selected.summary)}</p>}
+              {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{normalizeBrainOwnerGuidanceText(selected.summary)}</p>}
+              <p style={{ color: '#fcd34d', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>This is the saved brief dated {selected.brief_date}. Treat it as historical reference unless a newer canonical surface confirms the same state.</p>
             </div>
+            <section style={{ borderTop: '1px solid #334155', borderBottom: '1px solid #334155', padding: '12px 0' }}>
+              <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.08em', margin: '0 0 5px' }}>Primary task</p>
+              <h3 style={{ color: '#f8fafc', fontSize: '17px', margin: '0 0 6px' }}>Action Now</h3>
+              <p style={{ color: selectedActionNow ? '#dbe7ff' : '#94a3b8', fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', margin: 0 }}>
+                {selectedActionNow ? normalizeBrainOwnerGuidanceText(selectedActionNow) : 'No explicit action was recorded in this saved brief. Use it as reference and check Today for current owner work.'}
+              </p>
+            </section>
             {streamItems.length > 0 && <BriefStreamPanel brief={selected} items={streamItems} onRefresh={onRefresh} />}
             <details style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
               <summary style={{ color: '#94a3b8', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
@@ -3505,21 +3562,12 @@ function DailyBriefsPanel({
                 {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
               </div>
             </details>
-            <div
-              style={{
-                borderRadius: '14px',
-                border: '1px solid #1f2937',
-                backgroundColor: '#020617',
-                padding: '16px',
-                color: '#cbd5f5',
-                fontSize: '14px',
-                lineHeight: 1.6,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 10px' }}>Saved Brief</p>
-              {normalizeBrainDisplayText(selected.content_markdown)}
-            </div>
+            <details style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+              <summary style={{ color: '#94a3b8', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Read the full saved brief</summary>
+              <div style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginTop: '12px' }}>
+                {normalizeBrainOwnerGuidanceText(selected.content_markdown)}
+              </div>
+            </details>
           </div>
         ) : (
           <p style={{ color: '#475569' }}>
@@ -4096,18 +4144,6 @@ function PriorityFocusCard({
   );
 }
 
-function StepCallout({ step, title, description }: { step: string; title: string; description: string }) {
-  return (
-    <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px' }}>
-      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
-        Step {step}
-      </p>
-      <p style={{ color: 'white', fontSize: '14px', fontWeight: 600, margin: '0 0 6px' }}>{title}</p>
-      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{description}</p>
-    </div>
-  );
-}
-
 function PersonaPanel({
   deltas,
   docs,
@@ -4211,6 +4247,7 @@ function PersonaPanel({
   const [personaDraftReadyDeltaId, setPersonaDraftReadyDeltaId] = useState('');
   const [personaDraftStorageError, setPersonaDraftStorageError] = useState<string | null>(null);
   const personaSwipeStartX = useRef<number | null>(null);
+  const preserveReflectionMessageForDeltaId = useRef<string | null>(null);
   const [reflectionState, setReflectionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
     tone: 'idle',
     message: '',
@@ -4257,7 +4294,7 @@ function PersonaPanel({
   const [triageWorkspaceKeys, setTriageWorkspaceKeys] = useState<string[]>(['shared_ops']);
   const [triageStandupKind, setTriageStandupKind] = useState<PersonaStandupKind>('auto');
   const [triagePMTitle, setTriagePMTitle] = useState('');
-  const [showTriageControls, setShowTriageControls] = useState(true);
+  const [showTriageControls, setShowTriageControls] = useState(false);
   const [triageState, setTriageState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({ tone: 'idle', message: '' });
   const [isRoutingSignal, setIsRoutingSignal] = useState(false);
   const selectedDelta = useMemo(
@@ -4361,7 +4398,7 @@ function PersonaPanel({
     ? buildReviewAsk(selectedDelta, suggestedTargetFile)
     : 'Use Refresh Persona Queue on Mac to request the next bounded batch of review-ready sources.';
   const evidenceLabel =
-    metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? `capture ${selectedDelta.capture_id}` : 'Not linked yet');
+    metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? 'Saved owner evidence' : 'Not linked yet');
   const statusLabel = selectedDelta?.status ?? 'pending';
   const savedResponseKind = metadataText(selectedDelta?.metadata, 'owner_response_kind');
   const savedResponseExcerpt = metadataText(selectedDelta?.metadata, 'owner_response_excerpt');
@@ -4549,7 +4586,6 @@ function PersonaPanel({
     metadataText(selectedDelta?.metadata, 'system_experience_hypothesis') ?? metadataText(selectedDelta?.metadata, 'experience_summary');
   const routeReason = metadataText(selectedDelta?.metadata, 'route_reason');
   const pendingCount = primaryActiveReviewDeltas.length;
-  const totalPendingCount = scoredActiveReviewDeltas.length;
   const mutedCount = mutedActiveReviewDeltas.length;
   const promotionReadyCount = scoredActiveReviewDeltas.filter((item) => item.promotionReady).length;
   const lifecycleGroups = useMemo(
@@ -4604,19 +4640,8 @@ function PersonaPanel({
     ? lifecycleGroups.find((group) => group.key === requestedLifecycleView)?.title ?? 'Canon Audit'
     : null;
   const usePersonaPhoneLayout = viewportWidth <= PERSONA_PHONE_MAX_WIDTH;
-  const stackPersonaShell = viewportWidth < 1220;
-  const stackPersonaDetail = viewportWidth < 1480;
-  const usePinnedPersonaViewport = viewportWidth >= 1180 && viewportHeight >= 760;
-  const compactPersonaChrome = usePinnedPersonaViewport;
-  const personaViewportHeight = usePinnedPersonaViewport ? 'calc(100vh - 162px)' : 'auto';
-  const personaSectionRows = usePinnedPersonaViewport
-    ? showLifecycleAudit
-      ? selectedDelta
-        ? 'minmax(0, 1.42fr) minmax(300px, 0.64fr)'
-        : 'minmax(0, 1.1fr) minmax(300px, 0.9fr)'
-      : 'minmax(0, 1fr) auto'
-    : 'none';
-  const activeReviewRows = usePinnedPersonaViewport ? 'auto auto auto minmax(0, 1fr) auto' : 'none';
+  const stackPersonaDetail = viewportWidth < 1040;
+  const compactPersonaChrome = viewportWidth < 1440 || viewportHeight < 900;
   const reflectionToneColor = reflectionState.tone === 'success' ? '#22c55e' : reflectionState.tone === 'error' ? '#f87171' : '#64748b';
   const triageToneColor = triageState.tone === 'success' ? '#22c55e' : triageState.tone === 'error' ? '#f87171' : '#64748b';
   const activeReviewEmptyState =
@@ -4648,12 +4673,6 @@ function PersonaPanel({
             'This is not an empty-source claim. Use Refresh Persona Queue on Mac for the next bounded batch; sources awaiting transcripts remain in the ingestion backlog.',
           tone: '#22c55e',
         };
-
-  useEffect(() => {
-    if (!usePinnedPersonaViewport) {
-      setShowLifecycleAudit(true);
-    }
-  }, [usePinnedPersonaViewport]);
 
   useEffect(() => {
     if (!personaContextDocPath || personaContextDoc?.content || personaContextByPath[personaContextDocPath]) {
@@ -4762,7 +4781,7 @@ function PersonaPanel({
     setRouteToMemory(draft?.routeToMemory ?? false);
     setRouteToStandup(draft?.routeToStandup ?? false);
     setRouteToPM(draft?.routeToPM ?? false);
-    setShowTriageControls(true);
+    setShowTriageControls(Boolean(draft?.routeToMemory || draft?.routeToStandup || draft?.routeToPM));
     setTriageMemoryTargets(draft?.triageMemoryTargets ?? ['persistent_state']);
     setTriageWorkspaceKeys(draft?.triageWorkspaceKeys ?? suggestedWorkspaceKeys);
     setTriageStandupKind(draft?.triageStandupKind ?? 'auto');
@@ -4771,7 +4790,15 @@ function PersonaPanel({
     setPersonaDraftReadyDeltaId(selectedDelta?.id ?? '');
     setPersonaDraftStorageError(null);
     setMobilePersonaSheet(null);
-    setReflectionState({ tone: 'idle', message: '' });
+    const nextSelectedDeltaId = selectedDelta?.id ?? '';
+    if (
+      preserveReflectionMessageForDeltaId.current !== null &&
+      preserveReflectionMessageForDeltaId.current === nextSelectedDeltaId
+    ) {
+      preserveReflectionMessageForDeltaId.current = null;
+    } else {
+      setReflectionState({ tone: 'idle', message: '' });
+    }
     setTriageState({ tone: 'idle', message: '' });
   }, [selectedDelta?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- Initialize once per review item; polling must not overwrite owner writing or routing choices.
 
@@ -4904,6 +4931,27 @@ function PersonaPanel({
     }
   }
 
+  function persistPersonaReflectionImmediately(nextReflectionText: string) {
+    if (!selectedDelta || personaDraftReadyDeltaId !== selectedDelta.id) return;
+    const stored = writePersonaReviewDraft({
+      schema: 'brain_persona_review_draft/v1',
+      deltaId: selectedDelta.id,
+      reflectionText: nextReflectionText,
+      responseKind: selectedResponseKind,
+      selectedPromotionItemIds,
+      promotionItemTargetOverrides,
+      routeToMemory,
+      routeToStandup,
+      routeToPM,
+      triageMemoryTargets,
+      triageWorkspaceKeys,
+      triageStandupKind,
+      triagePMTitle,
+      updatedAt: new Date().toISOString(),
+    });
+    setPersonaDraftStorageError(stored ? null : 'This draft could not be retained on this device. Save before leaving this claim.');
+  }
+
   function setPromotionItemTarget(itemId: string, nextTarget: string) {
     markPersonaReviewDraftUnconfirmed();
     setPromotionItemTargetOverrides((current) => {
@@ -4996,6 +5044,16 @@ function PersonaPanel({
     const effectivePromotionGate = summarizePromotionItems(effectivePromotionItems, targetFile);
     if (mode === 'approved' && effectivePromotionItems.length === 0) {
       setReflectionState({ tone: 'error', message: 'No promotion-ready fragments are selected yet.' });
+      return;
+    }
+    if (
+      mode === 'reviewed' &&
+      !routeAfterSave &&
+      Boolean(savedResponseExcerpt) &&
+      trimmedReflection === savedResponseExcerpt?.trim() &&
+      selectedResponseKind === savedResponseKind
+    ) {
+      setReflectionState({ tone: 'error', message: 'Nothing new is ready to save. Edit your response or use Previous or Next to keep reviewing.' });
       return;
     }
     if (!trimmedReflection && mode === 'reviewed' && !routeAfterSave) {
@@ -5154,28 +5212,34 @@ function PersonaPanel({
       if (selectedDelta && !keepSelectableSourceOpen) {
         setCompletedDeltaIds((current) => (current.includes(selectedDelta.id) ? current : [...current, selectedDelta.id]));
       }
-      selectActiveDelta(keepSelectableSourceOpen ? selectedDelta?.id ?? null : resolvedNextDeltaId, 'replace');
+      const nextSelectedDeltaId = keepSelectableSourceOpen ? selectedDelta?.id ?? null : resolvedNextDeltaId;
+      if (!keepSelectableSourceOpen) {
+        preserveReflectionMessageForDeltaId.current = nextSelectedDeltaId ?? '';
+      }
+      selectActiveDelta(nextSelectedDeltaId, 'replace');
       setReflectionText('');
       const advanceNoun = options.advanceLabel ?? 'review item';
       const baseMessage = expectedNextMissing
-        ? `Saved to Open Brain as capture ${result.capture_id}, but the expected next ${advanceNoun} changed during refresh. Reopen the review queue to continue; no different source was selected automatically.`
+        ? `Saved your response as owner evidence in Open Brain, but the expected next ${advanceNoun} changed during refresh. Reopen the review queue to continue; no different source was selected automatically.`
         : keepSelectableSourceOpen
-        ? `Saved to Open Brain as capture ${result.capture_id}. This source stays open so you can select canonical items when ready.`
+        ? 'Saved your response as owner evidence in Open Brain. This source stays open so you can review optional canon items; nothing became canonical yet.'
         : resolvedNextDeltaId
         ? mode === 'approved'
           ? canonOutcome === 'committed'
-            ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. Moving to the next ${advanceNoun}.`
-            : `Saved to Open Brain as capture ${result.capture_id} and saved ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} as a canon selection. Moving to the next ${advanceNoun}.`
-          : `Saved to Open Brain as capture ${result.capture_id}. Moving to the next ${advanceNoun}.`
+            ? `Saved your response as owner evidence in Open Brain and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. Moving to the next ${advanceNoun}.`
+            : `Saved your response as owner evidence in Open Brain and held ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} for canon review. Moving to the next ${advanceNoun}.`
+          : `Saved your response as owner evidence in Open Brain; nothing became canonical. Moving to the next ${advanceNoun}.`
         : mode === 'approved'
         ? canonOutcome === 'committed'
-          ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. You are done for now.`
-          : `Saved to Open Brain as capture ${result.capture_id} and saved ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} as a canon selection. You are done for now.`
-        : `Saved to Open Brain as capture ${result.capture_id}. You are done for now.`;
+          ? `Saved your response as owner evidence in Open Brain and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. You are done for now.`
+          : `Saved your response as owner evidence in Open Brain and held ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} for canon review. You are done for now.`
+        : 'Saved your response as owner evidence in Open Brain; nothing became canonical. You are done for now.';
       setReflectionState({
         tone: routeFailureMessage ? 'error' : 'success',
         message: routeAfterSave
           ? `${baseMessage} ${routeFailureMessage ? `Review saved, but routing failed: ${routeFailureMessage}` : routeOutcomeMessage || 'Routing completed in the same action.'}`
+          : mode === 'reviewed'
+          ? `${baseMessage} It is now available in Persona review history. The next Dream cycle will not consume it unless you later use an eligible canon or routing action.`
           : baseMessage,
       });
     } catch (saveError) {
@@ -5521,27 +5585,32 @@ function PersonaPanel({
   const mobileClaimCount = selectedPersonaPosition?.source.deltas.length ?? (selectedDelta ? 1 : 0);
   const mobileSourceNumber = (selectedPersonaPosition?.sourceIndex ?? 0) + 1;
   const mobileProgressPercent = mobileClaimCount > 0 ? Math.max(8, (mobileClaimNumber / mobileClaimCount) * 100) : 0;
-  const mobileSaveDisabled = isFinalizePending || (!reflectionText.trim() && !savedResponseExcerpt);
+  const hasNewOwnerResponse = Boolean(reflectionText.trim()) && (
+    !savedResponseExcerpt ||
+    reflectionText.trim() !== savedResponseExcerpt.trim() ||
+    selectedResponseKind !== savedResponseKind
+  );
+  const mobileSaveDisabled = isFinalizePending || !hasNewOwnerResponse;
   const mobileSaveLabel = isFinalizePending
     ? 'Saving…'
     : nextPersonaDeltaId
-    ? `Save & next ${mobileAdvanceLabel}`
-    : 'Save & finish';
+    ? `Save response & next ${mobileAdvanceLabel}`
+    : 'Save response & finish';
 
   if (usePersonaPhoneLayout) {
     return (
       <section
         aria-label="Persona mobile review"
+        data-persona-main-scroll="document"
         style={{
           position: 'relative',
-          height: 'min(660px, calc(100dvh - 184px))',
-          minHeight: '520px',
-          overflow: 'hidden',
+          minHeight: 0,
+          overflow: 'visible',
           borderRadius: '18px',
           border: '1px solid #1f2937',
           backgroundColor: '#010617',
           display: 'grid',
-          gridTemplateRows: 'auto minmax(0, 1fr) auto',
+          gridTemplateRows: 'auto auto auto',
           boxShadow: '0 18px 44px rgba(2, 6, 23, 0.32)',
         }}
       >
@@ -5557,8 +5626,13 @@ function PersonaPanel({
             alignItems: 'center',
           }}
         >
-          <button type="button" onClick={() => setMobilePersonaSheet('queue')} style={personaPhoneIconButtonStyle()} aria-label="Open source queue">
-            ‹
+          <button
+            type="button"
+            onClick={() => setMobilePersonaSheet('queue')}
+            style={{ ...personaPhoneChipStyle(false), minHeight: '34px', padding: '6px 9px' }}
+            aria-label="Browse Persona sources"
+          >
+            Sources
           </button>
           <div style={{ minWidth: 0, textAlign: 'center' }}>
             <p style={{ color: '#f8fafc', fontSize: '14px', fontWeight: 700, margin: 0 }}>Persona Review</p>
@@ -5572,7 +5646,13 @@ function PersonaPanel({
         </header>
 
         {selectedDelta ? (
-          <div style={{ minHeight: 0, overflowY: 'auto', padding: '8px 9px', display: 'grid', alignContent: 'start', gap: '6px' }}>
+          <div style={{ minHeight: 0, overflow: 'visible', padding: '10px 9px', display: 'grid', alignContent: 'start', gap: '10px' }}>
+            <div data-persona-active-task="true" style={{ display: 'grid', gap: '4px' }}>
+              <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: 0 }}>Your task</p>
+              <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.45, margin: 0 }}>
+                Review this one source claim and save what you actually think. External claims and unsaved typing never become Persona evidence on their own.
+              </p>
+            </div>
             <section
               style={{
                 boxSizing: 'border-box',
@@ -5643,15 +5723,15 @@ function PersonaPanel({
               )}
             </section>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '34px minmax(0, 1fr) 34px', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(82px, 1fr) auto minmax(82px, 1fr)', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
                 aria-label="Previous claim"
                 disabled={!previousPersonaDeltaId}
                 onClick={() => selectMobilePersonaDelta(previousPersonaDeltaId)}
-                style={personaPhoneIconButtonStyle(!previousPersonaDeltaId)}
+                style={{ ...personaPhoneChipStyle(false), opacity: previousPersonaDeltaId ? 1 : 0.45, cursor: previousPersonaDeltaId ? 'pointer' : 'not-allowed' }}
               >
-                ‹
+                ← Previous
               </button>
               <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, textAlign: 'center', margin: 0 }}>
                 Claim {mobileClaimNumber} of {mobileClaimCount}
@@ -5661,9 +5741,9 @@ function PersonaPanel({
                 aria-label="Next claim"
                 disabled={!nextPersonaDeltaId}
                 onClick={() => selectMobilePersonaDelta(nextPersonaDeltaId)}
-                style={personaPhoneIconButtonStyle(!nextPersonaDeltaId)}
+                style={{ ...personaPhoneChipStyle(false), opacity: nextPersonaDeltaId ? 1 : 0.45, cursor: nextPersonaDeltaId ? 'pointer' : 'not-allowed' }}
               >
-                ›
+                Next →
               </button>
             </div>
             <div
@@ -5751,7 +5831,7 @@ function PersonaPanel({
                 {truncateText(sourceDisplayExcerpt, 280)}
               </p>
               <p style={{ color: '#94a3b8', fontSize: '11px', margin: 0 }}>
-                {sourceContextExcerpt ? 'Context attached' : 'Source excerpt'} · swipe left or right
+                {sourceContextExcerpt ? 'Context attached' : 'Source excerpt'} · use Previous or Next; swipe is optional
               </p>
             </article>
 
@@ -5809,6 +5889,7 @@ function PersonaPanel({
                 value={reflectionText}
                 onChange={(event) => {
                   markPersonaReviewDraftUnconfirmed();
+                  persistPersonaReflectionImmediately(event.target.value);
                   setReflectionText(event.target.value);
                 }}
                 placeholder={personaResponsePlaceholder(selectedResponseKind)}
@@ -5850,10 +5931,10 @@ function PersonaPanel({
               {personaDraftStorageError ||
                 reflectionState.message ||
                 (hasUnconfirmedPersonaDraft
-                  ? 'Unconfirmed draft kept on this device · excluded from canon, Dream, and learning.'
+                  ? 'Unsaved thought · kept on this device only; excluded from Persona evidence, canon, Dream, and learning.'
                   : savedResponseExcerpt
-                  ? 'Saved response loaded.'
-                  : 'Nothing saved yet.')}
+                  ? 'Saved owner response loaded · already available to its recorded downstream lane.'
+                  : 'Nothing saved yet · passive review creates no owner evidence.')}
             </p>
           </div>
         ) : (
@@ -5870,24 +5951,14 @@ function PersonaPanel({
 
         <footer
           style={{
-            minHeight: '54px',
             borderTop: '1px solid #172036',
             backgroundColor: '#020617',
-            padding: '8px 9px 10px',
+            padding: '10px 9px 12px',
             display: 'grid',
-            gridTemplateColumns: '42px minmax(0, 1fr)',
-            gap: '8px',
+            gridTemplateColumns: 'minmax(0, 1fr)',
+            gap: '7px',
           }}
         >
-          <button
-            type="button"
-            aria-label="Previous claim"
-            disabled={!previousPersonaDeltaId || isFinalizePending}
-            onClick={() => selectMobilePersonaDelta(previousPersonaDeltaId)}
-            style={personaPhoneIconButtonStyle(!previousPersonaDeltaId || isFinalizePending)}
-          >
-            ←
-          </button>
           <button
             type="button"
             onClick={() => void saveMobilePersonaReview()}
@@ -5905,14 +5976,17 @@ function PersonaPanel({
           >
             {mobileSaveLabel}
           </button>
+          <p style={{ color: '#94a3b8', fontSize: '10px', lineHeight: 1.4, textAlign: 'center', margin: 0 }}>
+            Save creates one explicit owner-response receipt in Open Brain. It does not make anything canonical; canon and routing remain optional in Review details.
+          </p>
         </footer>
 
         {mobilePersonaSheet && (
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 5,
+              position: 'fixed',
+              inset: '12px',
+              zIndex: 50,
               backgroundColor: '#020617dd',
               display: 'flex',
               alignItems: 'flex-end',
@@ -5929,7 +6003,7 @@ function PersonaPanel({
               style={{
                 boxSizing: 'border-box',
                 width: '100%',
-                maxHeight: 'calc(100% - 12px)',
+                maxHeight: '100%',
                 overflowY: 'auto',
                 borderRadius: '18px',
                 border: '1px solid #334155',
@@ -6142,12 +6216,11 @@ function PersonaPanel({
 
   return (
     <section
+      data-persona-main-scroll="document"
       style={{
         display: 'grid',
         gap: '16px',
-        height: personaViewportHeight,
         minHeight: 0,
-        gridTemplateRows: personaSectionRows,
       }}
     >
       <section
@@ -6159,20 +6232,17 @@ function PersonaPanel({
           display: 'grid',
           gap: compactPersonaChrome ? '10px' : '12px',
           alignItems: 'start',
-          minHeight: usePinnedPersonaViewport ? 'calc(100vh - 162px)' : 0,
+          minHeight: 0,
           overflowX: 'hidden',
-          overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
-          gridTemplateRows: activeReviewRows,
+          overflowY: 'visible',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: compactPersonaChrome ? '10px' : '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div style={{ maxWidth: compactPersonaChrome ? '900px' : '760px' }}>
-            <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Active Review</p>
+            <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Persona Review</p>
             <h2 style={{ color: 'white', fontSize: compactPersonaChrome ? '24px' : '28px', margin: '4px 0 6px' }}>{reviewHeadline}</h2>
             <p style={{ color: '#94a3b8', fontSize: compactPersonaChrome ? '13px' : '14px', lineHeight: 1.6, margin: 0 }}>
-              {selectedDelta
-                ? `${pendingCount} primary review item${pendingCount === 1 ? '' : 's'} remaining${mutedCount > 0 ? `, plus ${mutedCount} muted long-form item${mutedCount === 1 ? '' : 's'}` : ''}.`
-                : 'No review cards currently loaded; this does not mean the source backlog is empty.'}
+              Review one source claim at a time and save what you actually think. External claims, page views, navigation, and unsaved typing never become Persona evidence.
             </p>
           </div>
           <div
@@ -6183,11 +6253,6 @@ function PersonaPanel({
               maxWidth: compactPersonaChrome ? '100%' : '380px',
             }}
           >
-            {!compactPersonaChrome && (
-              <p style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', margin: 0 }}>
-                Workspace approvals already count as saved. Brain is where you resolve unresolved items, add nuance, and decide what should become canon without auto-rewriting the bundle.
-              </p>
-            )}
             <button
               type="button"
               onClick={() => void queuePersonaReviewRefresh()}
@@ -6240,146 +6305,115 @@ function PersonaPanel({
           </div>
         )}
 
-        {compactPersonaChrome ? (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <InlineBadge label="1 Choose review item" tone="#38bdf8" />
-            <InlineBadge label="2 Review source" tone="#22c55e" />
-            <InlineBadge label="3 Save or route" tone="#818cf8" />
+        <div
+          data-persona-active-task="true"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '12px',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            borderTop: '1px solid #172036',
+            borderBottom: '1px solid #172036',
+            padding: '10px 0',
+          }}
+        >
+          <div>
+            <p style={{ color: '#f8fafc', fontSize: '13px', fontWeight: 700, margin: '0 0 3px' }}>Current task: review this source, then save your response</p>
+            <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+              {selectedDelta
+                ? `Source ${mobileSourceNumber} of ${personaSourceGroups.length || 1} · claim ${mobileClaimNumber} of ${mobileClaimCount} · ${pendingCount} primary item${pendingCount === 1 ? '' : 's'} remain${pendingCount === 1 ? 's' : ''}.`
+                : 'No review cards currently loaded; this does not mean the source backlog is empty.'}
+            </p>
           </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
-            <StepCallout step="1" title="Choose item" description="Pick one review item from the left rail." />
-            <StepCallout step="2" title="Review source" description="Start with the source itself and its surrounding context before you decide on routing." />
-            <StepCallout step="3" title="Save your take" description="Record agreement, disagreement, nuance, story, or wording. Queue promotion only if fragments deserve canon." />
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <ReviewMetaChip label="Active" value={String(totalPendingCount)} tone="#38bdf8" />
-          <ReviewMetaChip label="Promotion Ready" value={String(promotionReadyCount)} tone="#f59e0b" />
-          <ReviewMetaChip label="Queued" value={String(pendingPromotionDeltas.length)} tone="#f59e0b" />
-          <ReviewMetaChip label="History" value={String(resolvedHistoryDeltas.length + workspaceSavedDeltas.length + committedDeltas.length)} tone="#64748b" />
+          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+            Canon: {committedDeltas.length} committed · {pendingPromotionDeltas.length} waiting · {promotionReadyCount} eligible
+          </p>
         </div>
 
         {selectedDelta ? (
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)',
+              gridTemplateColumns: 'minmax(0, 1fr)',
               gap: '14px',
               alignItems: 'stretch',
-              height: '100%',
               minHeight: 0,
-              overflow: 'hidden',
+              overflow: 'visible',
             }}
           >
             <aside
               style={{
-                borderRadius: '14px',
-                border: '1px solid #1f2937',
-                backgroundColor: '#020617',
-                padding: '14px',
-                display: 'grid',
-                gap: '12px',
-                alignSelf: 'stretch',
-                height: '100%',
-                minHeight: 0,
-                overflow: 'hidden',
-                gridTemplateRows: 'auto auto minmax(0, 1fr)',
+                borderTop: '1px solid #1f2937',
+                borderBottom: '1px solid #1f2937',
+                padding: '10px 0',
               }}
             >
-              <div>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Step 1 · Choose review item</p>
-                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-                  Newest items appear first. Muted long-form fragments stay out of the way unless you choose to inspect them.
-                </p>
-              </div>
-              {primaryActiveReviewDeltas.length > 0 && mutedActiveReviewDeltas.length > 0 && (
-                <div
-                  style={{
-                    display: 'grid',
-                    gap: '8px',
-                    padding: '10px 12px',
-                    borderRadius: '12px',
-                    border: '1px solid #1f2937',
-                    backgroundColor: '#010617',
-                  }}
-                >
-                  <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
-                    {mutedCount} lower-confidence long-form item{mutedCount === 1 ? '' : 's'} muted by default.
+              <details>
+                <summary style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                  Browse review queue ({visibleActiveReviewDeltas.length})
+                </summary>
+                <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                    The current item stays selected during refreshes. Open this list only when you want to jump to a different review item.
                   </p>
-                  <button
-                    type="button"
-                    aria-expanded={showMutedActive}
-                    onClick={() => setShowMutedActive((current) => !current)}
-                    style={{
-                      borderRadius: '999px',
-                      border: '1px solid #334155',
-                      backgroundColor: showMutedActive ? '#0f172a' : '#020617',
-                      color: '#cbd5f5',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      justifySelf: 'start',
-                    }}
-                  >
-                    {showMutedActive ? `Hide muted (${mutedCount})` : `Show muted (${mutedCount})`}
-                  </button>
-                </div>
-              )}
-              <div style={{ minHeight: 0, overflowY: 'auto', display: 'grid', gap: '10px', paddingRight: '2px' }}>
-                {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady }) => {
-                  const isActive = delta.id === (selectedDelta?.id ?? '');
-                  const isRequested = delta.id === requestedDeltaId;
-                  return (
+                  {primaryActiveReviewDeltas.length > 0 && mutedActiveReviewDeltas.length > 0 && (
                     <button
-                      key={delta.id}
-                      id={personaDeltaElementId(delta.id)}
                       type="button"
-                      aria-pressed={isActive}
-                      onClick={() => selectMobilePersonaDelta(delta.id)}
-                      style={{
-                        textAlign: 'left',
-                        borderRadius: '14px',
-                        border: `1px solid ${isActive ? '#38bdf8' : isRequested ? '#f59e0b' : '#1f2937'}`,
-                        backgroundColor: isActive ? '#082f49' : '#020617',
-                        padding: '12px',
-                        cursor: 'pointer',
-                        boxShadow: isRequested ? '0 0 0 2px #f59e0b33' : 'none',
-                      }}
+                      aria-expanded={showMutedActive}
+                      onClick={() => setShowMutedActive((current) => !current)}
+                      style={{ ...triageChoiceButtonStyle(showMutedActive), justifySelf: 'start' }}
                     >
-                      <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>
-                        {truncateText(reviewQueueCardTitle(delta), 110)}
-                      </p>
-                      <p style={{ color: '#cbd5f5', fontSize: '12px', marginBottom: '8px', lineHeight: 1.55 }}>
-                        {truncateText(reviewQueueCardSummary(delta), 120)}
-                      </p>
-                      <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                        {isActive && <InlineBadge label="selected" tone="#38bdf8" />}
-                        <InlineBadge label={humanizeBeliefRelation(metadataText(delta.metadata, 'belief_relation'))} tone="#22c55e" />
-                        {promotionReady && <InlineBadge label="promotion-ready" tone="#f59e0b" />}
-                        {muted && <InlineBadge label="muted" tone="#64748b" />}
-                      </div>
-                      <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                        {formatTimestamp(delta.created_at)}
-                      </p>
+                      {showMutedActive ? `Hide muted (${mutedCount})` : `Show muted (${mutedCount})`}
                     </button>
-                  );
-                })}
-              </div>
+                  )}
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady }) => {
+                      const isActive = delta.id === (selectedDelta?.id ?? '');
+                      const isRequested = delta.id === requestedDeltaId;
+                      return (
+                        <button
+                          key={delta.id}
+                          id={personaDeltaElementId(delta.id)}
+                          type="button"
+                          aria-pressed={isActive}
+                          onClick={() => selectMobilePersonaDelta(delta.id)}
+                          style={{
+                            textAlign: 'left',
+                            borderRadius: '10px',
+                            border: `1px solid ${isActive ? '#38bdf8' : isRequested ? '#f59e0b' : '#1f2937'}`,
+                            backgroundColor: isActive ? '#082f49' : '#010617',
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, margin: '0 0 4px', lineHeight: 1.4 }}>
+                            {truncateText(reviewQueueCardTitle(delta), 120)}
+                          </p>
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0, lineHeight: 1.45 }}>
+                            {truncateText(reviewQueueCardSummary(delta), 150)}
+                          </p>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '7px' }}>
+                            {isActive && <InlineBadge label="Current item" tone="#38bdf8" />}
+                            {promotionReady && <InlineBadge label="Promotion eligible" tone="#f59e0b" />}
+                            {muted && <InlineBadge label="Muted" tone="#64748b" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </details>
             </aside>
 
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: stackPersonaDetail ? 'minmax(0, 1fr)' : 'minmax(0, 1.08fr) minmax(420px, 0.92fr)',
+                gridTemplateColumns: stackPersonaDetail ? 'minmax(0, 1fr)' : 'minmax(0, 1.05fr) minmax(380px, 0.95fr)',
                 gap: '14px',
                 alignItems: 'stretch',
-                height: '100%',
                 minHeight: 0,
-                overflow: 'hidden',
+                overflow: 'visible',
               }}
             >
             <section
@@ -6394,48 +6428,24 @@ function PersonaPanel({
                 minWidth: 0,
                 minHeight: 0,
                 overflowX: 'hidden',
-                overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
-                gridTemplateRows: 'auto auto auto minmax(0, 1fr)',
+                overflowY: 'visible',
               }}
             >
               <div>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Step 2 · Review source first</p>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Review the source</p>
                 <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600, lineHeight: 1.45, margin: '0 0 8px' }}>{sourceTitle}</p>
                 <p style={{ color: '#94a3b8', fontSize: compactPersonaChrome ? '13px' : '14px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>
                   {compactPersonaChrome ? truncateText(reviewReason, 260) : reviewReason}
                 </p>
               </div>
 
-              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                {sourceChannel && (
-                  <>
-                    <span>Source channel: {sourceChannel}</span>
-                    <span style={{ margin: '0 8px' }}>·</span>
-                  </>
-                )}
-                {primaryRoute && (
-                  <>
-                    <span>Best first move: {humanizePrimaryRoute(primaryRoute)}</span>
-                    <span style={{ margin: '0 8px' }}>·</span>
-                  </>
-                )}
-                <span>{evidenceLabel}</span>
-                {selectedPromotionTargetFiles.length > 0 && (
-                  <>
-                    <span style={{ margin: '0 8px' }}>·</span>
-                    <span>Selected targets: {describePromotionTargets(selectedPromotionItems, suggestedTargetFile)}</span>
-                  </>
-                )}
-                <span style={{ margin: '0 8px' }}>·</span>
-                <span>{statusLabel}</span>
-              </div>
-
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {sourceChannel && <InlineBadge label={sourceChannel} tone="#64748b" />}
-                {reviewSource === 'long_form_media.segment' && <InlineBadge label="Source-first review" tone="#38bdf8" />}
-                {primaryRoute && <InlineBadge label={humanizePrimaryRoute(primaryRoute)} tone="#22c55e" />}
                 <InlineBadge
-                  label={selectedScoredDelta?.promotionReady ? 'Promotion-ready path open' : 'Needs review before promotion'}
+                  label={reviewSource === 'long_form_media.segment' ? 'External claim — not your evidence' : 'Suggested Persona claim — not saved'}
+                  tone="#38bdf8"
+                />
+                <InlineBadge
+                  label={selectedScoredDelta?.promotionReady ? 'Promotion eligible after your explicit review' : 'Not eligible for promotion yet'}
                   tone={selectedScoredDelta?.promotionReady ? '#f59e0b' : '#38bdf8'}
                 />
                 <InlineBadge
@@ -6446,11 +6456,19 @@ function PersonaPanel({
                   }
                   tone={!weakSourceFragment && selectableItems.length > 0 ? '#818cf8' : '#64748b'}
                 />
-                {selectedScoredDelta?.muted && <InlineBadge label="Muted long-form item" tone="#64748b" />}
-                {selectedScoredDelta && <InlineBadge label={`Priority ${selectedScoredDelta.score}`} tone="#22c55e" />}
+                {savedResponseExcerpt && <InlineBadge label="Saved owner response exists" tone="#22c55e" />}
               </div>
 
-              <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: '4px' }}>
+              <details>
+                <summary style={{ color: '#64748b', fontSize: '12px', cursor: 'pointer' }}>Technical provenance and routing hints</summary>
+                <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word', margin: '8px 0 0' }}>
+                  {[sourceChannel ? `Source channel: ${sourceChannel}` : null, primaryRoute ? `Suggested move: ${humanizePrimaryRoute(primaryRoute)}` : null, `Evidence: ${evidenceLabel}`, `Review state: ${statusLabel}`]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              </details>
+
+              <div style={{ minHeight: 0, overflowY: 'visible' }}>
                 <div
                   style={{
                     borderRadius: '12px',
@@ -6642,14 +6660,18 @@ function PersonaPanel({
                   </p>
                 </details>
                 {selectableItems.length > 0 && (
-                  <div
+                  <details
                     style={{
                       marginBottom: '16px',
-                      maxHeight: usePinnedPersonaViewport ? '260px' : '330px',
-                      overflowY: 'auto',
-                      paddingRight: '4px',
+                      borderTop: '1px solid #1f2937',
+                      borderBottom: '1px solid #1f2937',
+                      padding: '10px 0',
                     }}
                   >
+                    <summary style={{ color: '#818cf8', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                      Suggested fragments ({selectableItems.length}) · optional, not Persona evidence or canon
+                    </summary>
+                    <div style={{ marginTop: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginBottom: '10px', flexWrap: 'wrap' }}>
                       <p style={{ color: '#818cf8', fontSize: '13px', fontWeight: 700, margin: 0 }}>
                         Optional canon fragments
@@ -6813,7 +6835,8 @@ function PersonaPanel({
                         No fragments match this filter yet. Switch to `All` to inspect everything.
                       </p>
                     )}
-                  </div>
+                    </div>
+                  </details>
                 )}
                 <details>
                   <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
@@ -6871,8 +6894,7 @@ function PersonaPanel({
                 minWidth: 0,
                 minHeight: 0,
                 overflowX: 'hidden',
-                overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
-                gridTemplateRows: compactPersonaChrome ? 'auto auto auto minmax(180px, 1fr) auto' : 'auto auto auto auto minmax(140px, 1fr) auto',
+                overflowY: 'visible',
               }}
             >
               <div
@@ -6885,12 +6907,29 @@ function PersonaPanel({
                   gap: compactPersonaChrome ? '9px' : '10px',
                 }}
               >
-                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Step 3 · Save and route</p>
-                {!compactPersonaChrome && (
-                  <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
-                    Decide whether this source is worth keeping at all before you worry about promotion. Only use canon when the source is actually strong enough.
+                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Your response</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
+                  Say what you agree with, reject, or would change. Saving creates owner evidence in Open Brain; it does not automatically make the source or suggested fragments canonical.
+                </p>
+                <div
+                  data-persona-save-state={hasUnconfirmedPersonaDraft ? 'unsaved' : savedResponseExcerpt ? 'saved' : 'empty'}
+                  role="status"
+                  style={{
+                    borderLeft: `3px solid ${hasUnconfirmedPersonaDraft ? '#38bdf8' : savedResponseExcerpt ? '#22c55e' : '#64748b'}`,
+                    paddingLeft: '10px',
+                  }}
+                >
+                  <p style={{ color: hasUnconfirmedPersonaDraft ? '#bae6fd' : savedResponseExcerpt ? '#bbf7d0' : '#94a3b8', fontSize: '12px', fontWeight: 700, margin: '0 0 3px' }}>
+                    {hasUnconfirmedPersonaDraft ? 'Unsaved thought' : savedResponseExcerpt ? 'Saved owner response' : 'Nothing saved yet'}
                   </p>
-                )}
+                  <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                    {hasUnconfirmedPersonaDraft
+                      ? 'Kept on this device only. It is excluded from Persona evidence, canon, Dream, and learning until Save succeeds.'
+                      : savedResponseExcerpt
+                      ? 'The saved response is owner evidence available to its recorded downstream lane. Canon still requires an explicit eligible Finalize action.'
+                      : 'Passive review, navigation, and page refreshes create no owner evidence.'}
+                  </p>
+                </div>
                 <div style={{ display: 'grid', gap: '8px' }}>
                   <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Source call</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -6913,6 +6952,15 @@ function PersonaPanel({
                     <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
                   </div>
                 </div>
+                <button
+                  type="button"
+                  aria-expanded={showTriageControls}
+                  onClick={() => setShowTriageControls((current) => !current)}
+                  style={{ ...triageChoiceButtonStyle(showTriageControls), justifySelf: 'start' }}
+                >
+                  {showTriageControls ? 'Hide optional canon & routing' : 'Review optional canon & routing'}
+                </button>
+                {showTriageControls && (
                 <div style={{ display: 'grid', gap: '10px', padding: '10px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#010617' }}>
                   <div style={{ display: 'grid', gap: '4px' }}>
                     <p style={{ color: '#cbd5f5', fontSize: '12px', fontWeight: 700, margin: 0 }}>
@@ -7072,6 +7120,7 @@ function PersonaPanel({
                     </p>
                   )}
                 </div>
+                )}
               </div>
 
               <div
@@ -7079,7 +7128,6 @@ function PersonaPanel({
                   display: 'grid',
                   gap: '12px',
                   minHeight: 0,
-                  gridTemplateRows: usePinnedPersonaViewport ? 'minmax(220px, 1fr) auto' : 'auto auto',
                 }}
               >
                 <textarea
@@ -7087,6 +7135,7 @@ function PersonaPanel({
                   value={reflectionText}
                   onChange={(event) => {
                     markPersonaReviewDraftUnconfirmed();
+                    persistPersonaReflectionImmediately(event.target.value);
                     setReflectionText(event.target.value);
                     if (reflectionState.tone !== 'idle') {
                       setReflectionState({ tone: 'idle', message: '' });
@@ -7096,8 +7145,7 @@ function PersonaPanel({
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    minHeight: usePinnedPersonaViewport ? '220px' : '220px',
-                    height: usePinnedPersonaViewport ? '100%' : undefined,
+                    minHeight: '220px',
                     resize: 'vertical',
                     borderRadius: '14px',
                     border: '1px solid #1f2937',
@@ -7119,18 +7167,20 @@ function PersonaPanel({
                     border: '1px solid #1f2937',
                     backgroundColor: '#020617',
                     padding: '12px',
-                    position: usePinnedPersonaViewport ? 'sticky' : 'static',
-                    bottom: usePinnedPersonaViewport ? 0 : undefined,
-                    zIndex: 1,
                   }}
                 >
                   <div style={{ display: 'grid', gap: '4px' }}>
-                    <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Submit</p>
+                    <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Primary action</p>
                     <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
-                      Save note stores judgment only. Finalize is the done action for canon and downstream routing.
+                      Save response creates one explicit owner-response receipt in Open Brain. It does not make a source claim, suggested fragment, or draft canonical.
                     </p>
+                    {mobileSaveDisabled && !isFinalizePending && (
+                      <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>
+                        Write or change your response before saving. If this response is already saved, use Previous, Next, Skip claim, or Skip source to continue.
+                      </p>
+                    )}
                   </div>
-                  {selectedPromotionItems.length > 0 && compactPersonaChrome && (
+                  {showTriageControls && selectedPromotionItems.length > 0 && compactPersonaChrome && (
                     <div
                       style={{
                         borderRadius: '10px',
@@ -7158,7 +7208,7 @@ function PersonaPanel({
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {selectedPromotionItems.length > 0 && <InlineBadge label={`${selectedPromotionItems.length} canon selected`} tone="#818cf8" />}
+                      {showTriageControls && selectedPromotionItems.length > 0 && <InlineBadge label={`${selectedPromotionItems.length} suggested for canon`} tone="#818cf8" />}
                       {reviewSource === 'long_form_media.segment' && (
                         <>
                           <button
@@ -7202,19 +7252,20 @@ function PersonaPanel({
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         <button
                           onClick={() => saveReflection('reviewed')}
-                          disabled={isFinalizePending}
+                          disabled={mobileSaveDisabled}
                           style={{
-                            border: '1px solid #334155',
-                            backgroundColor: isFinalizePending ? '#0f172a' : '#020617',
-                            color: isFinalizePending ? '#64748b' : '#cbd5f5',
+                            border: '1px solid #38bdf8',
+                            backgroundColor: mobileSaveDisabled ? '#0f172a' : '#38bdf8',
+                            color: mobileSaveDisabled ? '#64748b' : '#082f49',
                             borderRadius: '12px',
-                            padding: '10px 14px',
-                            cursor: isFinalizePending ? 'wait' : 'pointer',
-                            fontWeight: 600,
+                            padding: '10px 16px',
+                            cursor: isFinalizePending ? 'wait' : mobileSaveDisabled ? 'not-allowed' : 'pointer',
+                            fontWeight: 700,
                           }}
                         >
-                          {isFinalizePending ? 'Saving…' : 'Save note'}
+                          {isFinalizePending ? 'Saving…' : 'Save response'}
                         </button>
+                        {showTriageControls && (
                         <button
                           onClick={() => finalizeReviewedSignal()}
                           disabled={isFinalizePending || finalizeActionDisabled}
@@ -7231,10 +7282,11 @@ function PersonaPanel({
                         >
                           {isFinalizePending ? finalizeActionBusyLabel : 'Finalize'}
                         </button>
+                        )}
                       </div>
-                      <p style={{ color: '#94a3b8', fontSize: '11px', maxWidth: '560px', textAlign: 'left', margin: 0 }}>
+                      {showTriageControls && <p style={{ color: '#94a3b8', fontSize: '11px', maxWidth: '560px', textAlign: 'left', margin: 0 }}>
                         {finalizeActionSummary}
-                      </p>
+                      </p>}
                     </div>
                   </div>
                   {savedResponseExcerpt && compactPersonaChrome && (
@@ -7253,7 +7305,7 @@ function PersonaPanel({
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0 6px' }}>
                         {savedResponseKind && <InlineBadge label={humanizeSavedResponseKind(savedResponseKind)} tone="#818cf8" />}
                         {metadataText(selectedDelta.metadata, 'resolution_capture_id') && (
-                          <InlineBadge label={`capture ${metadataText(selectedDelta.metadata, 'resolution_capture_id')}`} tone="#64748b" />
+                          <InlineBadge label="Owner response receipt" tone="#64748b" />
                         )}
                       </div>
                       <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-wrap', margin: 0 }}>
@@ -7264,7 +7316,7 @@ function PersonaPanel({
                 </div>
               </div>
 
-              {selectableItems.length > 0 && (
+              {showTriageControls && selectableItems.length > 0 && (
                 <div
                   style={{
                     borderRadius: '12px',
@@ -7273,9 +7325,6 @@ function PersonaPanel({
                     padding: '12px',
                     display: 'grid',
                     gap: '8px',
-                    maxHeight: usePinnedPersonaViewport ? '260px' : '330px',
-                    overflowY: 'auto',
-                    paddingRight: '4px',
                   }}
                 >
                   <details>
@@ -7364,7 +7413,7 @@ function PersonaPanel({
                 </div>
               )}
 
-              {selectedPromotionItems.length > 0 && !compactPersonaChrome && (
+              {showTriageControls && selectedPromotionItems.length > 0 && !compactPersonaChrome && (
                 <div
                   style={{
                     borderRadius: '12px',
@@ -7406,7 +7455,7 @@ function PersonaPanel({
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '10px 0 8px' }}>
                     {savedResponseKind && <InlineBadge label={humanizeSavedResponseKind(savedResponseKind)} tone="#818cf8" />}
                     {metadataText(selectedDelta.metadata, 'resolution_capture_id') && (
-                      <InlineBadge label={`capture ${metadataText(selectedDelta.metadata, 'resolution_capture_id')}`} tone="#64748b" />
+                      <InlineBadge label="Owner response receipt" tone="#64748b" />
                     )}
                   </div>
                   <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: 0 }}>
@@ -7465,9 +7514,6 @@ function PersonaPanel({
         {promotionState.message && promotionState.tone === 'success' && (
           <div
             style={{
-              position: usePinnedPersonaViewport ? 'sticky' : 'static',
-              top: usePinnedPersonaViewport ? '88px' : undefined,
-              zIndex: 2,
               borderRadius: '999px',
               border: '1px solid #14532d',
               backgroundColor: '#052e16',
@@ -7497,8 +7543,7 @@ function PersonaPanel({
           display: 'grid',
           gap: showLifecycleAudit ? '16px' : '0',
           minHeight: 0,
-          overflow: 'hidden',
-          gridTemplateRows: showLifecycleAudit && usePinnedPersonaViewport ? 'auto auto minmax(0, 1fr)' : 'auto',
+          overflow: 'visible',
           boxShadow: showLifecycleAudit ? '0 18px 40px rgba(2, 6, 23, 0.35)' : 'none',
         }}
       >
@@ -7592,8 +7637,7 @@ function PersonaPanel({
               display: 'grid',
               gap: '10px',
               minHeight: 0,
-              overflow: 'hidden',
-              gridTemplateRows: 'auto minmax(0, 1fr)',
+              overflow: 'visible',
             }}
           >
             <div>
@@ -7615,7 +7659,7 @@ function PersonaPanel({
                 </p>
               </div>
             </div>
-            <div style={{ display: 'grid', gap: '8px', minHeight: 0, overflowY: 'auto', paddingRight: '2px' }}>
+            <div style={{ display: 'grid', gap: '8px', minHeight: 0 }}>
               {activeLifecycleItems.length === 0 ? (
                 <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
               ) : (
@@ -7908,15 +7952,6 @@ function QuickFillButton({ label, onClick }: { label: string; onClick: () => voi
   );
 }
 
-function ReviewMetaChip({ label, value, tone }: { label: string; value: string; tone: string }) {
-  return (
-    <div style={{ borderRadius: '999px', border: `1px solid ${tone}44`, backgroundColor: `${tone}18`, padding: '6px 10px' }}>
-      <span style={{ color: '#94a3b8', fontSize: '11px', marginRight: '6px', textTransform: 'uppercase' }}>{label}</span>
-      <span style={{ color: tone, fontSize: '12px', fontWeight: 600 }}>{value}</span>
-    </div>
-  );
-}
-
 function InlineBadge({ label, tone }: { label: string; tone: string }) {
   const displayLabel = normalizeBrainDisplayText(label);
   return (
@@ -8088,6 +8123,7 @@ function AutomationsPanel({
   const mismatchReport = index?.mismatches ?? null;
   const observedCount = automations.filter((job) => job.last_status && job.last_status !== 'unknown').length;
   const deliveredCount = automations.filter((job) => job.last_delivered === true).length;
+  const latestTaskFailures = automations.filter((job) => ['error', 'failed', 'degraded'].includes((job.last_status ?? '').toLowerCase()));
   return (
     <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', display: 'grid', gap: '14px' }}>
       <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -8100,7 +8136,13 @@ function AutomationsPanel({
           tone={error ? '#f97316' : '#22c55e'}
         />
       </div>
-      {error && <p role="alert" style={{ color: '#f87171', margin: 0 }}>{error}</p>}
+      {error && (
+        <div role="alert" style={{ borderLeft: '3px solid #fb7185', padding: '9px 12px', backgroundColor: 'rgba(127,29,29,0.12)' }}>
+          <p style={{ color: '#fecaca', fontSize: '12px', fontWeight: 700, margin: 0 }}>Automation runtime refresh is unavailable</p>
+          <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: '4px 0 0' }}>Affected: fresh automation observations only. Still available: retained contracts and the last bounded run ledger.</p>
+          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: '3px 0 0' }}>Next: retry once; if it repeats, inspect Ops System. Do not treat retained rows as fresh.</p>
+        </div>
+      )}
       {loadState === 'loading' && !hasRows && <p role="status" style={{ color: '#94a3b8', margin: 0 }}>Loading automations…</p>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
         <TelemetryMeta label="Configured" value={hasRows ? String(index?.count ?? automations.length) : '—'} detail="Registry contracts, not a health claim" />
@@ -8116,21 +8158,38 @@ function AutomationsPanel({
           <p style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 700, margin: 0 }}>Runtime mismatches that need attention</p>
           {(mismatchReport?.mismatches ?? []).slice(0, 6).map((item, indexValue) => (
             <p key={`${item.kind || 'mismatch'}-${item.automation_id || indexValue}`} style={{ color: '#fed7aa', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
-              {item.automation_name || item.automation_id || humanizeSnakeCase(item.kind || 'mismatch')}: {item.message || 'Observed runtime does not match the registry contract.'}
+              {item.automation_name || humanizeSnakeCase(item.kind || 'Automation mismatch')}: {ownerSafeErrorMessage(item.message, 'Observed runtime does not match the registry contract.')}
             </p>
           ))}
         </div>
       )}
-      <div style={{ overflowX: 'auto' }}>
+      {latestTaskFailures.length > 0 && (
+        <section data-automation-task-failures={latestTaskFailures.length} style={{ borderLeft: '3px solid #fb7185', padding: '9px 12px', backgroundColor: 'rgba(127,29,29,0.12)' }}>
+          <p style={{ color: '#fecaca', fontSize: '12px', fontWeight: 700, margin: 0 }}>
+            {latestTaskFailures.length} latest task result{latestTaskFailures.length === 1 ? '' : 's'} failed
+          </p>
+          <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: '4px 0 0' }}>
+            A failed latest task is historical run evidence; it does not by itself mean the automation contract is stopped. Current runtime and latest task result stay separate below.
+          </p>
+          <ul style={{ color: '#cbd5e1', fontSize: '11px', lineHeight: 1.5, margin: '7px 0 0', paddingLeft: '18px' }}>
+            {latestTaskFailures.slice(0, 5).map((job) => (
+              <li key={job.id}>{job.name}: latest task failed{job.status === 'active' ? '; current contract remains active' : ''}.</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <details data-automation-diagnostics="all-jobs">
+        <summary style={{ color: '#94a3b8', fontSize: '12px', cursor: 'pointer' }}>Inspect all automation contracts and bounded run diagnostics</summary>
+        <div style={{ overflowX: 'auto', marginTop: '8px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
               <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Name</th>
               <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Schedule</th>
-              <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Contract</th>
-              <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Observed Run</th>
+              <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Current runtime</th>
+              <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Latest task result</th>
               <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Delivery</th>
-              <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Latest Error</th>
+              <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Latest task message</th>
               <th style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>Last Run</th>
             </tr>
           </thead>
@@ -8151,14 +8210,15 @@ function AutomationsPanel({
                     {job.last_delivered === true ? 'Delivered' : job.last_delivered === false ? 'Failed' : 'Unknown'}
                   </td>
                   <td style={{ padding: '10px 10px 10px 0', color: job.last_error ? '#fca5a5' : '#64748b', maxWidth: '260px' }}>
-                    {job.last_error ? truncateText(job.last_error, 120) : '—'}
+                    {job.last_error ? truncateText(ownerSafeErrorMessage(job.last_error, 'See Ops System for the bounded failure category.'), 120) : '—'}
                   </td>
                   <td style={{ padding: '10px 0', color: '#94a3b8' }}>{job.last_run_at ? formatTimestamp(job.last_run_at) : '—'}</td>
                 </tr>
               ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      </details>
     </section>
   );
 }
@@ -8174,6 +8234,7 @@ function DocsPanel({
 }) {
   const [docQuery, setDocQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('all');
+  const [showFullDocIndex, setShowFullDocIndex] = useState(false);
   const [recentDocPaths, setRecentDocPaths] = useState<string[]>([]);
   const [docContentByPath, setDocContentByPath] = useState<Record<string, DocEntry>>({});
   const [loadingDocPath, setLoadingDocPath] = useState<string | null>(null);
@@ -8189,9 +8250,13 @@ function DocsPanel({
       return matchesGroup && matchesQuery;
     });
   }, [docContentByPath, docQuery, docs, selectedGroup]);
+  const visibleDocs = useMemo(
+    () => (showFullDocIndex || docQuery.trim() || selectedGroup !== 'all' ? filteredDocs : filteredDocs.slice(0, 12)),
+    [docQuery, filteredDocs, selectedGroup, showFullDocIndex],
+  );
   const groupedDocs = useMemo(() => {
     const groups = new Map<string, DocEntry[]>();
-    for (const doc of filteredDocs) {
+    for (const doc of visibleDocs) {
       const key = doc.group ?? inferDocGroup(doc.path);
       const current = groups.get(key) ?? [];
       current.push(doc);
@@ -8201,12 +8266,12 @@ function DocsPanel({
       group,
       items: items.sort(compareDocEntries),
     }));
-  }, [filteredDocs]);
+  }, [visibleDocs]);
   const allGroups = useMemo(() => Array.from(new Set(docs.map((doc) => doc.group ?? inferDocGroup(doc.path)))).sort(), [docs]);
-  const [selectedDocPath, setSelectedDocPath] = useState<string>(docs[0]?.path ?? '');
+  const [selectedDocPath, setSelectedDocPath] = useState<string>('');
   const selectedDoc = useMemo(
-    () => groupedDocs.flatMap((entry) => entry.items).find((doc) => doc.path === selectedDocPath) ?? null,
-    [groupedDocs, selectedDocPath],
+    () => filteredDocs.find((doc) => doc.path === selectedDocPath) ?? null,
+    [filteredDocs, selectedDocPath],
   );
   const recentDocs = useMemo(
     () => recentDocPaths.map((path) => docs.find((doc) => doc.path === path)).filter((doc): doc is DocEntry => Boolean(doc)),
@@ -8214,12 +8279,8 @@ function DocsPanel({
   );
 
   useEffect(() => {
-    const nextPath = groupedDocs[0]?.items[0]?.path ?? '';
-    if (selectedDoc || selectedDocPath === nextPath) {
-      return;
-    }
-    setSelectedDocPath(nextPath);
-  }, [groupedDocs, selectedDoc, selectedDocPath]);
+    if (selectedDocPath && !docs.some((doc) => doc.path === selectedDocPath)) setSelectedDocPath('');
+  }, [docs, selectedDocPath]);
   const selectedDocContent = selectedDoc ? docContentByPath[selectedDoc.path]?.content ?? selectedDoc.content ?? null : null;
   const selectedDocIsLoading = selectedDoc ? loadingDocPath === selectedDoc.path : false;
 
@@ -8260,7 +8321,7 @@ function DocsPanel({
 
   return (
     <section style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '560px' }}>
-      <div style={{ width: 'min(100%, 320px)', flex: '1 1 280px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '520px', overflowY: 'auto' }}>
+      <div style={{ width: 'min(100%, 320px)', flex: '1 1 280px', borderRight: '1px solid #0f172a', paddingRight: '12px' }}>
         <div style={{ marginBottom: '12px' }}>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Knowledge Docs</p>
           <p style={{ color: '#64748b', fontSize: '13px' }}>
@@ -8269,6 +8330,7 @@ function DocsPanel({
           <p style={{ color: '#fbbf24', fontSize: '12px', lineHeight: 1.5 }}>
             Railway shows only governed public-safe deployed docs. Private canonical memory and owner documents remain on the Mac.
           </p>
+          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>Choose a document when you need technical context. Opening or reading one is passive and does not modify canon or create owner evidence.</p>
         </div>
         {error && <p role="alert" style={{ color: '#f87171', fontSize: '13px' }}>{error}</p>}
         {loadState === 'loading' && docs.length === 0 && <p role="status" style={{ color: '#94a3b8', fontSize: '13px' }}>Loading documentation index…</p>}
@@ -8382,6 +8444,11 @@ function DocsPanel({
             </div>
           </div>
         ))}
+        {selectedGroup === 'all' && !docQuery.trim() && filteredDocs.length > 12 && (
+          <button type="button" onClick={() => setShowFullDocIndex((current) => !current)} style={{ ...brainSmallButtonStyle(false), width: '100%' }}>
+            {showFullDocIndex ? 'Show the first 12 documents' : `Browse all ${filteredDocs.length} documents`}
+          </button>
+        )}
       </div>
       <div style={{ flex: '999 1 520px', minWidth: 0 }}>
         {selectedDoc ? (
@@ -8429,7 +8496,7 @@ function DocsPanel({
               ? 'Loading the documentation index…'
               : error
               ? 'Documentation is unavailable until the index can be refreshed.'
-              : 'Select a document to read it here.'}
+              : 'Choose a document from the bounded index to read its technical content.'}
           </p>
         )}
       </div>

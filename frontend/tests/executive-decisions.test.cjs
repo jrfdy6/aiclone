@@ -216,10 +216,7 @@ test('defers workspace and canonical docs reads until their consuming panel is a
   );
   assert.match(
     opsSource,
-    /if \(activePanel !== 'workspace'\) \{\s*return;\s*\}\s*void loadFeezieOwnerReview\(\);/,
+    /const reloadFeezieWorkspaceSnapshot = useCallback\(async \(\) => \{\s*await loadWorkspaceSnapshot\(\);/,
   );
-  assert.match(
-    opsSource,
-    /const reloadFeezieWorkspaceSnapshot = useCallback\(async \(\) => \{\s*await Promise\.all\(\[loadWorkspaceSnapshot\(\), loadFeezieOwnerReview\(\)\]\);/,
-  );
+  assert.doesNotMatch(opsSource, /loadFeezieOwnerReview|setFeezieOwnerReviewItems/);
 });

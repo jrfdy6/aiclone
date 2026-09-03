@@ -172,6 +172,21 @@ export default function RequestWorkForm({
     outcomeReady &&
     !tooManyAcceptanceItems &&
     !tooManyArtifactItems;
+  const sendDisabledReason = submitting
+    ? 'Sending this work order securely…'
+    : registryLoading
+      ? 'Loading trusted project routes before this work order can be sent.'
+      : registryError
+        ? 'Project routing is unavailable, so this work order cannot be sent yet.'
+        : !registryReady
+          ? 'No trusted project route is available for this work order.'
+          : !outcomeReady
+            ? 'Enter a specific outcome of at least three characters to enable Send to Codex.'
+            : tooManyAcceptanceItems
+              ? `Reduce proof of done to ${MAX_LIST_ITEMS} checks before sending.`
+              : tooManyArtifactItems
+                ? `Reduce expected evidence to ${MAX_LIST_ITEMS} items before sending.`
+                : null;
 
   function startAnotherRequest() {
     if (result) {
@@ -486,12 +501,13 @@ export default function RequestWorkForm({
         ) : null}
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-          <p aria-live="polite" style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
-            {registryLoading ? 'Loading trusted project routes…' : 'Safe internal work queues automatically. Consequential work is saved for a separate exact-intent approval.'}
+          <p id={`${fieldId}-send-guidance`} aria-live="polite" style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+            {sendDisabledReason || 'Safe internal work queues automatically. Consequential work is saved for a separate exact-intent approval.'}
           </p>
           <button
             type="submit"
             disabled={!canSubmit}
+            aria-describedby={`${fieldId}-send-guidance`}
             style={{
               borderRadius: '999px',
               border: canSubmit ? '1px solid rgba(56,189,248,0.72)' : '1px solid #334155',

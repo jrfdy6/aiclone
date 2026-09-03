@@ -218,7 +218,7 @@ test('redacts every saved Daily Brief field before it reaches the visible surfac
   ]) {
     assert.match(
       panelSource,
-      new RegExp(`normalize(?:Brain)?DisplayText\\(\\s*${field.replace('.', '\\.')}\\s*\\)`),
+      new RegExp(`normalizeBrain(?:Display|OwnerGuidance)Text\\(\\s*${field.replace('.', '\\.')}\\s*\\)`),
       `${field} must pass through the display privacy boundary`,
     );
     assert.doesNotMatch(
@@ -234,7 +234,8 @@ test('keeps document selection and load errors scoped to the visible document', 
     clientSource,
     /find\(\(doc\) => doc\.path === selectedDocPath\) \?\? null/,
   );
-  assert.match(clientSource, /const nextPath = groupedDocs\[0\]\?\.items\[0\]\?\.path \?\? ''/);
+  assert.match(clientSource, /const \[selectedDocPath, setSelectedDocPath\] = useState<string>\(''\)/);
+  assert.doesNotMatch(clientSource, /const nextPath = groupedDocs\[0\]\?\.items\[0\]\?\.path \?\? ''/);
   assert.match(clientSource, /setDocContentError\(null\);\s*if \(!selectedDoc \|\| selectedDoc\.content \|\| docContentByPath\[selectedDoc\.path\]\)/);
 });
 

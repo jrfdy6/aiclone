@@ -137,6 +137,7 @@ export function RuntimePage({
 
   return (
     <main
+      className="runtime-page"
       style={{
         minHeight: '100vh',
         background: 'radial-gradient(circle at top, rgba(24, 32, 54, 0.92), #040816 48%, #020611 100%)',
@@ -196,10 +197,7 @@ function RuntimeTabs({ tabs, accent }: { tabs: RuntimeTab[]; accent: string }) {
       style={{
         display: 'flex',
         gap: '2px',
-        flexWrap: 'nowrap',
-        overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch',
-        scrollbarWidth: 'thin',
+        flexWrap: 'wrap',
       }}
     >
       {tabs.map((tab) => (
@@ -239,7 +237,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
   const InboxIcon = inboxLink.icon;
 
   return (
-    <div style={{ position: 'fixed', bottom: '14px', left: 0, right: 0, zIndex: 50, display: 'flex', justifyContent: 'center', padding: '0 10px', pointerEvents: 'none' }}>
+    <div className="runtime-module-dock" style={{ position: 'fixed', bottom: '14px', left: 0, right: 0, zIndex: 50, display: 'flex', justifyContent: 'center', padding: '0 10px', pointerEvents: 'none' }}>
       <div
         style={{
           display: 'flex',

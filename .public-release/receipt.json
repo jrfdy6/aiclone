@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 544,
+    "file_count": 545,
     "files": [
       {
         "mode": 493,
@@ -1944,8 +1944,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/youtube_watchlist_service.py",
-        "sha256": "e1037f53b3770dc1570994905719ded22bec7785f7c5f45a05ffa355c66a3664",
-        "size": 110844
+        "sha256": "5803ed1bebdeae2aff4d9ad15cc3038af48eaa5596abcdbf7f02d6637b9bf174",
+        "size": 114781
       },
       {
         "mode": 420,
@@ -2304,8 +2304,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/BrainClient.tsx",
-        "sha256": "1ee526cd60ddad8591551b711e4812c60b2a60ed08dcd1292f274628b5bf3710",
-        "size": 464884
+        "sha256": "47e858c13cde1e242d14a632c3f5338dcdb42b22aa9d31d785264fbda4415616",
+        "size": 472436
       },
       {
         "mode": 420,
@@ -2316,8 +2316,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/brainPrivacy.ts",
-        "sha256": "0b7bf42a8be1d3d8793772ed42dce8effa066e5d362e9e1b72b3adafaedc0086",
-        "size": 378
+        "sha256": "3d78be046d18be662b443a6b72aa2d226dec643fe5b67ecb47fb5108d246e57a",
+        "size": 1406
       },
       {
         "mode": 420,
@@ -2364,8 +2364,8 @@
       {
         "mode": 420,
         "path": "frontend/app/globals.css",
-        "sha256": "842eeb76e19a49f39ade070efc843bab2100f20022c4244ff73f358508c7a1fa",
-        "size": 539
+        "sha256": "10bc8e3139e2ce33a402c14d0ce8390f42279dba48e6b6d3018ef20471023a5c",
+        "size": 731
       },
       {
         "mode": 420,
@@ -2508,8 +2508,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "dd60b321f77445ec74a8cd7ea6daba37a5ddafbc574f149573409d55f23ba114",
-        "size": 856785
+        "sha256": "25b06dd07064e38a1f14446f3f8af8baf73e0f3a3c7d492a77ff12c7b8d39d48",
+        "size": 863019
       },
       {
         "mode": 420,
@@ -2520,8 +2520,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/RequestWorkForm.tsx",
-        "sha256": "4a856c951a8bbab9c662d8fb0f935e8d1945c52eb1c542be5a38ccbbe369b2ec",
-        "size": 21886
+        "sha256": "37d21d3d867e586ccc117dc7cedd54f2bd258efdef0078089f9fe5d20522b189",
+        "size": 22718
       },
       {
         "mode": 420,
@@ -2646,8 +2646,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/OpsStandupSummary.tsx",
-        "sha256": "0ccdff0e6f641c145b2c46f00e633721310cc3f00e55b78bbd13321f8388f815",
-        "size": 17965
+        "sha256": "18d5f449f9edefef78c59c8586636f640b83b29a1c16c340e4c6908327efbba9",
+        "size": 27942
       },
       {
         "mode": 420,
@@ -2670,8 +2670,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/WorkspaceClient.tsx",
-        "sha256": "fefcea6c03a5bc9cac6d80368c3644125d6b0d1841522b182556f83edb2cac39",
-        "size": 237912
+        "sha256": "c3fafebff43a720b5715c0471b30b5e33b19487d3d17e275ccaea7f74cbaa722",
+        "size": 242785
       },
       {
         "mode": 420,
@@ -2766,8 +2766,8 @@
       {
         "mode": 420,
         "path": "frontend/components/runtime/RuntimeChrome.tsx",
-        "sha256": "d979c161fffc032ea01969ced8b899126b9ca87cb19a461adba38b9dc4d3fffe",
-        "size": 9424
+        "sha256": "f155b9634e67a78629d63be8e42b262ed8482c67c7f219394e61abab69fded44",
+        "size": 9384
       },
       {
         "mode": 420,
@@ -3006,8 +3006,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/brain-navigation.test.cjs",
-        "sha256": "c812b7928ef5dea22f1f5c66d99437e1d271cb8c92738c7f727cb5a57a556438",
-        "size": 18585
+        "sha256": "2c891cb5687d3c22b04fee8b5d4bae97522d0d187d09f8c592694ed4a05160c4",
+        "size": 18709
       },
       {
         "mode": 420,
@@ -3024,8 +3024,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/content-generation-topology.test.cjs",
-        "sha256": "c7c6a12fe66a88e79b962aec826def07ea6ba030b62285f9d97308eb467779be",
-        "size": 4874
+        "sha256": "4b229ccd3397eb241e32071b9b80d5c64db991d91ac39e4b1a16cb5e9124fd80",
+        "size": 4878
       },
       {
         "mode": 420,
@@ -3060,8 +3060,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/executive-decisions.test.cjs",
-        "sha256": "24ddccb61d4598ca82febd02c08297e7d5149b21420ef17de1bccbda73a0b7e4",
-        "size": 8052
+        "sha256": "711a2c6502a7ae7ce08f6860281ed06a5c31245fa622c1d408ffa6db410fe39f",
+        "size": 7960
       },
       {
         "mode": 420,
@@ -3144,20 +3144,26 @@
       {
         "mode": 420,
         "path": "frontend/tests/ops-standup-summary.test.cjs",
-        "sha256": "5b87a1a8c642a587dc018262d2103a2d7afb330a4409129b6e6cd4d3423bcc4f",
-        "size": 7962
+        "sha256": "2f432aa27a2eb407643ecefab4e42d3f4cc4e6431f6effdfecdb5bfb6892aa2d",
+        "size": 8118
       },
       {
         "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "4a32016e651d0244d8fab299582cd05ee359057538485714241f7ce92946d5c4",
-        "size": 33020
+        "sha256": "0b159dffb0a801ad8dde52712c79b9c5bc1288357a756386c76cc98d984aa677",
+        "size": 33799
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/owner-experience-stabilization.test.cjs",
+        "sha256": "63812601f37e2153d7b76252e0a7a71d80e863d4c3aed54c4c9874e3f337474f",
+        "size": 8728
       },
       {
         "mode": 420,
         "path": "frontend/tests/persona-review-mobile.test.cjs",
-        "sha256": "1482be6c19536d5bcbaba7e71a3c4a97459d132efed91d5778b3503a626b05e3",
-        "size": 10239
+        "sha256": "a24989413a161ed74085d3d205577dcfd47816b9f164f3671afc572c3ff25d32",
+        "size": 10954
       },
       {
         "mode": 420,
@@ -3192,8 +3198,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/social-engagement-assist.test.cjs",
-        "sha256": "42d2f219526ac11b5e63192aa6e1b2f23da4869ba606d06899972e46fd86b9d0",
-        "size": 6733
+        "sha256": "a65c6b779fa9501cbd16d6dae2f833391a72f7494e7ddc798890e60e763e5b9e",
+        "size": 6792
       },
       {
         "mode": 420,
@@ -3222,7 +3228,7 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "633c88446d4784a1cdbd03c2ff1d71c12f887ef7db4aa805222ef8236b45c422",
+        "sha256": "c5d7bf61e3e2ebd52f590535b6c90e3b5da38d3338da471c2c3e32b44c87c386",
         "size": 7587
       },
       {
@@ -3268,15 +3274,15 @@
         "size": 9830
       }
     ],
-    "tree_sha256": "55314453b54d3c916c69a3f8fa3798b39d29fc221a6de5aa15285af406ead6f5"
+    "tree_sha256": "f3d38f3a14d8627732149a3a1dd8dc2eb5c49d4441fe52bcdffe6d57e7d6818b"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "633c88446d4784a1cdbd03c2ff1d71c12f887ef7db4aa805222ef8236b45c422"
+    "sha256": "c5d7bf61e3e2ebd52f590535b6c90e3b5da38d3338da471c2c3e32b44c87c386"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "64e3ca41aca9bb25339ed5a910821c1071bd409c30acd98584c5f66e9a8b4921",
+    "inventory_sha256": "a16d18bdc4638ff115d6c4749fd40965c989200c6c71dbec3b6337da687af027",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

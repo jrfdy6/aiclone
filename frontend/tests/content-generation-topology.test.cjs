@@ -64,10 +64,8 @@ test('default Workspace and Ops neither load nor render the historical owner-rev
     opsSource,
     /legacyOwnerReviewCompatibilityEnabled\s*\? pmCards\s*:\s*pmCards\.filter\(\(card\) => !legacyOwnerReviewCardIds\.has\(card\.id\)\)/,
   );
-  assert.match(
-    opsSource,
-    /if \(!legacyOwnerReviewCompatibilityEnabled\) \{[\s\S]{0,220}setFeezieOwnerReviewItems\(\[\]\);[\s\S]{0,180}return;/,
-  );
+  assert.doesNotMatch(opsSource, /loadFeezieOwnerReview|setFeezieOwnerReviewItems|<LinkedinWorkspaceSurface/);
+  assert.match(opsSource, /Open FEEZIE workspace/);
 });
 
 test('legacy owner-review requests carry the rollback marker only behind the compatibility switch', () => {

@@ -32,7 +32,7 @@ function compileOpsSummaryComponent() {
   const localRequire = (id) => {
     if (id === 'react' || id === 'react/jsx-runtime') return require(id);
     if (id === '@/lib/control-api') return { controlApiGet: async () => ({}) };
-    if (id === '@/lib/display-privacy') return { safeExternalHttpsUrl: () => null };
+    if (id === '@/lib/display-privacy') return { normalizeDisplayText: (value) => value, safeExternalHttpsUrl: () => null };
     if (id === '@/lib/ops-canonical-decision') {
       return { opsCanonicalDecisionDisplay: () => ({ title: 'Decision', status: null, stateVersion: null, resolvedChoice: null }) };
     }
@@ -54,7 +54,7 @@ test('Ops panel exposes required decisions, owner calls, health, and degraded st
   for (const title of itemListSections) {
     assert.equal(component.match(new RegExp(`<ItemList title="${title}"`, 'g'))?.length, 1, `${title} must render exactly once`);
   }
-  for (const required of ['AI Clone process updates', 'Recommended next actions', 'Endpoint and subsystem health', 'Degraded system']) assert.match(component, new RegExp(required));
+  for (const required of ['AI Clone process updates', 'Recommended next actions', 'Endpoint and subsystem diagnostics are available in System', 'Portfolio conclusion degraded', 'What remains healthy', 'Next Dream consumes']) assert.match(component, new RegExp(required));
   assert.equal(component.match(/<ProcessUpdates updates=/g)?.length, 1, 'process updates must render exactly once');
   assert.equal(component.match(/<CanonicalDecisionList items=/g)?.length, 1, 'canonical decisions must render exactly once');
   assert.match(component, /role="alert"/);
@@ -65,8 +65,8 @@ test('Ops panel exposes required decisions, owner calls, health, and degraded st
 test('unrelated subsystem warnings remain visible while canonical decisions are ready', () => {
   assert.match(component, /data && data\.degraded_system_warnings\.length > 0/);
   assert.match(component, /data-ops-subsystem-warnings="visible"/);
-  assert.match(component, /<strong>Subsystem warnings<\/strong>/);
-  assert.match(component, /data\.degraded_system_warnings\.map/);
+  assert.match(component, /<strong>What is affected<\/strong>/);
+  assert.match(component, /data\.degraded_system_warnings\.slice\(0, 5\)\.map/);
   assert.doesNotMatch(
     component,
     /\(data\.state === 'degraded' \|\| data\.state === 'error'\)[^?]+\?[^:]+data\.degraded_system_warnings/,
@@ -81,7 +81,7 @@ test('Ops panel renders bounded workspace recursion truth and structured recomme
   assert.match(component, /shared_ops_reconciliation\?: SharedOpsReconciliation \| null/);
   assert.match(component, /recommended_next_actions: Item\[\]/);
   assert.match(component, /<WorkspaceRecursionList items=\{data\.workspace_recursion \?\? \[\]\} \/>/);
-  assert.match(component, /\{workspace\.display_name \|\| workspace\.workspace_key\}/);
+  assert.match(component, /\{ownerText\(workspace\.display_name \|\| workspace\.workspace_key\)\}/);
   for (const label of [
     'Goal',
     'What changed',

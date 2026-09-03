@@ -40,16 +40,26 @@ test('project cards and direct links keep the selected workspace in one shared s
   assert.doesNotMatch(opsSource, /useState<WorkspaceHubKey>\('feezie-os'\)/);
 });
 
-test('every workspace selector exposes its canonical update contract', () => {
+test('the selected workspace leads with owner truth while selector cards stay bounded', () => {
   const workspaceHub = opsSource.match(/function WorkspaceHubPanel\([\s\S]*?\n}\n\nfunction WorkspaceActivitySurface/);
   assert.ok(workspaceHub, 'expected the canonical workspace hub');
   assert.match(workspaceHub[0], /portfolioPulse\?\.workspaces\?\.find/);
-  assert.match(workspaceHub[0], /label="Canonical Update"/);
-  assert.match(workspaceHub[0], /Last canonical observation/);
-  assert.match(workspaceHub[0], /against the .*contract/);
-  assert.match(workspaceHub[0], /No canonical workspace update has been recorded yet/);
-  assert.match(workspaceHub[0], /label="Cycle Check"/);
-  assert.match(workspaceHub[0], /Cycle checked .*workspaceCycleEvaluationCopy/);
+  assert.match(workspaceHub[0], /data-workspace-owner-truth=/);
+  assert.match(workspaceHub[0], /Current meaningful state/);
+  assert.match(workspaceHub[0], /What changed/);
+  assert.match(workspaceHub[0], /AI Clone did this/);
+  assert.match(workspaceHub[0], /AI Clone recommends/);
+  assert.match(workspaceHub[0], /Needs your decision/);
+  assert.match(workspaceHub[0], /Next Dream consumes/);
+  assert.match(workspaceHub[0], /Technical status, operating rules, and cycle receipt/);
+  assert.match(workspaceHub[0], /const \[selectorOpen, setSelectorOpen\] = useState\(false\)/);
+  const selectorStart = workspaceHub[0].indexOf('data-workspace-selector="projects"');
+  const selectorEnd = workspaceHub[0].indexOf("{selectedWorkspaceId === 'feezie-os'", selectorStart);
+  assert.ok(selectorStart >= 0 && selectorEnd > selectorStart, 'expected bounded project selector');
+  const selector = workspaceHub[0].slice(selectorStart, selectorEnd);
+  assert.match(selector, /No owner action reported/);
+  assert.doesNotMatch(selector, /workspace\.operatingPrinciples\.map/);
+  assert.doesNotMatch(selector, /Last canonical observation|Cycle checked/);
   assert.match(workspaceHub[0], /Browser receipt time never replaces a workspace artifact date/);
 });
 
@@ -328,7 +338,7 @@ test('AI Clone UTC labels render the canonical UTC instant, never the owner-cale
   assert.equal(formatUiTimestamp(observedAt), 'Sep 2, 6:15 AM');
   assert.equal(formatUiUtcTimestamp(observedAt), 'Sep 2, 10:15 AM');
   assert.match(opsSource, /formatUiUtcTimestamp/);
-  assert.equal((opsSource.match(/formatUiUtcTimestamp\([^\n]+?\).*AI Clone UTC/g) ?? []).length, 4);
+  assert.ok((opsSource.match(/formatUiUtcTimestamp\([^\n]+?\).*AI Clone UTC/g) ?? []).length >= 2);
   assert.doesNotMatch(opsSource, /formatUiTimestamp\([^\n]+?\).*AI Clone UTC/);
 });
 
@@ -563,7 +573,7 @@ test('meeting week, latency, and latest-room selection stay on semantic observat
   assert.match(opsSource, /freshness = 'unavailable'/);
   assert.match(opsSource, /persistence time is not substituted/);
   assert.match(opsSource, /clock !== 'semantic_observed_at' && clock !== 'semantic_cycle_observation'/);
-  assert.match(opsSource, /semantic observation unavailable; persistence/);
+  assert.match(opsSource, /semantic observation is unavailable, persistence time is not substituted/);
   assert.match(opsSource, /standupPrepSemanticObservedAtText\(prep\)/);
   assert.doesNotMatch(opsSource, /const prepTime = prep\.generatedAt/);
 });

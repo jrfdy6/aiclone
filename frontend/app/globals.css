@@ -26,3 +26,13 @@ body {
     rgb(var(--background-start-rgb));
 }
 
+@media (max-width: 640px) {
+  .runtime-page {
+    padding-bottom: 24px !important;
+  }
+
+  .runtime-module-dock {
+    position: static !important;
+    padding: 24px 10px 12px !important;
+  }
+}

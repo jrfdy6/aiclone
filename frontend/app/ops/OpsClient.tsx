@@ -1,9 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OpsStandupSummary from '@/app/workspace/OpsStandupSummary';
-import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { ExecutiveDecisionQueue } from '@/app/ops/ExecutiveDecisionQueue';
 import RailwayRetentionHealthPanel, {
   normalizeRailwayRetentionStatus,
@@ -1387,13 +1386,6 @@ type WorkspaceSnapshot = {
   refresh_status?: FeedRefreshStatus | null;
 };
 
-type WorkspaceOwnerReviewPayload = {
-  items?: unknown[];
-  generated_at?: string;
-  pending_count?: number;
-  total_count?: number;
-};
-
 type OpenBrainTelemetry = {
   database_connected: boolean;
   captures: {
@@ -2193,6 +2185,10 @@ type PortfolioPulseWorkspace = {
     status?: string;
     label?: string;
     reasons?: string[];
+    needs_owner_pm_cards?: number;
+    needs_host_pm_cards?: number;
+    failed_pm_cards?: number;
+    historical_failed_pm_cards?: number;
     needs_operator?: boolean;
   };
   readiness?: {
@@ -2200,6 +2196,8 @@ type PortfolioPulseWorkspace = {
     label?: string;
     reasons?: string[];
     failed_executions?: number;
+    historical_failed_executions?: number;
+    historical_system_issues?: number;
     state_mismatches?: number;
     latest_standup_freshness?: string | null;
     latest_standup_quality?: string | null;
@@ -2379,9 +2377,6 @@ export default function OpsClient({
   const [liveSourceAssets, setLiveSourceAssets] = useState<SourceAssetInventory | null>(null);
   const [livePersonaReviewSummary, setLivePersonaReviewSummary] = useState<PersonaReviewSummary | null>(null);
   const [liveLongFormRoutes, setLiveLongFormRoutes] = useState<LongFormRouteSummary | null>(null);
-  const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = useState<WorkspaceSnapshot | null>(null);
-  const [feezieOwnerReviewItems, setFeezieOwnerReviewItems] = useState<unknown[] | null>(null);
-  const [feezieOwnerReviewError, setFeezieOwnerReviewError] = useState<string | null>(null);
   const [legacyOwnerReviewCompatibilityEnabled, setLegacyOwnerReviewCompatibilityEnabled] = useState(false);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
@@ -2510,7 +2505,6 @@ export default function OpsClient({
         cache: API_NO_STORE,
         timeoutMs: SNAPSHOT_TIMEOUT_MS,
       });
-      setLiveWorkspaceSnapshot(snapshot);
       if (snapshot.workspace_files?.length) {
         setLiveWorkspaceFiles(snapshot.workspace_files);
       }
@@ -2547,24 +2541,6 @@ export default function OpsClient({
     }
   }, []);
 
-  const loadFeezieOwnerReview = useCallback(async () => {
-    if (!legacyOwnerReviewCompatibilityEnabled) {
-      setFeezieOwnerReviewItems([]);
-      setFeezieOwnerReviewError(null);
-      return;
-    }
-    try {
-      const payload = await controlApiGet<WorkspaceOwnerReviewPayload>('/api/workspace/linkedin-os-owner-review', {
-        cache: API_NO_STORE,
-        timeoutMs: SNAPSHOT_TIMEOUT_MS,
-      });
-      setFeezieOwnerReviewItems(payload.items ?? []);
-      setFeezieOwnerReviewError(null);
-    } catch (error) {
-      setFeezieOwnerReviewError(toErrorMessage(error));
-    }
-  }, [legacyOwnerReviewCompatibilityEnabled]);
-
   useEffect(() => {
     const selectedFile = effectiveWorkspaceFiles.find((file) => file.path === selectedWorkspacePath);
     if (!selectedFile || !workspaceFileBelongsToHub(selectedFile, selectedWorkspaceId)) {
@@ -2591,16 +2567,9 @@ export default function OpsClient({
     void loadWorkspaceRegistry();
   }, [loadWorkspaceRegistry]);
 
-  useEffect(() => {
-    if (activePanel !== 'workspace') {
-      return;
-    }
-    void loadFeezieOwnerReview();
-  }, [activePanel, loadFeezieOwnerReview]);
-
   const reloadFeezieWorkspaceSnapshot = useCallback(async () => {
-    await Promise.all([loadWorkspaceSnapshot(), loadFeezieOwnerReview()]);
-  }, [loadFeezieOwnerReview, loadWorkspaceSnapshot]);
+    await loadWorkspaceSnapshot();
+  }, [loadWorkspaceSnapshot]);
 
   const runPmMaintenance = useCallback(async () => {
     if (pmMaintenanceInFlightRef.current) {
@@ -3006,11 +2975,11 @@ export default function OpsClient({
     return () => clearInterval(interval);
   }, [loadTelemetry]);
 
-  const sectionErrorSummary = useMemo(() => {
-    const messages = Object.entries(sectionErrors)
-      .filter(([, value]) => Boolean(value))
-      .map(([key, value]) => `${TELEMETRY_LABELS[key as keyof TelemetryErrors]}: ${value}`);
-    return messages.length ? messages.join(' | ') : null;
+  const sectionErrorItems = useMemo(() => {
+    return (Object.keys(sectionErrors) as Array<keyof TelemetryErrors>).flatMap((key) => {
+      const message = sectionErrors[key];
+      return message ? [{ key, label: TELEMETRY_LABELS[key], message }] : [];
+    });
   }, [sectionErrors]);
 
   const modelRows = useMemo(() => {
@@ -3280,8 +3249,8 @@ export default function OpsClient({
         </div>
       </header>
 
-      {globalError && <SectionAlert message={globalError} />}
-      {!globalError && sectionErrorSummary && <SectionAlert message={sectionErrorSummary} />}
+      {globalError && <SectionAlert message={globalError} scope="Ops control plane" allUnavailable />}
+      {!globalError && sectionErrorItems.length > 0 && <TelemetryDegradedNotice items={sectionErrorItems} />}
 
       {activePanel === 'mission' && (
         <MissionControlView
@@ -3314,7 +3283,6 @@ export default function OpsClient({
         <TodayOpsPanel
           portfolioPulse={portfolioPulse}
           portfolioPulseError={portfolioPulseError}
-          cycleEvaluations={workspaceCycleEvaluations}
           onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
           onOpenExecution={() => selectPanel('execution')}
           onOpenWorkspace={openWorkspaceFromPulse}
@@ -3385,9 +3353,6 @@ export default function OpsClient({
           sourceAssets={liveSourceAssets}
           personaReviewSummary={livePersonaReviewSummary}
           longFormRoutes={liveLongFormRoutes}
-          workspaceSnapshot={liveWorkspaceSnapshot}
-          feezieOwnerReviewItems={feezieOwnerReviewItems}
-          feezieOwnerReviewError={feezieOwnerReviewError}
           workspaceSnapshotState={workspaceSnapshotState}
           workspaceSnapshotError={workspaceSnapshotError}
           workspaceRefreshStatus={workspaceRefreshStatus}
@@ -3959,7 +3924,6 @@ const STANDUP_ROOMS: StandupRoom[] = [
 function TodayOpsPanel({
   portfolioPulse,
   portfolioPulseError,
-  cycleEvaluations,
   onExecutiveDecisionMutation,
   onOpenExecution,
   onOpenWorkspace,
@@ -3967,7 +3931,6 @@ function TodayOpsPanel({
 }: {
   portfolioPulse: PortfolioPulseSnapshot | null;
   portfolioPulseError: string | null;
-  cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
   onExecutiveDecisionMutation: () => Promise<void>;
   onOpenExecution: () => void;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
@@ -3976,7 +3939,7 @@ function TodayOpsPanel({
   const counts = portfolioPulse?.counts;
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} cycleEvaluations={cycleEvaluations} onOpenWorkspace={onOpenWorkspace} />
+      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} onOpenWorkspace={onOpenWorkspace} />
       <OpsStandupSummary />
       <ExecutiveDecisionQueue
         onActionComplete={onExecutiveDecisionMutation}
@@ -4017,12 +3980,10 @@ function TodayOpsPanel({
 function PortfolioPulseSection({
   snapshot,
   error,
-  cycleEvaluations,
   onOpenWorkspace,
 }: {
   snapshot: PortfolioPulseSnapshot | null;
   error: string | null;
-  cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
   onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
 }) {
   const workspaces = snapshot?.workspaces ?? [];
@@ -4052,8 +4013,6 @@ function PortfolioPulseSection({
     const operatorCount =
       Number(workspace.counts?.needs_owner_pm_cards ?? 0) + Number(workspace.counts?.needs_host_pm_cards ?? 0);
     const latestStandup = workspace.latest_standups?.[0];
-    const latestStandupObservedAt = portfolioStandupSemanticObservedAt(latestStandup);
-    const cycleEvaluation = cycleEvaluations.get(workspace.workspace_key);
     return (
       <button
         type="button"
@@ -4069,6 +4028,8 @@ function PortfolioPulseSection({
           textAlign: 'left',
           cursor: 'pointer',
           font: 'inherit',
+          contentVisibility: 'auto',
+          containIntrinsicSize: '0 220px',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
@@ -4100,20 +4061,6 @@ function PortfolioPulseSection({
         {(workspace.readiness?.reasons ?? []).slice(0, 1).map((reason) => (
           <p key={reason} style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '10px 0 0' }}>{reason}</p>
         ))}
-        <p style={{ color: latestStandup?.truth?.freshness === 'stale' ? '#fbbf24' : '#64748b', fontSize: '11px', lineHeight: 1.45, margin: '9px 0 0' }}>
-          {latestStandupObservedAt
-            ? `Last canonical workspace observation ${formatUiTimestamp(latestStandupObservedAt)} · ${humanizeStatusLabel(latestStandup?.truth?.freshness || 'unverified')} against a ${latestStandup?.truth?.freshness_limit_hours ?? 'workspace'}${latestStandup?.truth?.freshness_limit_hours ? 'h' : ''} contract.`
-            : latestStandup
-              ? `Canonical workspace observation unavailable${latestStandup.created_at ? `; persisted ${formatUiTimestamp(latestStandup.created_at)}` : ''}.`
-              : 'No canonical workspace update has been recorded yet.'}
-        </p>
-        <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '7px 0 0' }}>
-          {cycleEvaluation
-            ? cycleEvaluation.evaluatedAt
-              ? `Cycle checked ${formatUiUtcTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
-              : `Cycle evaluated at an unverified time; execution and persistence time were not substituted · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
-            : 'No cycle-level workspace evaluation receipt is available yet.'}
-        </p>
         <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: '10px 0 0' }}>
           {workspace.kind === 'executive' ? 'Open system health →' : 'Open project →'}
         </p>
@@ -10453,9 +10400,6 @@ function WorkspaceHubPanel({
   sourceAssets,
   personaReviewSummary,
   longFormRoutes,
-  workspaceSnapshot,
-  feezieOwnerReviewItems,
-  feezieOwnerReviewError,
   workspaceSnapshotState,
   workspaceSnapshotError,
   workspaceRefreshStatus,
@@ -10480,9 +10424,6 @@ function WorkspaceHubPanel({
   sourceAssets: SourceAssetInventory | null;
   personaReviewSummary: PersonaReviewSummary | null;
   longFormRoutes: LongFormRouteSummary | null;
-  workspaceSnapshot: WorkspaceSnapshot | null;
-  feezieOwnerReviewItems: unknown[] | null;
-  feezieOwnerReviewError: string | null;
   workspaceSnapshotState: 'loading' | 'live' | 'error';
   workspaceSnapshotError: string | null;
   workspaceRefreshStatus: FeedRefreshStatus | null;
@@ -10496,7 +10437,7 @@ function WorkspaceHubPanel({
     const registered = portfolioWorkspaceRegistry(workspaceRegistry).map(workspaceHubFromRegistry);
     return registered.length > 0 ? registered : WORKSPACE_HUBS;
   }, [workspaceRegistry]);
-  const [selectorOpen, setSelectorOpen] = useState(true);
+  const [selectorOpen, setSelectorOpen] = useState(false);
   const activeWorkspace = workspaceHubs.find((item) => item.id === selectedWorkspaceId) ?? workspaceHubs[0];
   const activePortfolioWorkspace = portfolioPulse?.workspaces?.find(
     (workspace) => normalizeWorkspaceBoardKey(workspace.workspace_key) === selectedWorkspaceId,
@@ -10665,13 +10606,74 @@ function WorkspaceHubPanel({
     workspaceStandupPreps,
     workspaceStandups,
   ]);
+  const activeOwnerDecisionCount = Number(activePortfolioWorkspace?.counts?.needs_owner_pm_cards ?? 0);
+  const activeHostActionCount = Number(activePortfolioWorkspace?.counts?.needs_host_pm_cards ?? 0);
+  const activeReadinessState = activePortfolioWorkspace?.readiness?.state ?? 'watch';
+  const activeReadinessTone = activeReadinessState === 'degraded' ? '#fb7185' : activeReadinessState === 'healthy' ? '#4ade80' : '#fbbf24';
+  const activeReadinessLabel = activePortfolioWorkspace?.readiness?.label ?? 'Current state not fully verified';
+  const activeReadinessReason = activePortfolioWorkspace?.readiness?.reasons?.[0]
+    ?? (activePortfolioWorkspace ? 'No additional readiness reason was reported.' : 'The live portfolio projection has not reported this workspace yet.');
+  const latestCycleAction = !activeCycleEvaluation
+    ? 'No bounded Dream-cycle receipt is available for this workspace.'
+    : activeCycleEvaluation.status === 'failed'
+      ? 'AI Clone attempted the last workspace handoff, but no canonical update was accepted.'
+      : activeCycleEvaluation.status === 'promoted'
+        ? 'AI Clone produced and promoted a new canonical workspace update.'
+        : activeCycleEvaluation.status === 'skipped' && activeCycleEvaluation.reason === 'fresh'
+          ? 'AI Clone checked the workspace and correctly kept the existing canonical update because no eligible change was due.'
+          : activeCycleEvaluation.status === 'collapse_freshness'
+            ? 'AI Clone checked for changed eligible input and found no reason to run another internal meeting.'
+            : activeCycleEvaluation.status === 'async_contribution'
+              ? `AI Clone collected one signed async contribution; ${activeCycleEvaluation.canonicalPmExecutionAuthority || 'Jean-Claude'} retained PM and execution authority.`
+              : workspaceCycleEvaluationCopy(activeCycleEvaluation);
+  const latestCycleResult = !activeCycleEvaluation
+    ? 'Completed: none verified. Failed: none claimed. Carried forward: current workspace files and PM state.'
+    : activeCycleEvaluation.status === 'failed'
+      ? 'Completed: the bounded check ran. Failed: the canonical handoff. Carried forward: current files, PM cards, and execution truth remain available.'
+      : activeCycleEvaluation.status === 'promoted'
+        ? 'Completed: a new canonical workspace update. Failed: none reported by this receipt. Carried forward: unresolved PM work.'
+        : 'Completed: the recorded bounded cycle action. Failed: none claimed by this receipt. Carried forward: unresolved PM and owner work.';
+  const ownerActionTruth = activeOwnerDecisionCount > 0
+    ? `AI Clone needs your decision on ${activeOwnerDecisionCount} PM item${activeOwnerDecisionCount === 1 ? '' : 's'}.${activeHostActionCount > 0 ? ` ${activeHostActionCount} additional host action${activeHostActionCount === 1 ? '' : 's'} also require you.` : ''}`
+    : activeHostActionCount > 0
+      ? `No judgment call is reported, but ${activeHostActionCount} host action${activeHostActionCount === 1 ? '' : 's'} require you because AI Clone cannot perform them safely.`
+      : 'No owner decision is currently reported. Continue only if the workspace goal or current recommendation needs review.';
+  const cycleDispositionLabel = activeCycleEvaluation?.status === 'failed'
+    ? 'Blocked'
+    : activeCycleEvaluation?.status === 'collapse_freshness' || (activeCycleEvaluation?.status === 'skipped' && activeCycleEvaluation.reason === 'fresh')
+      ? 'No eligible change'
+      : activeCycleEvaluation
+        ? 'AI Clone did this'
+        : 'Reference only';
+  const recommendationTruth = activeOwnerDecisionCount > 0
+    ? 'Review one highest-priority decision in Execution. AI Clone will not choose for you.'
+    : activeHostActionCount > 0
+      ? 'Complete one clearly labeled host action in Execution; the rest of this workspace remains readable.'
+      : activeCycleEvaluation?.status === 'failed'
+        ? 'Keep using current workspace data while the scheduler-owned handoff is repaired; do not treat the failed cycle as a successful update.'
+        : 'No owner action is recommended until the goal, evidence, or eligibility state changes.';
+  const nextDreamTruth = activeCanonicalObservedAt
+    ? `The next Dream cycle can consume the canonical workspace update observed ${formatTimestamp(new Date(activeCanonicalObservedAt))}, plus unresolved PM and execution state.`
+    : 'The next Dream cycle can consume current canonical project files and unresolved PM/execution state; it must not treat the failed or missing handoff as a successful update.';
+  const workspaceOwnerTruthRows = [
+    { label: 'Current meaningful state', value: `${activeReadinessLabel}. ${activeReadinessReason}`, tone: activeReadinessTone },
+    {
+      label: 'What changed',
+      value: activeCanonicalObservedAt
+        ? `The latest canonical workspace observation is ${formatTimestamp(new Date(activeCanonicalObservedAt))}.`
+        : activeCycleEvaluation?.status === 'failed'
+          ? 'No new canonical workspace update was accepted in the last recorded cycle.'
+          : 'No standup-backed canonical workspace update is recorded yet.',
+      tone: '#cbd5f5',
+    },
+    { label: cycleDispositionLabel, value: latestCycleAction, tone: activeCycleEvaluation?.status === 'failed' ? '#fda4af' : '#cbd5f5' },
+    { label: 'Completed, failed, carried forward', value: latestCycleResult, tone: '#cbd5f5' },
+    { label: activeOwnerDecisionCount > 0 ? 'Needs your decision' : activeHostActionCount > 0 ? 'Needs your action' : 'Owner action', value: ownerActionTruth, tone: activeOwnerDecisionCount + activeHostActionCount > 0 ? '#fde68a' : '#94a3b8' },
+    { label: 'AI Clone recommends', value: recommendationTruth, tone: '#e2e8f0' },
+    { label: 'Next Dream consumes', value: nextDreamTruth, tone: '#bae6fd' },
+  ];
   const workspaceSummaryCards = useMemo(
     () => [
-      {
-        label: 'Status',
-        value: workspaceLifecycleLabel(activeWorkspace.status),
-        detail: workspaceLifecycleDetail(activeWorkspace.status),
-      },
       {
         label: 'Last Activity',
         value: latestWorkspaceActivity,
@@ -10683,11 +10685,6 @@ function WorkspaceHubPanel({
         detail: `${workspaceFileCounts.docs} docs · ${workspaceFileCounts.briefings} briefings · ${workspaceFileCounts.analytics} analytics`,
       },
       {
-        label: 'Standups',
-        value: `${workspaceStandups.length}`,
-        detail: `${workspaceStandupPreps.length} prep packet${workspaceStandupPreps.length === 1 ? '' : 's'} captured`,
-      },
-      {
         label: 'Open PM',
         value: `${workspaceOpenCards.length}`,
         detail: `${workspacePmCards.length} total card${workspacePmCards.length === 1 ? '' : 's'} in this lane`,
@@ -10697,35 +10694,18 @@ function WorkspaceHubPanel({
         value: `${workspaceActiveExecution.length}`,
         detail: `${workspaceExecutionEntries.length} queue entr${workspaceExecutionEntries.length === 1 ? 'y' : 'ies'} tied to this workspace`,
       },
-      {
-        label: 'Dispatch',
-        value: `${workspaceFileCounts.dispatch}`,
-        detail: `${workspaceChronicleEntries.length} Chronicle entr${workspaceChronicleEntries.length === 1 ? 'y' : 'ies'} routed here`,
-      },
-      {
-        label: 'Memory',
-        value: `${workspaceFileCounts.memory}`,
-        detail: `${workspacePmRecommendations.length} PM recommendation packet${workspacePmRecommendations.length === 1 ? '' : 's'}`,
-      },
     ],
     [
-      activeWorkspace.status,
       latestWorkspaceActivity,
       workspaceActiveExecution.length,
-      workspaceChronicleEntries.length,
       workspaceExecutionEntries.length,
       workspaceFileCounts.analytics,
       workspaceFileCounts.briefings,
-      workspaceFileCounts.dispatch,
       workspaceFileCounts.docs,
-      workspaceFileCounts.memory,
       workspaceFiles.length,
       workspaceHasActivity,
       workspaceOpenCards.length,
       workspacePmCards.length,
-      workspacePmRecommendations.length,
-      workspaceStandupPreps.length,
-      workspaceStandups.length,
     ],
   );
   const workspaceActivityCopy = useMemo(() => {
@@ -10845,7 +10825,7 @@ function WorkspaceHubPanel({
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspaces</p>
         <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Workspace Hub</h2>
         <p style={{ color: '#94a3b8', maxWidth: '820px' }}>
-          Each workspace keeps its own operating system, agent, and execution lane. The frontend now reflects the backend state directly: live workspaces stay rich, standing-up workspaces show their actual artifacts, and planned slots stay clearly empty.
+          Choose one project to understand its goal, current truth, owner action, and next Dream input. Shared Ops remains a separate read-only portfolio reconciler.
         </p>
         <p style={{ color: '#64748b', fontSize: '12px', marginTop: '7px' }}>
           System checked {portfolioPulse?.checked_at ? formatUiUtcTimestamp(portfolioPulse.checked_at) : 'not yet'} on the AI Clone UTC clock. Browser receipt time never replaces a workspace artifact date.
@@ -10863,13 +10843,15 @@ function WorkspaceHubPanel({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
           <div>
-            <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Selected Workspace</p>
+            <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace goal</p>
             <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
             <p style={{ color: '#cbd5f5', maxWidth: '760px', fontSize: '14px', lineHeight: 1.6 }}>{activeWorkspace.description}</p>
           </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <button
+              type="button"
               onClick={() => setSelectorOpen((current) => !current)}
+              aria-expanded={selectorOpen}
               style={{
                 borderRadius: '12px',
                 border: `1px solid ${activeWorkspace.accent}`,
@@ -10903,65 +10885,77 @@ function WorkspaceHubPanel({
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
-          <MiniMeta label="Workspace" value={activeWorkspace.shortLabel} detail={activeWorkspace.agent} />
-          <MiniMeta label="Status" value={workspaceLifecycleLabel(activeWorkspace.status)} detail={workspaceLifecycleDetail(activeWorkspace.status)} />
-          <MiniMeta
-            label="Canonical Update"
-            value={activeCanonicalObservedAt ? formatTimestamp(new Date(activeCanonicalObservedAt)) : 'Observation unavailable'}
-            detail={
-              activeCanonicalObservedAt
-                ? `${humanizeStatusLabel(activeCanonicalUpdate?.truth?.freshness || 'unverified')} against the ${activeCanonicalUpdate?.truth?.freshness_limit_hours ?? 'workspace'}${activeCanonicalUpdate?.truth?.freshness_limit_hours ? 'h' : ''} contract${activeCanonicalUpdate?.created_at ? ` · persisted ${formatTimestamp(new Date(activeCanonicalUpdate.created_at))}` : ''}`
-                : activeCanonicalUpdate
-                  ? `semantic observation unavailable; persistence${activeCanonicalUpdate.created_at ? ` at ${formatTimestamp(new Date(activeCanonicalUpdate.created_at))}` : ''} does not replace it`
-                  : 'no standup-backed canonical workspace update yet'
-            }
-          />
-          <MiniMeta
-            label="Cycle Check"
-            value={activeCycleEvaluation?.evaluatedAt ? formatTimestamp(new Date(activeCycleEvaluation.evaluatedAt)) : 'Not recorded'}
-            detail={activeCycleEvaluation ? workspaceCycleEvaluationCopy(activeCycleEvaluation) : 'no bounded cycle evaluation receipt yet'}
-          />
-          <MiniMeta label="Operating Rules" value={`${activeWorkspace.operatingPrinciples.length}`} detail="separate principles per workspace" />
-          {selectedWorkspaceId === 'feezie-os' && (
-            <>
-              <MiniMeta label="Recommendations" value={`${plan?.recommendations?.length ?? 0}`} detail="live weekly plan candidates" />
-              <MiniMeta label="Comments" value={`${reactionQueue?.counts?.comment_opportunities ?? 0}`} detail="reaction queue opportunities" />
-              <MiniMeta label="Signals" value={`${socialFeed?.items?.length ?? 0}`} detail="shared feed cards" />
-            </>
-          )}
-          {selectedWorkspaceId !== 'feezie-os' && (
-            <>
-              <MiniMeta label="Workspace Files" value={`${workspaceFiles.length}`} detail={`${workspaceFileCounts.docs} docs · ${workspaceFileCounts.briefings} briefings`} />
-              <MiniMeta label="Standups" value={`${workspaceStandups.length}`} detail={`${workspaceOpenCards.length} open PM cards`} />
-              <MiniMeta label="Execution" value={`${workspaceActiveExecution.length}`} detail={`${workspaceFileCounts.dispatch} dispatch packets captured`} />
-            </>
-          )}
-        </div>
+        <section
+          data-workspace-owner-truth={selectedWorkspaceId}
+          style={{
+            borderTop: `1px solid ${activeReadinessTone}55`,
+            borderBottom: `1px solid ${activeReadinessTone}33`,
+            marginBottom: '18px',
+          }}
+        >
+          {workspaceOwnerTruthRows.map((row, index) => (
+            <div
+              key={row.label}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
+                gap: '6px 14px',
+                padding: '11px 0',
+                borderTop: index === 0 ? 'none' : '1px solid #172036',
+              }}
+            >
+              <p style={{ color: row.tone, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{row.label}</p>
+              <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{row.value}</p>
+            </div>
+          ))}
+          <details style={{ padding: '10px 0', borderTop: '1px solid #172036' }}>
+            <summary style={{ color: '#64748b', fontSize: '12px', cursor: 'pointer' }}>Technical status, operating rules, and cycle receipt</summary>
+            <div style={{ display: 'grid', gap: '7px', marginTop: '9px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
+              <p style={{ margin: 0 }}>Workspace lifecycle: {workspaceLifecycleLabel(activeWorkspace.status)} — {workspaceLifecycleDetail(activeWorkspace.status)}</p>
+              <p style={{ margin: 0 }}>Agent: {activeWorkspace.agent}</p>
+              <p style={{ margin: 0 }}>Operating rules: {activeWorkspace.operatingPrinciples.join(' · ')}</p>
+              <p style={{ margin: 0 }}>Cycle observed: {activeCycleEvaluation?.evaluatedAt ? formatUiUtcTimestamp(activeCycleEvaluation.evaluatedAt) : 'not recorded'} on the AI Clone UTC clock.</p>
+              <p style={{ margin: 0 }}>Semantic clock rule: execution and persistence time were not substituted. When a semantic observation is unavailable, persistence time is not substituted.</p>
+            </div>
+          </details>
+        </section>
 
         {selectorOpen && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          <div
+            data-workspace-selector="projects"
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '10px' }}
+          >
             {workspaceHubs.map((workspace) => {
               const active = workspace.id === selectedWorkspaceId;
               const portfolioWorkspace = portfolioPulse?.workspaces?.find(
                 (item) => normalizeWorkspaceBoardKey(item.workspace_key) === workspace.id,
               );
-              const latestCanonicalUpdate = portfolioWorkspace?.latest_standups?.[0];
-              const latestCanonicalObservedAt = portfolioStandupSemanticObservedAt(latestCanonicalUpdate);
-              const cycleEvaluation = cycleEvaluations.get(workspace.id);
+              const selectorReadiness = portfolioWorkspace?.readiness?.state ?? 'watch';
+              const selectorTone = selectorReadiness === 'degraded' ? '#fb7185' : selectorReadiness === 'healthy' ? '#4ade80' : '#fbbf24';
+              const selectorOwnerCount = Number(portfolioWorkspace?.counts?.needs_owner_pm_cards ?? 0);
+              const selectorHostCount = Number(portfolioWorkspace?.counts?.needs_host_pm_cards ?? 0);
+              const selectorActionCount = selectorOwnerCount + selectorHostCount;
               return (
                 <button
                   key={workspace.id}
-                  onClick={() => onWorkspaceChange(workspace.id)}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    onWorkspaceChange(workspace.id);
+                    setSelectorOpen(false);
+                  }}
                   style={{
                     textAlign: 'left',
-                    borderRadius: '16px',
+                    borderRadius: '12px',
                     border: active ? `1px solid ${workspace.accent}` : '1px solid #1f2937',
                     backgroundColor: active ? `${workspace.accent}12` : '#020617',
-                    padding: '16px',
+                    padding: '13px',
                     cursor: 'pointer',
                     display: 'grid',
-                    gap: '10px',
+                    gap: '8px',
+                    minWidth: 0,
+                    contentVisibility: 'auto',
+                    containIntrinsicSize: '0 132px',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start' }}>
@@ -10972,9 +10966,9 @@ function WorkspaceHubPanel({
                     <span
                       style={{
                         borderRadius: '999px',
-                        border: `1px solid ${workspace.accent}66`,
-                        backgroundColor: `${workspace.accent}18`,
-                        color: workspace.accent,
+                        border: `1px solid ${selectorTone}66`,
+                        backgroundColor: `${selectorTone}18`,
+                        color: selectorTone,
                         padding: '4px 8px',
                         fontSize: '10px',
                         fontWeight: 700,
@@ -10982,38 +10976,31 @@ function WorkspaceHubPanel({
                         textTransform: 'uppercase',
                       }}
                     >
-                      {workspaceLifecycleLabel(workspace.status)}
+                      {portfolioWorkspace?.readiness?.label ?? 'State unverified'}
                     </span>
-                  </div>
-                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{workspace.description}</p>
-                  <div style={{ display: 'grid', gap: '6px' }}>
-                    {workspace.operatingPrinciples.map((principle) => (
-                      <p key={principle} style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                        • {principle}
-                      </p>
-                    ))}
                   </div>
                   <p
                     style={{
-                      color: latestCanonicalUpdate?.truth?.freshness === 'stale' ? '#fbbf24' : '#64748b',
-                      fontSize: '11px',
-                      lineHeight: 1.45,
+                      color: '#cbd5f5',
+                      fontSize: '12px',
+                      lineHeight: 1.5,
                       margin: 0,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
                     }}
                   >
-                    {latestCanonicalObservedAt
-                      ? `Last canonical observation ${formatTimestamp(new Date(latestCanonicalObservedAt))} · ${humanizeStatusLabel(latestCanonicalUpdate?.truth?.freshness || 'unverified')} against the ${latestCanonicalUpdate?.truth?.freshness_limit_hours ?? 'workspace'}${latestCanonicalUpdate?.truth?.freshness_limit_hours ? 'h' : ''} contract.`
-                      : latestCanonicalUpdate
-                        ? `Canonical observation unavailable${latestCanonicalUpdate.created_at ? `; persisted ${formatTimestamp(new Date(latestCanonicalUpdate.created_at))}` : ''}.`
-                        : 'No canonical workspace update has been recorded yet.'}
+                    {workspace.description}
                   </p>
-                  <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>
-                    {cycleEvaluation
-                    ? cycleEvaluation.evaluatedAt
-                      ? `Cycle checked ${formatUiUtcTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
-                      : `Cycle evaluated at an unverified time; execution and persistence time were not substituted · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
-                      : 'No cycle-level workspace evaluation receipt is available yet.'}
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                    <p style={{ color: selectorActionCount > 0 ? '#fde68a' : '#64748b', fontSize: '11px', margin: 0 }}>
+                      {selectorActionCount > 0 ? `${selectorActionCount} owner action${selectorActionCount === 1 ? '' : 's'}` : 'No owner action reported'}
+                    </p>
+                    <p style={{ color: active ? workspace.accent : '#38bdf8', fontSize: '11px', fontWeight: 700, margin: 0 }}>
+                      {active ? 'Selected' : 'Review →'}
+                    </p>
+                  </div>
                 </button>
               );
             })}
@@ -11022,20 +11009,24 @@ function WorkspaceHubPanel({
       </section>
 
       {selectedWorkspaceId === 'feezie-os' ? (
-        <section style={{ display: 'grid', gap: '16px' }}>
+        <section data-workspace-supporting-summary="feezie-os" style={{ display: 'grid', gap: '16px', borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px' }}>
             {linkedinSummary.map((item) => (
               <MiniMeta key={item.label} label={item.label} value={item.value} detail={item.detail} />
             ))}
           </div>
-          <Suspense fallback={<section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', color: '#94a3b8' }}>Loading FEEZIE OS workspace…</section>}>
-            {feezieOwnerReviewError && <SectionAlert message={`FEEZIE owner-review snapshot error: ${feezieOwnerReviewError}`} />}
-            <LinkedinWorkspaceSurface
-              embedded
-              initialSnapshot={workspaceSnapshot}
-              initialOwnerReviewItems={feezieOwnerReviewItems}
-            />
-          </Suspense>
+          <div>
+            <p style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 700, margin: '0 0 5px' }}>Detailed FEEZIE controls stay in the full workspace</p>
+            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              Review source signals, drafts, feedback, and assisted social preparation there. Opening the workspace records no owner evidence and performs no native social action.
+            </p>
+          </div>
+          <Link
+            href={activeWorkspace.route ?? '/workspace'}
+            style={{ justifySelf: 'start', borderRadius: '10px', border: '1px solid rgba(56,189,248,.42)', backgroundColor: 'rgba(14,116,144,.16)', color: '#bae6fd', padding: '9px 13px', fontSize: '13px', fontWeight: 700, textDecoration: 'none' }}
+          >
+            Open FEEZIE workspace
+          </Link>
         </section>
       ) : (
         <WorkspaceActivitySurface
@@ -11107,10 +11098,18 @@ function WorkspaceActivitySurface({
         ))}
       </div>
 
-      {sidebarFiles.length > 0 ? (
-        <SplitPane
-          sidebar={
-            <div style={{ display: 'grid', gap: '10px' }}>
+      <details data-workspace-supporting-details={workspace.id} style={{ border: '1px solid #1f2937', borderRadius: '14px', padding: '12px' }}>
+        <summary style={{ color: workspace.accent, cursor: 'pointer', fontWeight: 700 }}>
+          Supporting files, standups, PM, and execution details
+        </summary>
+        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: '8px 0 14px' }}>
+          Open this only when you need provenance or a workspace artifact. The current state and owner action remain above.
+        </p>
+        <div style={{ display: 'grid', gap: '16px' }}>
+          {sidebarFiles.length > 0 ? (
+            <SplitPane
+              sidebar={
+                <div style={{ display: 'grid', gap: '10px' }}>
               <div>
                 <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: '6px' }}>Workspace Files</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
@@ -11146,42 +11145,44 @@ function WorkspaceActivitySurface({
                   );
                 })}
               </div>
+                </div>
+              }
+              content={
+                selectedFile ? (
+                  <MarkdownSurface title={selectedFile.name} path={selectedFile.path} updatedAt={selectedFile.updatedAt} content={selectedFile.content} />
+                ) : (
+                  <EmptyPanel message="Select a workspace file to inspect." />
+                )
+              }
+            />
+          ) : (
+            <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+              <EmptyPanel message="No workspace files are visible yet. This section will populate as the backend writes docs, briefs, and memory artifacts into the workspace root." />
             </div>
-          }
-          content={
-            selectedFile ? (
-              <MarkdownSurface title={selectedFile.name} path={selectedFile.path} updatedAt={selectedFile.updatedAt} content={selectedFile.content} />
-            ) : (
-              <EmptyPanel message="Select a workspace file to inspect." />
-            )
-          }
-        />
-      ) : (
-        <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
-          <EmptyPanel message="No workspace files are visible yet. This section will populate as the backend writes docs, briefs, and memory artifacts into the workspace root." />
-        </div>
-      )}
+          )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
-        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
-          <PanelList title="Recent Standups" items={workspaceStandupItems} emptyLabel="No standups recorded yet." />
-        </div>
-        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
-          <PanelList title="Open PM Lane" items={workspacePmItems} emptyLabel="No open PM cards in this workspace." />
-        </div>
-        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
-          <PanelList title="Execution Queue" items={workspaceExecutionItems} emptyLabel="No active execution queue entries." />
-        </div>
-        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
-          <PanelList title="Routing + Prep" items={workspaceRoutingItems} emptyLabel="No routed Chronicle or prep artifacts yet." />
-        </div>
-      </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: '12px' }}>
+            <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+              <PanelList title="Recent Standups" items={workspaceStandupItems} emptyLabel="No standups recorded yet." />
+            </div>
+            <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+              <PanelList title="Open PM Lane" items={workspacePmItems} emptyLabel="No open PM cards in this workspace." />
+            </div>
+            <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+              <PanelList title="Execution Queue" items={workspaceExecutionItems} emptyLabel="No active execution queue entries." />
+            </div>
+            <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+              <PanelList title="Routing + Prep" items={workspaceRoutingItems} emptyLabel="No routed Chronicle or prep artifacts yet." />
+            </div>
+          </div>
 
-      {!hasActivity && (
-        <div style={{ borderRadius: '14px', border: '1px dashed rgba(148,163,184,0.22)', padding: '16px', color: '#94a3b8', lineHeight: 1.6 }}>
-          The workspace definition, agent, and principles remain visible even before artifacts exist, but the empty-state copy is now explicit instead of implying the backend has no workspace lane.
+          {!hasActivity && (
+            <div style={{ borderRadius: '14px', border: '1px dashed rgba(148,163,184,0.22)', padding: '16px', color: '#94a3b8', lineHeight: 1.6 }}>
+              The workspace definition, agent, and principles remain visible even before artifacts exist, but the empty-state copy is now explicit instead of implying the backend has no workspace lane.
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </section>
   );
 }
@@ -13484,7 +13485,7 @@ function TuningDashboardPanel({
 
 function SplitPane({ sidebar, content }: { sidebar: JSX.Element; content: JSX.Element }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: '16px', alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '16px', alignItems: 'start' }}>
       <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px', minHeight: '520px' }}>{sidebar}</div>
       <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px', minHeight: '520px' }}>{content}</div>
     </div>
@@ -13560,21 +13561,109 @@ function MiniStat({ label, value, detail, tone }: { label: string; value: number
   );
 }
 
-function SectionAlert({ message }: { message: string }) {
+function ownerSafeFailureExplanation(message: string) {
+  const normalized = message.toLowerCase();
+  if (/\b(401|unauthenticated|unauthorized)\b/.test(normalized)) {
+    return 'The authenticated session was not accepted for this request.';
+  }
+  if (/\b(403|forbidden)\b/.test(normalized)) {
+    return 'The current account does not have permission for this request.';
+  }
+  if (/timeout|timed out|aborterror/.test(normalized)) {
+    return 'The request exceeded its bounded response time.';
+  }
+  if (/429|rate.?limit|quota/.test(normalized)) {
+    return 'The dependency temporarily refused more requests.';
+  }
+  if (/unsupported projection|malformed|invalid (response|projection|payload)/.test(normalized)) {
+    return 'The response did not match the bounded owner-facing data contract.';
+  }
+  if (/\b404\b|not found/.test(normalized)) {
+    return 'The requested capability is not available at its expected route.';
+  }
+  if (/failed to fetch|network|connection|502|503|504|bad gateway|service unavailable/.test(normalized)) {
+    return 'The browser could not reach this capability or one of its dependencies.';
+  }
+  return 'The request failed. Bounded backend diagnostics retain the detailed cause.';
+}
+
+function TelemetryDegradedNotice({
+  items,
+}: {
+  items: Array<{ key: keyof TelemetryErrors; label: string; message: string }>;
+}) {
+  const labels = items.map((item) => item.label);
+  const authRelated = items.some((item) => /\b(401|403|unauthenticated|unauthorized|forbidden)\b/i.test(item.message));
   return (
-    <div
+    <section
+      role="status"
+      data-telemetry-degraded={items.length}
       style={{
         marginBottom: '16px',
-        padding: '12px 16px',
-        borderRadius: '12px',
-        border: '1px solid rgba(248,113,113,0.3)',
-        backgroundColor: 'rgba(69,10,10,0.6)',
-        color: '#fecaca',
-        fontSize: '14px',
+        padding: '12px 14px',
+        borderLeft: '3px solid #f59e0b',
+        backgroundColor: 'rgba(120,53,15,0.12)',
+        color: '#fed7aa',
       }}
     >
-      {message}
-    </div>
+      <p style={{ color: '#fde68a', fontSize: '13px', fontWeight: 700, margin: 0 }}>
+        {items.length} live capabilit{items.length === 1 ? 'y is' : 'ies are'} unavailable
+      </p>
+      <p style={{ color: '#d6dce8', fontSize: '12px', lineHeight: 1.55, margin: '5px 0 0' }}>
+        Affected: {labels.join(', ')}. Other successfully loaded Ops sections remain usable and keep their own state.
+      </p>
+      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: '3px 0 0' }}>
+        Next: {authRelated ? 'sign in again, then use Manual refresh once.' : 'use Manual refresh once. If the same capability still fails, open System for its bounded health evidence.'}
+      </p>
+      <details style={{ marginTop: '7px' }}>
+        <summary style={{ color: '#fbbf24', fontSize: '11px', cursor: 'pointer' }}>Why each capability is unavailable</summary>
+        <ul style={{ color: '#cbd5e1', fontSize: '11px', lineHeight: 1.5, margin: '7px 0 0', paddingLeft: '18px' }}>
+          {items.map((item) => (
+            <li key={item.key}><strong>{item.label}:</strong> {ownerSafeFailureExplanation(item.message)}</li>
+          ))}
+        </ul>
+      </details>
+    </section>
+  );
+}
+
+function SectionAlert({
+  message,
+  scope,
+  allUnavailable = false,
+}: {
+  message: string;
+  scope?: string;
+  allUnavailable?: boolean;
+}) {
+  const separator = message.indexOf(':');
+  const inferredScope = separator > 0 && separator < 80 ? message.slice(0, separator).trim() : null;
+  const resolvedScope = scope ?? inferredScope ?? 'This capability';
+  const authRelated = /\b(401|403|unauthenticated|unauthorized|forbidden)\b/i.test(message);
+  return (
+    <section
+      role="alert"
+      data-error-scope={resolvedScope}
+      style={{
+        marginBottom: '16px',
+        padding: '12px 14px',
+        borderLeft: '3px solid #fb7185',
+        backgroundColor: 'rgba(127,29,29,0.12)',
+      }}
+    >
+      <p style={{ color: '#fecaca', fontSize: '13px', fontWeight: 700, margin: 0 }}>{resolvedScope} is unavailable</p>
+      <p style={{ color: '#d6dce8', fontSize: '12px', lineHeight: 1.55, margin: '5px 0 0' }}>
+        Affected: {allUnavailable ? 'all live Ops controls and freshness checks' : `${resolvedScope} only`}.
+        {' '}Still available: {allUnavailable ? 'retained page content may remain visible, but treat it as unverified' : 'other successfully loaded capabilities on this page'}.
+      </p>
+      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: '3px 0 0' }}>
+        Next: {authRelated ? 'sign in again, then retry once.' : allUnavailable ? 'check backend health and Railway deployment state, then retry once.' : 'retry once. If this repeats, open System for bounded health evidence.'}
+      </p>
+      <details style={{ marginTop: '7px' }}>
+        <summary style={{ color: '#fb7185', fontSize: '11px', cursor: 'pointer' }}>What the system knows</summary>
+        <p style={{ color: '#cbd5e1', fontSize: '11px', lineHeight: 1.5, margin: '6px 0 0' }}>{ownerSafeFailureExplanation(message)}</p>
+      </details>
+    </section>
   );
 }
 

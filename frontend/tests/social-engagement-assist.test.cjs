@@ -108,7 +108,8 @@ test('empty drafts fail closed before clipboard or native navigation', async () 
 
 test('shared Workspace/Ops surface wires only assisted capture and preparation actions', () => {
   assert.match(workspaceSource, /<SocialEngagementAssist\s*\/>/);
-  assert.match(opsSource, /<LinkedinWorkspaceSurface/);
+  assert.doesNotMatch(opsSource, /<LinkedinWorkspaceSurface/);
+  assert.match(opsSource, /Open FEEZIE workspace/);
   assert.match(componentSource, /social-assist\/opportunities/);
   assert.match(componentSource, /prepare_copy/);
   assert.match(componentSource, /open_native_surface/);
