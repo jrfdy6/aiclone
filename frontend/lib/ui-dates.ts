@@ -13,6 +13,16 @@ const zonedPartsFormatter = new Intl.DateTimeFormat(UI_LOCALE, {
   hourCycle: 'h23',
 });
 
+const utcPartsFormatter = new Intl.DateTimeFormat(UI_LOCALE, {
+  timeZone: 'UTC',
+  weekday: 'short',
+  month: 'numeric',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
 const numberFormatter = new Intl.NumberFormat(UI_LOCALE);
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
@@ -41,13 +51,13 @@ export function parseUiDate(value: DateInput) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function zonedParts(value: DateInput) {
+function dateParts(value: DateInput, formatter: Intl.DateTimeFormat) {
   const parsed = parseUiDate(value);
   if (!parsed) {
     return null;
   }
 
-  const parts = zonedPartsFormatter.formatToParts(parsed);
+  const parts = formatter.formatToParts(parsed);
   const lookup = new Map(parts.map((part) => [part.type, part.value]));
   const month = Number(lookup.get('month'));
   const day = Number(lookup.get('day'));
@@ -71,22 +81,27 @@ function zonedParts(value: DateInput) {
 }
 
 export function formatUiTimestamp(value: DateInput) {
-  const parts = zonedParts(value);
+  const parts = dateParts(value, zonedPartsFormatter);
+  return parts ? `${parts.monthName} ${parts.day}, ${parts.time}` : String(value);
+}
+
+export function formatUiUtcTimestamp(value: DateInput) {
+  const parts = dateParts(value, utcPartsFormatter);
   return parts ? `${parts.monthName} ${parts.day}, ${parts.time}` : String(value);
 }
 
 export function formatUiDate(value: DateInput) {
-  const parts = zonedParts(value);
+  const parts = dateParts(value, zonedPartsFormatter);
   return parts ? `${parts.monthName} ${parts.day}` : String(value);
 }
 
 export function formatUiDateWithWeekday(value: DateInput) {
-  const parts = zonedParts(value);
+  const parts = dateParts(value, zonedPartsFormatter);
   return parts ? `${parts.weekday} ${parts.monthName} ${parts.day}` : String(value);
 }
 
 export function formatUiTime(value: DateInput) {
-  const parts = zonedParts(value);
+  const parts = dateParts(value, zonedPartsFormatter);
   return parts ? parts.time : String(value);
 }
 

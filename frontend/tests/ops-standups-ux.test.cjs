@@ -6,6 +6,7 @@ const ts = require('typescript');
 
 const opsSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'ops', 'OpsClient.tsx'), 'utf8');
 const clientLocationSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'use-client-location.ts'), 'utf8');
+const uiDatesSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'ui-dates.ts'), 'utf8');
 
 test('runtime location state hydrates from a stable empty snapshot', () => {
   assert.match(clientLocationSource, /hash: ''/);
@@ -313,6 +314,22 @@ test('Ops uses the AI Clone server observation for freshness instead of browser 
   assert.match(opsSource, /Card dates below remain their own source, processing, or action times/);
   assert.match(opsSource, /Waiting for the AI Clone server observation time before evaluating meeting freshness/);
   assert.doesNotMatch(opsSource, /Date\.now\(\)/);
+});
+
+test('AI Clone UTC labels render the canonical UTC instant, never the owner-calendar projection', () => {
+  const compiled = ts.transpileModule(uiDatesSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const moduleRef = { exports: {} };
+  new Function('module', 'exports', compiled)(moduleRef, moduleRef.exports);
+  const { formatUiTimestamp, formatUiUtcTimestamp } = moduleRef.exports;
+  const observedAt = '2026-09-02T10:15:00.627486Z';
+
+  assert.equal(formatUiTimestamp(observedAt), 'Sep 2, 6:15 AM');
+  assert.equal(formatUiUtcTimestamp(observedAt), 'Sep 2, 10:15 AM');
+  assert.match(opsSource, /formatUiUtcTimestamp/);
+  assert.equal((opsSource.match(/formatUiUtcTimestamp\([^\n]+?\).*AI Clone UTC/g) ?? []).length, 4);
+  assert.doesNotMatch(opsSource, /formatUiTimestamp\([^\n]+?\).*AI Clone UTC/);
 });
 
 test('workspace cycle labels never substitute automation execution time for semantic observation', () => {

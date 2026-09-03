@@ -23,7 +23,7 @@ import {
   type FeedRefreshStatus,
   waitForFeedRefreshAttempt,
 } from '@/lib/feed-refresh-polling';
-import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
+import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp, formatUiUtcTimestamp } from '@/lib/ui-dates';
 import {
   fallbackWorkspaceRegistry,
   portfolioWorkspaceRegistry,
@@ -4110,7 +4110,7 @@ function PortfolioPulseSection({
         <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '7px 0 0' }}>
           {cycleEvaluation
             ? cycleEvaluation.evaluatedAt
-              ? `Cycle checked ${formatUiTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+              ? `Cycle checked ${formatUiUtcTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
               : `Cycle evaluated at an unverified time; execution and persistence time were not substituted · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
             : 'No cycle-level workspace evaluation receipt is available yet.'}
         </p>
@@ -4129,7 +4129,7 @@ function PortfolioPulseSection({
           <h2 style={{ color: '#f8fafc', fontSize: '22px', margin: '5px 0' }}>Is the system healthy?</h2>
           <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Health first, then the decisions and host actions that genuinely need you.</p>
           <p style={{ color: '#64748b', fontSize: '11px', margin: '6px 0 0' }}>
-            System checked {snapshot?.checked_at ? formatUiTimestamp(snapshot.checked_at) : 'not yet'} on the AI Clone UTC clock. Card dates below remain their own source, processing, or action times.
+            System checked {snapshot?.checked_at ? formatUiUtcTimestamp(snapshot.checked_at) : 'not yet'} on the AI Clone UTC clock. Card dates below remain their own source, processing, or action times.
           </p>
         </div>
         <span style={{ borderRadius: '999px', border: `1px solid ${overallTone}55`, color: overallTone, padding: '7px 11px', fontSize: '12px', fontWeight: 700 }}>
@@ -10848,7 +10848,7 @@ function WorkspaceHubPanel({
           Each workspace keeps its own operating system, agent, and execution lane. The frontend now reflects the backend state directly: live workspaces stay rich, standing-up workspaces show their actual artifacts, and planned slots stay clearly empty.
         </p>
         <p style={{ color: '#64748b', fontSize: '12px', marginTop: '7px' }}>
-          System checked {portfolioPulse?.checked_at ? formatUiTimestamp(portfolioPulse.checked_at) : 'not yet'} on the AI Clone UTC clock. Browser receipt time never replaces a workspace artifact date.
+          System checked {portfolioPulse?.checked_at ? formatUiUtcTimestamp(portfolioPulse.checked_at) : 'not yet'} on the AI Clone UTC clock. Browser receipt time never replaces a workspace artifact date.
         </p>
       </div>
 
@@ -11010,7 +11010,7 @@ function WorkspaceHubPanel({
                   <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>
                     {cycleEvaluation
                     ? cycleEvaluation.evaluatedAt
-                      ? `Cycle checked ${formatUiTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
+                      ? `Cycle checked ${formatUiUtcTimestamp(cycleEvaluation.evaluatedAt)} on AI Clone UTC · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
                       : `Cycle evaluated at an unverified time; execution and persistence time were not substituted · ${workspaceCycleEvaluationCopy(cycleEvaluation)}`
                       : 'No cycle-level workspace evaluation receipt is available yet.'}
                   </p>
