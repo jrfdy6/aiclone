@@ -134,6 +134,7 @@ _DYNAMIC_EXECUTION_FIELDS = frozenset(
         "execution_packet_path",
         "execution_packet_sha256",
         "history",
+        "last_recovered_claim",
         "last_transition_at",
         "manager_attention_required",
         "result_author_agent",
