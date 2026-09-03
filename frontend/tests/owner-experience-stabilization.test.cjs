@@ -7,6 +7,7 @@ const frontendRoot = path.join(__dirname, '..');
 const brainSource = fs.readFileSync(path.join(frontendRoot, 'app', 'brain', 'BrainClient.tsx'), 'utf8');
 const opsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'ops', 'OpsClient.tsx'), 'utf8');
 const opsSummarySource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'OpsStandupSummary.tsx'), 'utf8');
+const opsOwnerTruthSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'ops-owner-truth.ts'), 'utf8');
 const brainPrivacySource = fs.readFileSync(path.join(frontendRoot, 'app', 'brain', 'brainPrivacy.ts'), 'utf8');
 const runtimeChromeSource = fs.readFileSync(path.join(frontendRoot, 'components', 'runtime', 'RuntimeChrome.tsx'), 'utf8');
 const globalStylesSource = fs.readFileSync(path.join(frontendRoot, 'app', 'globals.css'), 'utf8');
@@ -44,18 +45,21 @@ test('Ops project cards separate current state from historical Dream receipts', 
   assert.doesNotMatch(pulse[0], /workspaceCycleEvaluationCopy|Cycle checked|Last canonical workspace observation/);
 });
 
-test('Ops workspace goals come from canonical bounded recursion, never a generic description', () => {
-  assert.match(opsSource, /raw\.schema_version !== 'workspace_goal_contract\/v1'/);
-  assert.match(opsSource, /function projectedWorkspaceRecursionGoals/);
-  assert.match(opsSource, /Array\.isArray\(projection\.workspace_recursion\)/);
+test('Ops workspace goals prefer the canonical bounded goal projection and retain cycle fallback', () => {
+  assert.match(opsSource, /projectOpsWorkspaceGoals\(opsWorkspaceCycle, opsWorkspaceGoals\)/);
+  assert.match(opsSource, /\/api\/workspace\/ops-workspace-goals/);
+  assert.match(opsOwnerTruthSource, /ops_workspace_goal_projection\/v1/);
+  assert.match(opsOwnerTruthSource, /raw\.schema_version !== 'workspace_goal_contract\/v1'/);
+  assert.match(opsOwnerTruthSource, /projection\?\.schema_version !== 'ops_standup_summary_conclusion\/v3'/);
+  assert.match(opsOwnerTruthSource, /Array\.isArray\(projection\.workspace_recursion\)/);
   assert.match(opsSource, /const workspaceGoals = useMemo/);
   assert.match(opsSource, /workspaceGoals\.get\(normalizeWorkspaceBoardKey\(workspace\.workspace_key\)\)/);
-  assert.match(opsSource, /const activeGoal = workspaceGoals\.get\(selectedWorkspaceId\)/);
+  assert.match(opsSource, /projectWorkspaceOwnerTruth\(opsProjection, selectedWorkspaceId, goalProjection\)/);
   assert.doesNotMatch(opsSource, /activeCycleEvaluation\?\.goal/);
-  assert.match(opsSource, /projectedGoal\?\.goal \|\| 'Canonical goal unavailable in the current Ops cycle projection\.'/);
-  assert.match(opsSource, /activeGoal\?\.progressSignals\.join\(' '\)/);
-  assert.match(opsSource, /activeGoal\?\.phaseGate/);
-  assert.match(opsSource, /activeGoal\?\.noActionTrigger/);
+  assert.match(opsSource, /activeOwnerTruth\.goal \?\? 'The canonical goal is unavailable because its bounded owner projection is not synchronized\. Current cycle status remains usable\.'/);
+  assert.match(opsSource, /activeOwnerTruth\.progressSignals\.join\(' '\)/);
+  assert.match(opsSource, /activeOwnerTruth\.phaseGate/);
+  assert.match(opsSource, /activeOwnerTruth\.reevaluateWhen/);
   assert.match(opsSource, /Scope: \{activeWorkspace\.description\}/);
 });
 
@@ -178,12 +182,13 @@ test('Ops keeps owner truth primary and defers cycle lineage to a bounded audit'
   assert.match(opsSummarySource, /data-ops-cycle-audit="secondary"/);
   assert.match(opsSummarySource, /What remains healthy/);
   assert.match(opsSummarySource, /Next Dream consumes/);
-  assert.match(opsSummarySource, /ownerText\(decision\.title\)/);
-  assert.match(opsSummarySource, /ownerText\(decision\.resolvedChoice\)/);
-  assert.match(opsSummarySource, /uniqueOwnerItems/);
-  assert.match(opsSummarySource, /explicitDreamInput/);
-  assert.match(opsSummarySource, /Still available: loaded workspace goals/);
-  assert.match(opsSummarySource, /do not treat this cycle as a portfolio all-clear/);
+  assert.match(opsSummarySource, /ownerSafeOpsText\(decision\.title\)/);
+  assert.match(opsSummarySource, /ownerSafeOpsText\(decision\.resolvedChoice\)/);
+  assert.match(opsSummarySource, /projectPortfolioOwnerTruth\(data, \[\], goalProjection\)/);
+  assert.match(opsSummarySource, /projectWorkspaceOwnerTruth\(data, workspaceKey, goalProjection\)/);
+  assert.match(opsOwnerTruthSource, /The current portfolio conclusion is incomplete/);
+  assert.match(opsOwnerTruthSource, /will not consume this failed handoff as a completed update/);
+  assert.doesNotMatch(opsSummarySource, /WorkspaceRecursionList|Reference only/);
   assert.doesNotMatch(opsSummarySource, /JSON\.stringify\(data\.endpoint_and_subsystem_health/);
 });
 

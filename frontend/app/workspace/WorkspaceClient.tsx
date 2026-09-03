@@ -3217,7 +3217,7 @@ export function LinkedinWorkspaceSurface({
         </section>
         ) : null}
 
-        <OpsStandupSummary />
+        <OpsStandupSummary workspaceKey="feezie-os" />
 
         <OwnerDecisionSurface />
 

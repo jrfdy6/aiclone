@@ -249,7 +249,8 @@ test('workspace exposes authenticated canonical create, session, resolve, and re
   assert.doesNotMatch(component, /\bfetch\s*\(/);
   assert.match(component, /no publishing, messaging, or external communication occurs here/);
   assert.match(ops, /Canonical decisions/);
-  assert.match(ops, /Canonical owner decisions were checked/);
+  assert.match(ops, /Needs your decision/);
+  assert.match(ops, /projectPortfolioOwnerTruth/);
   assert.match(ops, /AI Clone UTC/);
 });
 

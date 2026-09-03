@@ -36,6 +36,7 @@ from app.models import (
     BrainWorkspaceSnapshotSyncRequest,
     IntegratedContentProjectionSyncRequest,
     OpsStandupProjectionSyncRequest,
+    OpsWorkspaceGoalProjectionSyncRequest,
     PersonaDelta,
 )
 from app.services import persona_delta_service
@@ -87,6 +88,12 @@ from app.services.ops_standup_projection_service import (
     WORKSPACE_KEY as OPS_STANDUP_WORKSPACE_KEY,
     ops_projection_semantic_sha256,
     validate_ops_standup_projection,
+)
+from app.services.ops_workspace_goal_projection_service import (
+    SNAPSHOT_TYPE as OPS_WORKSPACE_GOAL_SNAPSHOT_TYPE,
+    WORKSPACE_KEY as OPS_WORKSPACE_GOAL_WORKSPACE_KEY,
+    ops_workspace_goal_projection_semantic_sha256,
+    validate_ops_workspace_goal_projection,
 )
 from app.services.workspace_snapshot_service import SNAPSHOT_WEEKLY_PLAN, workspace_snapshot_service
 from app.services.youtube_watchlist_service import build_persisted_youtube_watchlist_payload
@@ -1128,6 +1135,95 @@ def publish_integrated_content_projection(payload: IntegratedContentProjectionSy
         "workspace_key": INTEGRATED_CONTENT_WORKSPACE_KEY,
         "snapshot_type": INTEGRATED_CONTENT_SNAPSHOT_TYPE,
         "payload_sha256": current_hash,
+        "updated_at": stored_snapshot.get("updated_at"),
+    }
+
+
+@router.post("/ops-workspace-goals/sync")
+def publish_ops_workspace_goal_projection(
+    payload: OpsWorkspaceGoalProjectionSyncRequest,
+):
+    projection = validate_ops_workspace_goal_projection(payload.projection)
+    request_generated_at = _parse_generated_at(payload.generated_at)
+    projection_generated_at = _parse_generated_at(str(projection["generated_at"]))
+    if request_generated_at != projection_generated_at:
+        raise HTTPException(
+            status_code=422,
+            detail="Workspace-goal projection receipt time does not match its envelope.",
+        )
+    semantic_observed_at = _parse_generated_at(str(projection["observed_at"]))
+    try:
+        stored_snapshot, stored = upsert_snapshot_monotonic(
+            OPS_WORKSPACE_GOAL_WORKSPACE_KEY,
+            OPS_WORKSPACE_GOAL_SNAPSHOT_TYPE,
+            projection,
+            generated_at=request_generated_at,
+            semantic_observed_at=semantic_observed_at,
+            semantic_order_required=True,
+            metadata={
+                "source": "codex_local_runner",
+                "projection": "ops_workspace_goals",
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Workspace-goal projection storage is unavailable.",
+        ) from exc
+    if stored_snapshot is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Workspace-goal projection storage is unavailable.",
+        )
+    try:
+        current = validate_ops_workspace_goal_projection(
+            stored_snapshot.get("payload")
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Stored workspace-goal projection is invalid.",
+        ) from exc
+    requested_hash = hashlib.sha256(
+        json.dumps(
+            projection,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    current_hash = hashlib.sha256(
+        json.dumps(
+            current,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    requested_semantic_hash = ops_workspace_goal_projection_semantic_sha256(
+        projection
+    )
+    current_semantic_hash = ops_workspace_goal_projection_semantic_sha256(current)
+    current_observed_at = _parse_generated_at(str(current["observed_at"]))
+    if stored:
+        disposition = "stored"
+    elif current_semantic_hash == requested_semantic_hash:
+        disposition = "idempotent_same_authority"
+    elif current_observed_at > semantic_observed_at:
+        disposition = "retained_newer"
+    else:
+        disposition = "retained_same_observation_conflict"
+    return {
+        "stored": stored,
+        "disposition": disposition,
+        "workspace_key": OPS_WORKSPACE_GOAL_WORKSPACE_KEY,
+        "snapshot_type": OPS_WORKSPACE_GOAL_SNAPSHOT_TYPE,
+        "payload_sha256": current_hash,
+        "requested_payload_sha256": requested_hash,
+        "semantic_payload_sha256": current_semantic_hash,
+        "authority_sha256": current.get("authority_sha256"),
+        "projected_contracts_sha256": current.get("projected_contracts_sha256"),
+        "observed_at": current.get("observed_at"),
         "updated_at": stored_snapshot.get("updated_at"),
     }
 

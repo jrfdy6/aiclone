@@ -26,6 +26,13 @@ from app.services.ops_standup_projection_service import (
     unavailable_ops_standup_projection,
     validate_ops_standup_projection,
 )
+from app.services.ops_workspace_goal_projection_service import (
+    OpsWorkspaceGoalProjectionError,
+    build_ops_workspace_goal_projection,
+    ops_workspace_goal_projection_semantic_sha256,
+    unavailable_ops_workspace_goal_projection,
+    validate_ops_workspace_goal_projection,
+)
 from app.services.portfolio_cycle_service import PortfolioCycleService
 from app.services.workspace_snapshot_store import upsert_snapshot
 from app.services.workspace_registry_service import (
@@ -1463,6 +1470,173 @@ def test_workspace_route_can_read_canonical_ops_only_when_local_fallback_is_expl
     response = TestClient(app).get("/api/workspace/ops-standup")
     assert response.status_code == 200
     assert response.json() == expected
+
+
+def test_workspace_goal_projection_covers_every_active_project_from_one_authority():
+    projection = build_ops_workspace_goal_projection()
+
+    assert projection["schema_version"] == "ops_workspace_goal_projection/v1"
+    assert projection["state"] == "ready"
+    assert projection["clock"]["authority"] == "ai_clone_utc"
+    assert len(projection["authority_sha256"]) == 64
+    assert len(projection["projected_contracts_sha256"]) == 64
+    assert [item["workspace_key"] for item in projection["workspaces"]] == [
+        "feezie-os",
+        "fusion-os",
+        "easyoutfitapp",
+        "ai-swag-store",
+        "agc",
+        "work-life-tools",
+    ]
+    assert all(
+        set(item["goal"])
+        == {
+            "schema_version",
+            "goal",
+            "progress_signals",
+            "phase_gate",
+            "no_action_trigger",
+        }
+        for item in projection["workspaces"]
+    )
+    serialized = json.dumps(projection)
+    assert "safe_internal_boundary" not in serialized
+    assert "owner_required_boundary" not in serialized
+    assert "authority_refs" not in serialized
+    assert "/Users/" not in serialized
+
+
+def test_workspace_goal_projection_rejects_partial_or_tampered_portfolio():
+    partial = build_ops_workspace_goal_projection()
+    partial["workspaces"] = partial["workspaces"][:-1]
+    with pytest.raises(OpsWorkspaceGoalProjectionError, match="exact active"):
+        validate_ops_workspace_goal_projection(partial)
+
+    tampered = build_ops_workspace_goal_projection()
+    tampered["workspaces"][0]["goal"]["goal"] = "Changed without a new projection digest."
+    with pytest.raises(OpsWorkspaceGoalProjectionError, match="digest mismatch"):
+        validate_ops_workspace_goal_projection(tampered)
+
+
+def test_workspace_goal_projection_unavailable_state_claims_no_authority():
+    projection = unavailable_ops_workspace_goal_projection(
+        "workspace_goal_projection_not_synced"
+    )
+
+    assert validate_ops_workspace_goal_projection(projection) == projection
+    assert projection["state"] == "unavailable"
+    assert projection["observed_at"] is None
+    assert projection["workspaces"] == []
+
+
+def test_workspace_goal_route_reads_the_independent_goal_projection(monkeypatch):
+    projection = build_ops_workspace_goal_projection()
+    monkeypatch.setattr(
+        "app.routes.workspace.get_snapshot_payload",
+        lambda workspace, snapshot_type: projection
+        if snapshot_type == "ops_workspace_goal_contracts"
+        else None,
+    )
+
+    response = TestClient(app).get("/api/workspace/ops-workspace-goals")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.json() == projection
+
+
+def test_workspace_goal_sync_receipt_binds_authority_and_semantics(monkeypatch):
+    projection = build_ops_workspace_goal_projection()
+    monkeypatch.setattr(
+        "app.routes.brain.upsert_snapshot_monotonic",
+        lambda workspace, kind, payload, **kwargs: (
+            {"payload": payload, "updated_at": payload["generated_at"]},
+            True,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/brain/ops-workspace-goals/sync",
+        json={
+            "schema_version": "ops_workspace_goal_projection_sync/v1",
+            "generated_at": projection["generated_at"],
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 200
+    receipt = response.json()
+    assert receipt["disposition"] == "stored"
+    assert receipt["authority_sha256"] == projection["authority_sha256"]
+    assert receipt["projected_contracts_sha256"] == projection[
+        "projected_contracts_sha256"
+    ]
+    assert receipt["semantic_payload_sha256"] == (
+        ops_workspace_goal_projection_semantic_sha256(projection)
+    )
+
+
+def test_workspace_goal_sync_is_idempotent_for_the_same_canonical_authority(
+    monkeypatch,
+):
+    projection = build_ops_workspace_goal_projection()
+    stored_projection = json.loads(json.dumps(projection))
+    stored_projection["generated_at"] = projection["generated_at"]
+    monkeypatch.setattr(
+        "app.routes.brain.upsert_snapshot_monotonic",
+        lambda workspace, kind, payload, **kwargs: (
+            {
+                "payload": stored_projection,
+                "updated_at": stored_projection["generated_at"],
+            },
+            False,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/brain/ops-workspace-goals/sync",
+        json={
+            "schema_version": "ops_workspace_goal_projection_sync/v1",
+            "generated_at": projection["generated_at"],
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stored"] is False
+    assert response.json()["disposition"] == "idempotent_same_authority"
+
+
+def test_workspace_goal_sync_retains_a_newer_canonical_observation(monkeypatch):
+    projection = build_ops_workspace_goal_projection()
+    stored_projection = json.loads(json.dumps(projection))
+    stored_projection["generated_at"] = projection["generated_at"]
+    stored_projection["observed_at"] = projection["generated_at"]
+    stored_projection["clock"]["observed_at"] = stored_projection["observed_at"]
+    monkeypatch.setattr(
+        "app.routes.brain.upsert_snapshot_monotonic",
+        lambda workspace, kind, payload, **kwargs: (
+            {
+                "payload": stored_projection,
+                "updated_at": stored_projection["generated_at"],
+            },
+            False,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/brain/ops-workspace-goals/sync",
+        json={
+            "schema_version": "ops_workspace_goal_projection_sync/v1",
+            "generated_at": projection["generated_at"],
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stored"] is False
+    assert response.json()["disposition"] == "retained_newer"
+    assert response.json()["observed_at"] == stored_projection["observed_at"]
 
 
 def test_sync_route_acknowledges_exact_hash(monkeypatch, tmp_path):

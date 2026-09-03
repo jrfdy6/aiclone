@@ -14,6 +14,13 @@ import { controlApiGet, controlApiPost, ownerSafeErrorMessage } from '@/lib/cont
 import { legacyTwoOptionCompatibilityRequested } from '@/lib/content-generation-topology';
 import { normalizeDisplayText, safeExternalHttpsUrl } from '@/lib/display-privacy';
 import {
+  projectOpsWorkspaceGoals,
+  projectWorkspaceOwnerTruth,
+  type OpsOwnerProjection,
+  type OpsWorkspaceGoalProjection,
+  type WorkspaceGoalContractProjection,
+} from '@/lib/ops-owner-truth';
+import {
   normalizeFirestoreReadinessReceipt,
   type FirestoreReadinessReceipt,
 } from '@/lib/firestore-readiness';
@@ -269,13 +276,7 @@ type AutomationRun = {
   metadata?: Record<string, unknown>;
 };
 
-type WorkspaceGoalProjection = {
-  schemaVersion: 'workspace_goal_contract/v1';
-  goal: string;
-  progressSignals: string[];
-  phaseGate: string;
-  noActionTrigger: string;
-};
+type WorkspaceGoalProjection = WorkspaceGoalContractProjection;
 
 type WorkspaceCycleEvaluation = {
   workspaceKey: string;
@@ -293,16 +294,7 @@ type WorkspaceCycleEvaluation = {
   failureKind: string | null;
 };
 
-type OpsWorkspaceCycleProjection = {
-  schema_version?: string;
-  portfolio_cycle_id?: string | null;
-  ops_conclusion_attempt_number?: number | null;
-  cycle_date?: string | null;
-  observed_at?: string | null;
-  clock?: Record<string, unknown> | null;
-  workspace_recursion?: Array<Record<string, unknown>>;
-  workspace_cycle_evaluations?: Array<Record<string, unknown>>;
-};
+type OpsWorkspaceCycleProjection = OpsOwnerProjection;
 
 type PMCard = {
   id: string;
@@ -2339,6 +2331,7 @@ export default function OpsClient({
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
   const [opsWorkspaceCycle, setOpsWorkspaceCycle] = useState<OpsWorkspaceCycleProjection | null>(null);
+  const [opsWorkspaceGoals, setOpsWorkspaceGoals] = useState<OpsWorkspaceGoalProjection | null>(null);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
   const [workspaceRegistry, setWorkspaceRegistry] = useState<WorkspaceRegistryEntry[]>([]);
   const [workspaceRegistryState, setWorkspaceRegistryState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -2640,6 +2633,11 @@ export default function OpsClient({
         controlApiGet<OpsWorkspaceCycleProjection>('/api/workspace/ops-standup', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => setOpsWorkspaceCycle(value ?? null),
         () => setOpsWorkspaceCycle(null),
+      ),
+      trackRequest(
+        controlApiGet<OpsWorkspaceGoalProjection>('/api/workspace/ops-workspace-goals', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        (value) => setOpsWorkspaceGoals(value ?? null),
+        () => setOpsWorkspaceGoals(null),
       ),
       trackRequest(
         controlApiGet<OpenBrainTelemetry>('/api/analytics/open-brain', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
@@ -2979,8 +2977,8 @@ export default function OpsClient({
     [automationRuns, opsWorkspaceCycle],
   );
   const workspaceGoals = useMemo(
-    () => projectedWorkspaceRecursionGoals(opsWorkspaceCycle),
-    [opsWorkspaceCycle],
+    () => projectOpsWorkspaceGoals(opsWorkspaceCycle, opsWorkspaceGoals),
+    [opsWorkspaceCycle, opsWorkspaceGoals],
   );
 
   const activityRows = useMemo(
@@ -3222,6 +3220,8 @@ export default function OpsClient({
       {activePanel === 'team' && <OrgChartSection layers={orgLayers} />}
       {activePanel === 'pm' && (
         <TodayOpsPanel
+          opsProjection={opsWorkspaceCycle}
+          goalProjection={opsWorkspaceGoals}
           portfolioPulse={portfolioPulse}
           portfolioPulseError={portfolioPulseError}
           workspaceGoals={workspaceGoals}
@@ -3276,9 +3276,10 @@ export default function OpsClient({
       )}
       {activePanel === 'workspace' && (
         <WorkspaceHubPanel
+          opsProjection={opsWorkspaceCycle}
+          goalProjection={opsWorkspaceGoals}
           portfolioPulse={portfolioPulse}
           cycleEvaluations={workspaceCycleEvaluations}
-          workspaceGoals={workspaceGoals}
           workspaceRegistry={workspaceRegistry}
           selectedWorkspaceId={selectedWorkspaceId}
           onWorkspaceChange={selectWorkspace}
@@ -3864,6 +3865,8 @@ const STANDUP_ROOMS: StandupRoom[] = [
 ];
 
 function TodayOpsPanel({
+  opsProjection,
+  goalProjection,
   portfolioPulse,
   portfolioPulseError,
   workspaceGoals,
@@ -3872,6 +3875,8 @@ function TodayOpsPanel({
   onOpenWorkspace,
   legacyOwnerReviewCompatibilityEnabled,
 }: {
+  opsProjection: OpsWorkspaceCycleProjection | null;
+  goalProjection: OpsWorkspaceGoalProjection | null;
   portfolioPulse: PortfolioPulseSnapshot | null;
   portfolioPulseError: string | null;
   workspaceGoals: Map<string, WorkspaceGoalProjection>;
@@ -3889,7 +3894,7 @@ function TodayOpsPanel({
         workspaceGoals={workspaceGoals}
         onOpenWorkspace={onOpenWorkspace}
       />
-      <OpsStandupSummary />
+      <OpsStandupSummary projection={opsProjection} goalProjection={goalProjection} />
       <ExecutiveDecisionQueue
         onActionComplete={onExecutiveDecisionMutation}
         legacyOwnerReviewCompatibilityEnabled={legacyOwnerReviewCompatibilityEnabled}
@@ -10326,9 +10331,10 @@ function MeetingMonthlyView({ entries, observedAtMs }: { entries: StandupEntry[]
 }
 
 function WorkspaceHubPanel({
+  opsProjection,
+  goalProjection,
   portfolioPulse,
   cycleEvaluations,
-  workspaceGoals,
   workspaceRegistry,
   selectedWorkspaceId,
   onWorkspaceChange,
@@ -10351,9 +10357,10 @@ function WorkspaceHubPanel({
   feedbackSummary,
   onReloadLiveSnapshot,
 }: {
+  opsProjection: OpsWorkspaceCycleProjection | null;
+  goalProjection: OpsWorkspaceGoalProjection | null;
   portfolioPulse: PortfolioPulseSnapshot | null;
   cycleEvaluations: Map<string, WorkspaceCycleEvaluation>;
-  workspaceGoals: Map<string, WorkspaceGoalProjection>;
   workspaceRegistry: WorkspaceRegistryEntry[];
   selectedWorkspaceId: WorkspaceHubKey;
   onWorkspaceChange: (workspaceKey: WorkspaceHubKey) => void;
@@ -10388,10 +10395,7 @@ function WorkspaceHubPanel({
   const activePortfolioWorkspace = portfolioPulse?.workspaces?.find(
     (workspace) => normalizeWorkspaceBoardKey(workspace.workspace_key) === selectedWorkspaceId,
   );
-  const activeCanonicalUpdate = activePortfolioWorkspace?.latest_standups?.[0];
-  const activeCanonicalObservedAt = portfolioStandupSemanticObservedAt(activeCanonicalUpdate);
   const activeCycleEvaluation = cycleEvaluations.get(selectedWorkspaceId);
-  const activeGoal = workspaceGoals.get(selectedWorkspaceId) ?? null;
   const workspaceFiles = useMemo(
     () => files.filter((file) => workspaceFileBelongsToHub(file, selectedWorkspaceId)),
     [files, selectedWorkspaceId],
@@ -10555,95 +10559,57 @@ function WorkspaceHubPanel({
   ]);
   const activeOwnerDecisionCount = Number(activePortfolioWorkspace?.counts?.needs_owner_pm_cards ?? 0);
   const activeHostActionCount = Number(activePortfolioWorkspace?.counts?.needs_host_pm_cards ?? 0);
+  const activeOwnerTruth = projectWorkspaceOwnerTruth(opsProjection, selectedWorkspaceId, goalProjection);
   const activeReadinessState = activePortfolioWorkspace?.readiness?.state ?? 'watch';
-  const activeReadinessTone = activeReadinessState === 'degraded' ? '#fb7185' : activeReadinessState === 'healthy' ? '#4ade80' : '#fbbf24';
+  const activeReadinessTone = activeReadinessState === 'degraded'
+    ? '#fb7185'
+    : activeReadinessState === 'healthy'
+      ? '#4ade80'
+      : '#fbbf24';
+  const activeCycleTone = activeOwnerTruth.state === 'blocked' || activeOwnerTruth.state === 'unavailable'
+    ? '#fb7185'
+    : activeOwnerTruth.state === 'healthy' || activeOwnerTruth.state === 'no_change'
+      ? '#4ade80'
+      : '#fbbf24';
   const activeReadinessLabel = activePortfolioWorkspace?.readiness?.label ?? 'Current state not fully verified';
   const activeReadinessReason = activePortfolioWorkspace?.readiness?.reasons?.[0]
     ?? (activePortfolioWorkspace ? 'No additional readiness reason was reported.' : 'The live portfolio projection has not reported this workspace yet.');
-  const latestCycleAction = !activeCycleEvaluation
-    ? 'No bounded Dream-cycle receipt is available for this workspace.'
-    : activeCycleEvaluation.status === 'failed'
-      ? activeCycleEvaluation.failureKind === 'verified_async_role_contribution_unavailable'
-        ? 'AI Clone attempted the bounded FEEZIE handoff, but a verified participant receipt was unavailable, so no canonical update was accepted.'
-        : 'AI Clone attempted the last workspace handoff, but no canonical update was accepted.'
-      : activeCycleEvaluation.status === 'promoted'
-        ? 'AI Clone produced and promoted a new canonical workspace update.'
-        : activeCycleEvaluation.status === 'skipped' && activeCycleEvaluation.reason === 'fresh'
-          ? 'AI Clone checked the workspace and correctly kept the existing canonical update because no eligible change was due.'
-          : activeCycleEvaluation.status === 'collapse_freshness'
-            ? 'AI Clone checked for changed eligible input and found no reason to run another internal meeting.'
-            : activeCycleEvaluation.status === 'async_contribution'
-              ? `AI Clone collected one signed async contribution; ${activeCycleEvaluation.canonicalPmExecutionAuthority || 'Jean-Claude'} retained PM and execution authority.`
-              : workspaceCycleEvaluationCopy(activeCycleEvaluation);
-  const latestCycleResult = !activeCycleEvaluation
-    ? 'Completed: none verified. Failed: none claimed. Carried forward: current workspace files and PM state.'
-    : activeCycleEvaluation.status === 'failed'
-      ? 'Completed: the bounded check ran. Failed: the verified canonical handoff. Carried forward: current files, prior receipts, PM cards, and execution truth remain available.'
-      : activeCycleEvaluation.status === 'promoted'
-        ? 'Completed: a new canonical workspace update. Failed: none reported by this receipt. Carried forward: unresolved PM work.'
-        : 'Completed: the recorded bounded cycle action. Failed: none claimed by this receipt. Carried forward: unresolved PM and owner work.';
-  const ownerActionTruth = activeOwnerDecisionCount > 0
-    ? `AI Clone needs your decision on ${activeOwnerDecisionCount} PM item${activeOwnerDecisionCount === 1 ? '' : 's'}.${activeHostActionCount > 0 ? ` ${activeHostActionCount} additional host action${activeHostActionCount === 1 ? '' : 's'} also require you.` : ''}`
-    : activeHostActionCount > 0
-      ? `No judgment call is reported, but ${activeHostActionCount} host action${activeHostActionCount === 1 ? '' : 's'} require you because AI Clone cannot perform them safely.`
-      : activeGoal
-        ? 'No owner decision is currently reported. Continue only if the workspace goal or current recommendation needs review.'
-        : 'No owner decision is currently reported. The canonical goal is unavailable in this projection, so this page will not invent one.';
-  const cycleDispositionLabel = activeCycleEvaluation?.status === 'failed'
-    ? 'Blocked'
-    : activeCycleEvaluation?.status === 'collapse_freshness' || (activeCycleEvaluation?.status === 'skipped' && activeCycleEvaluation.reason === 'fresh')
-      ? 'No eligible change'
-      : activeCycleEvaluation
-        ? 'AI Clone did this'
-        : 'Reference only';
-  const recommendationTruth = activeOwnerDecisionCount > 0
-    ? 'Review one highest-priority decision in Execution. AI Clone will not choose for you.'
-    : activeHostActionCount > 0
-      ? 'Complete one clearly labeled host action in Execution; the rest of this workspace remains readable.'
-    : activeCycleEvaluation?.status === 'failed'
-        ? 'Keep using current workspace data while the scheduler-owned handoff is repaired; do not treat the failed cycle as a successful update.'
-        : activeGoal
-          ? 'No owner action is recommended until the goal, evidence, or eligibility state changes.'
-          : 'No recommendation is made until a bounded canonical goal returns in the Ops cycle projection.';
-  const nextDreamTruth = activeCanonicalObservedAt
-    ? `The next Dream cycle can consume the canonical workspace update observed ${formatTimestamp(new Date(activeCanonicalObservedAt))}, plus unresolved PM and execution state.`
-    : 'The next Dream cycle can consume current canonical project files and unresolved PM/execution state; it must not treat the failed or missing handoff as a successful update.';
+  const firstOwnerFact = (facts: string[], fallback: string) => facts.length
+    ? `${facts[0]}${facts.length > 1 ? ` ${facts.length - 1} additional bounded ${facts.length === 2 ? 'item is' : 'items are'} available in supporting evidence.` : ''}`
+    : fallback;
+  const completedFailedCarried = [
+    activeOwnerTruth.completed[0] ? `Completed: ${activeOwnerTruth.completed[0]}` : '',
+    activeOwnerTruth.failed[0] ? `Failed: ${activeOwnerTruth.failed[0]}` : '',
+    activeOwnerTruth.carried[0] ? `Carried forward: ${activeOwnerTruth.carried[0]}` : '',
+  ].filter(Boolean).join(' ') || 'No completed, failed, or carried-forward work was claimed by this conclusion.';
+  const ownerActionTruth = activeOwnerTruth.ownerDecisions.length > 0
+    ? `${firstOwnerFact(activeOwnerTruth.ownerDecisions, '')}${activeOwnerDecisionCount > activeOwnerTruth.ownerDecisions.length ? ` ${activeOwnerDecisionCount - activeOwnerTruth.ownerDecisions.length} additional PM decision${activeOwnerDecisionCount - activeOwnerTruth.ownerDecisions.length === 1 ? '' : 's'} also need your review.` : ''}`
+    : activeOwnerDecisionCount > 0
+      ? `AI Clone needs your decision on ${activeOwnerDecisionCount} PM item${activeOwnerDecisionCount === 1 ? '' : 's'}.`
+      : activeHostActionCount > 0
+        ? `No judgment call is reported, but ${activeHostActionCount} bounded host action${activeHostActionCount === 1 ? '' : 's'} require you because AI Clone cannot perform them safely.`
+        : 'No owner decision or host action is currently requested.';
+  const currentMeaningfulState = activePortfolioWorkspace
+    ? `${activeReadinessLabel}. ${activeReadinessReason}`
+    : activeOwnerTruth.currentState;
+  const recommendationTruth = activeOwnerTruth.recommendations.length
+    ? firstOwnerFact(activeOwnerTruth.recommendations, '')
+    : activeOwnerDecisionCount > 0
+      ? 'Review one highest-priority decision in Execution. AI Clone will not choose for you.'
+      : activeHostActionCount > 0
+        ? 'Complete one clearly labeled host action in Execution; the rest of this workspace remains readable.'
+        : 'No new owner action is recommended until the goal, evidence, or eligibility state changes.';
   const workspaceOwnerTruthRows = [
-    {
-      label: 'Workspace goal',
-      value: activeGoal?.goal ?? 'Canonical goal unavailable in the current Ops cycle projection.',
-      tone: activeGoal ? '#e2e8f0' : '#fbbf24',
-    },
-    {
-      label: 'What counts as progress',
-      value: activeGoal?.progressSignals.join(' ') ?? 'Progress criteria are unavailable with the missing goal projection.',
-      tone: activeGoal ? '#cbd5f5' : '#fbbf24',
-    },
-    {
-      label: 'Current phase gate',
-      value: activeGoal?.phaseGate ?? 'Phase completion cannot be confirmed from this projection.',
-      tone: activeGoal ? '#cbd5f5' : '#fbbf24',
-    },
-    {
-      label: 'Reevaluate when',
-      value: activeGoal?.noActionTrigger ?? 'The no-action trigger is unavailable with the missing goal projection.',
-      tone: activeGoal ? '#cbd5f5' : '#fbbf24',
-    },
-    { label: 'Current meaningful state', value: `${activeReadinessLabel}. ${activeReadinessReason}`, tone: activeReadinessTone },
-    {
-      label: 'What changed',
-      value: activeCanonicalObservedAt
-        ? `The latest canonical workspace observation is ${formatTimestamp(new Date(activeCanonicalObservedAt))}.`
-        : activeCycleEvaluation?.status === 'failed'
-          ? 'No new canonical workspace update was accepted in the last recorded cycle.'
-          : 'No standup-backed canonical workspace update is recorded yet.',
-      tone: '#cbd5f5',
-    },
-    { label: cycleDispositionLabel, value: latestCycleAction, tone: activeCycleEvaluation?.status === 'failed' ? '#fda4af' : '#cbd5f5' },
-    { label: 'Completed, failed, carried forward', value: latestCycleResult, tone: '#cbd5f5' },
+    { label: 'Current meaningful state', value: currentMeaningfulState, tone: activeReadinessTone },
+    ...(activePortfolioWorkspace ? [{ label: 'Latest governed cycle', value: activeOwnerTruth.currentState, tone: activeCycleTone }] : []),
+    ...(activeOwnerTruth.affected ? [{ label: 'Affected this cycle', value: activeOwnerTruth.affected, tone: '#fdba74' }] : []),
+    { label: 'What remains healthy', value: activeOwnerTruth.remainsHealthy, tone: '#86efac' },
+    { label: 'What changed', value: firstOwnerFact(activeOwnerTruth.changes, 'No new canonical workspace change was claimed.'), tone: '#cbd5f5' },
+    { label: 'AI Clone did this', value: firstOwnerFact(activeOwnerTruth.actions, 'No completed system action was claimed by this workspace conclusion.'), tone: '#a5f3fc' },
+    { label: 'Completed, failed, carried forward', value: completedFailedCarried, tone: activeOwnerTruth.failed.length ? '#fda4af' : '#cbd5f5' },
     { label: activeOwnerDecisionCount > 0 ? 'Needs your decision' : activeHostActionCount > 0 ? 'Needs your action' : 'Owner action', value: ownerActionTruth, tone: activeOwnerDecisionCount + activeHostActionCount > 0 ? '#fde68a' : '#94a3b8' },
     { label: 'AI Clone recommends', value: recommendationTruth, tone: '#e2e8f0' },
-    { label: 'Next Dream consumes', value: nextDreamTruth, tone: '#bae6fd' },
+    { label: 'Next Dream consumes', value: firstOwnerFact(activeOwnerTruth.nextDream, 'No next-Dream input is claimed by this conclusion.'), tone: '#bae6fd' },
   ];
   const workspaceSummaryCards = useMemo(
     () => [
@@ -10818,8 +10784,8 @@ function WorkspaceHubPanel({
           <div>
             <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace goal</p>
             <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
-            <p style={{ color: activeGoal ? '#cbd5f5' : '#fbbf24', maxWidth: '760px', fontSize: '14px', lineHeight: 1.6 }}>
-              {activeGoal?.goal ?? 'Canonical goal unavailable in the current Ops cycle projection.'}
+            <p style={{ color: activeOwnerTruth.goal ? '#cbd5f5' : '#fbbf24', maxWidth: '760px', fontSize: '14px', lineHeight: 1.6 }}>
+              {activeOwnerTruth.goal ?? 'The canonical goal is unavailable because its bounded owner projection is not synchronized. Current cycle status remains usable.'}
             </p>
             <p style={{ color: '#64748b', maxWidth: '760px', fontSize: '12px', lineHeight: 1.5 }}>Scope: {activeWorkspace.description}</p>
           </div>
@@ -10885,8 +10851,11 @@ function WorkspaceHubPanel({
             </div>
           ))}
           <details style={{ padding: '10px 0', borderTop: '1px solid #172036' }}>
-            <summary style={{ color: '#64748b', fontSize: '12px', cursor: 'pointer' }}>Technical status, operating rules, and cycle receipt</summary>
+            <summary style={{ color: '#64748b', fontSize: '12px', cursor: 'pointer' }}>Goal criteria, operating rules, and cycle receipt</summary>
             <div style={{ display: 'grid', gap: '7px', marginTop: '9px', color: '#94a3b8', fontSize: '12px', lineHeight: 1.5 }}>
+              {activeOwnerTruth.progressSignals.length ? <p style={{ margin: 0 }}><strong>Meaningful progress:</strong> {activeOwnerTruth.progressSignals.join(' ')}</p> : null}
+              {activeOwnerTruth.phaseGate ? <p style={{ margin: 0 }}><strong>Completion gate:</strong> {activeOwnerTruth.phaseGate}</p> : null}
+              {activeOwnerTruth.reevaluateWhen ? <p style={{ margin: 0 }}><strong>Reevaluate when:</strong> {activeOwnerTruth.reevaluateWhen}</p> : null}
               <p style={{ margin: 0 }}>Workspace lifecycle: {workspaceLifecycleLabel(activeWorkspace.status)} — {workspaceLifecycleDetail(activeWorkspace.status)}</p>
               <p style={{ margin: 0 }}>Agent: {activeWorkspace.agent}</p>
               <p style={{ margin: 0 }}>Operating rules: {activeWorkspace.operatingPrinciples.join(' · ')}</p>
@@ -17852,55 +17821,6 @@ function workspaceCycleEvaluationMap(
   });
 
   return evaluations;
-}
-
-function projectedWorkspaceRecursionGoals(
-  projection: OpsWorkspaceCycleProjection | null,
-): Map<string, WorkspaceGoalProjection> {
-  const goals = new Map<string, WorkspaceGoalProjection>();
-  if (
-    projection?.schema_version !== 'ops_standup_summary_conclusion/v3'
-    || !Array.isArray(projection.workspace_recursion)
-  ) {
-    return goals;
-  }
-  projection.workspace_recursion.forEach((raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
-    const row = raw as Record<string, unknown>;
-    const workspaceKey = normalizeWorkspaceBoardKey(String(row.workspace_key ?? ''));
-    const goal = projectedWorkspaceGoal(row.goal);
-    if (workspaceKey && goal && !goals.has(workspaceKey)) {
-      goals.set(workspaceKey, goal);
-    }
-  });
-  return goals;
-}
-
-function projectedWorkspaceGoal(value: unknown): WorkspaceGoalProjection | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const raw = value as Record<string, unknown>;
-  const goal = typeof raw.goal === 'string' ? raw.goal.trim() : '';
-  const phaseGate = typeof raw.phase_gate === 'string' ? raw.phase_gate.trim() : '';
-  const noActionTrigger = typeof raw.no_action_trigger === 'string' ? raw.no_action_trigger.trim() : '';
-  const progressSignals = Array.isArray(raw.progress_signals)
-    ? raw.progress_signals.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
-    : [];
-  if (
-    raw.schema_version !== 'workspace_goal_contract/v1'
-    || !goal
-    || !phaseGate
-    || !noActionTrigger
-    || progressSignals.length === 0
-  ) {
-    return null;
-  }
-  return {
-    schemaVersion: 'workspace_goal_contract/v1',
-    goal,
-    progressSignals,
-    phaseGate,
-    noActionTrigger,
-  };
 }
 
 function automationCycleSemanticObservedAt(metadata: Record<string, unknown>): string | null {
