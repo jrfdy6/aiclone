@@ -73,6 +73,59 @@ WORKSPACE_GOAL_FIELDS = frozenset(
         "no_action_trigger",
     }
 )
+WORKSPACE_GOAL_PROJECTION_KEYS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "observed_at",
+        "clock",
+        "state",
+        "reason_codes",
+        "authority_sha256",
+        "projected_contracts_sha256",
+        "workspaces",
+        "data_policy",
+    }
+)
+WORKSPACE_GOAL_PROJECTION_ITEM_FIELDS = frozenset(
+    {"workspace_key", "display_name", "goal"}
+)
+WORKSPACE_CONTEXT_PROJECTION_KEYS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "observed_at",
+        "clock",
+        "state",
+        "reason_codes",
+        "cycle_id",
+        "workspaces",
+        "data_policy",
+    }
+)
+WORKSPACE_CONTEXT_ITEM_FIELDS = frozenset(
+    {
+        "workspace_key",
+        "display_name",
+        "state",
+        "reason_codes",
+        "current_focus",
+        "artifacts",
+    }
+)
+WORKSPACE_CONTEXT_FOCUS_FIELDS = frozenset({"title", "status", "source_kind"})
+WORKSPACE_CONTEXT_ARTIFACT_FIELDS = frozenset(
+    {
+        "kind",
+        "title",
+        "summary",
+        "reference",
+        "source_updated_at",
+        "source_sha256",
+        "consumption_role",
+        "source_state",
+    }
+)
 WORKSPACE_RECURSION_FIELDS = frozenset(
     {
         "workspace_key",
@@ -945,6 +998,357 @@ def _verify_goal_contract(value: Any, *, label: str) -> None:
     )
 
 
+def _verify_workspace_goal_projection(
+    value: Any,
+    *,
+    expected_workspaces: set[str],
+) -> dict[str, Any]:
+    """Verify the bounded goal projection remains tied to one private authority."""
+
+    _require(
+        isinstance(value, dict) and set(value) == WORKSPACE_GOAL_PROJECTION_KEYS,
+        "Workspace-goal projection shape is open or incomplete",
+    )
+    _require(
+        value.get("schema_version") == "ops_workspace_goal_projection/v1",
+        "Workspace-goal projection has the wrong schema",
+    )
+    _require(
+        value.get("state") == "ready" and value.get("reason_codes") == [],
+        "Workspace-goal projection is unavailable or degraded",
+    )
+    _require(
+        value.get("data_policy")
+        == {
+            "canonical_authority": "private_workspace_repository",
+            "railway_role": "authenticated_bounded_workspace_goal_projection",
+            "private_bodies_included": False,
+            "projection_is_write_authority": False,
+        },
+        "Workspace-goal projection authority or privacy policy is wrong",
+    )
+
+    generated_at = value.get("generated_at")
+    observed_at = value.get("observed_at")
+    try:
+        generated = datetime.fromisoformat(
+            str(generated_at or "").replace("Z", "+00:00")
+        )
+        observed = datetime.fromisoformat(
+            str(observed_at or "").replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise ProjectionVerificationError(
+            "Workspace-goal projection timestamps are invalid"
+        ) from exc
+    _require(
+        generated.tzinfo is not None
+        and generated.utcoffset() == timezone.utc.utcoffset(generated)
+        and observed.tzinfo is not None
+        and observed.utcoffset() == timezone.utc.utcoffset(observed),
+        "Workspace-goal projection timestamps do not use ai_clone_utc",
+    )
+    clock = value.get("clock")
+    _require(
+        isinstance(clock, dict)
+        and clock
+        == {
+            "schema_version": "ai_clone_clock/v1",
+            "authority": "ai_clone_utc",
+            "timezone": "UTC",
+            "observed_at": observed_at,
+        },
+        "Workspace-goal projection ai_clone_utc receipt is missing or invalid",
+    )
+
+    authority_sha256 = value.get("authority_sha256")
+    projected_sha256 = value.get("projected_contracts_sha256")
+    _require(
+        isinstance(authority_sha256, str)
+        and re.fullmatch(r"[0-9a-f]{64}", authority_sha256) is not None,
+        "Workspace-goal projection authority digest is invalid",
+    )
+    _require(
+        isinstance(projected_sha256, str)
+        and re.fullmatch(r"[0-9a-f]{64}", projected_sha256) is not None,
+        "Workspace-goal projection contract digest is invalid",
+    )
+
+    workspaces = value.get("workspaces")
+    _require(
+        isinstance(workspaces, list) and 0 < len(workspaces) <= 25,
+        "Workspace-goal projection rows are missing or unbounded",
+    )
+    projected_keys: list[str] = []
+    for item in workspaces:
+        _require(
+            isinstance(item, dict)
+            and set(item) == WORKSPACE_GOAL_PROJECTION_ITEM_FIELDS,
+            "Workspace-goal projection contains a malformed row",
+        )
+        workspace_key = str(item.get("workspace_key") or "")
+        display_name = item.get("display_name")
+        _require(
+            bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", workspace_key))
+            and isinstance(display_name, str)
+            and bool(display_name.strip())
+            and len(display_name) <= 120,
+            "Workspace-goal projection contains an invalid workspace identity",
+        )
+        _verify_goal_contract(
+            item.get("goal"),
+            label=f"Workspace-goal projection {workspace_key}",
+        )
+        projected_keys.append(workspace_key)
+    _require(
+        len(projected_keys) == len(set(projected_keys))
+        and set(projected_keys) == expected_workspaces,
+        "Workspace-goal projection does not cover each active project exactly once",
+    )
+    calculated_sha256 = hashlib.sha256(
+        json.dumps(
+            workspaces,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    _require(
+        calculated_sha256 == projected_sha256,
+        "Workspace-goal projection contract digest does not match its rows",
+    )
+    try:
+        serialized = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ProjectionVerificationError(
+            "Workspace-goal projection is not bounded JSON"
+        ) from exc
+    _require(
+        len(serialized.encode("utf-8")) <= 64 * 1024,
+        "Workspace-goal projection exceeds its bounded size",
+    )
+    _verify_privacy(value, label="Workspace-goal")
+    return {
+        "status": "passed",
+        "workspace_count": len(projected_keys),
+        "authority_sha256": authority_sha256,
+        "projected_contracts_sha256": projected_sha256,
+        "clock_authority": "ai_clone_utc",
+        "projection_is_write_authority": False,
+    }
+
+
+def _verify_workspace_context_projection(
+    value: Any,
+    *,
+    expected_workspaces: set[str],
+) -> dict[str, Any]:
+    """Verify real cycle inputs reach Railway without becoming new authority."""
+
+    _require(
+        isinstance(value, dict) and set(value) == WORKSPACE_CONTEXT_PROJECTION_KEYS,
+        "Workspace-context projection shape is open or incomplete",
+    )
+    _require(
+        value.get("schema_version") == "ops_workspace_context_projection/v1",
+        "Workspace-context projection has the wrong schema",
+    )
+    _require(
+        value.get("state") == "ready" and value.get("reason_codes") == [],
+        "Workspace-context projection is unavailable or degraded",
+    )
+    _require(
+        value.get("data_policy")
+        == {
+            "canonical_authority": "private_cycle_prep_and_workspace_state",
+            "railway_role": "authenticated_bounded_workspace_context_projection",
+            "private_bodies_included": False,
+            "absolute_paths_included": False,
+            "projection_is_write_authority": False,
+        },
+        "Workspace-context projection authority or privacy policy is wrong",
+    )
+    generated_at = value.get("generated_at")
+    observed_at = value.get("observed_at")
+    try:
+        generated = datetime.fromisoformat(
+            str(generated_at or "").replace("Z", "+00:00")
+        )
+        observed = datetime.fromisoformat(
+            str(observed_at or "").replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise ProjectionVerificationError(
+            "Workspace-context projection timestamps are invalid"
+        ) from exc
+    _require(
+        generated.tzinfo is not None
+        and generated.utcoffset() == timezone.utc.utcoffset(generated)
+        and observed.tzinfo is not None
+        and observed.utcoffset() == timezone.utc.utcoffset(observed),
+        "Workspace-context projection timestamps do not use ai_clone_utc",
+    )
+    _require(
+        value.get("clock")
+        == {
+            "schema_version": "ai_clone_clock/v1",
+            "authority": "ai_clone_utc",
+            "timezone": "UTC",
+            "observed_at": observed_at,
+        },
+        "Workspace-context projection ai_clone_utc receipt is missing or invalid",
+    )
+    cycle_id = value.get("cycle_id")
+    _require(
+        isinstance(cycle_id, str)
+        and cycle_id == cycle_id.strip()
+        and 0 < len(cycle_id) <= 200,
+        "Workspace-context projection cycle identity is invalid",
+    )
+
+    workspaces = value.get("workspaces")
+    _require(
+        isinstance(workspaces, list) and 0 < len(workspaces) <= 25,
+        "Workspace-context projection rows are missing or unbounded",
+    )
+    projected_keys: list[str] = []
+    primary_titles: dict[str, str] = {}
+    artifact_count = 0
+    for item in workspaces:
+        _require(
+            isinstance(item, dict) and set(item) == WORKSPACE_CONTEXT_ITEM_FIELDS,
+            "Workspace-context projection contains a malformed row",
+        )
+        workspace_key = item.get("workspace_key")
+        display_name = item.get("display_name")
+        _require(
+            isinstance(workspace_key, str)
+            and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", workspace_key) is not None
+            and isinstance(display_name, str)
+            and bool(display_name.strip())
+            and len(display_name) <= 120,
+            "Workspace-context projection contains an invalid workspace identity",
+        )
+        _require(
+            item.get("state") == "consumed" and item.get("reason_codes") == [],
+            f"Workspace-context projection does not prove consumed inputs for {workspace_key}",
+        )
+        focus = item.get("current_focus")
+        _require(
+            isinstance(focus, dict)
+            and set(focus) == WORKSPACE_CONTEXT_FOCUS_FIELDS
+            and isinstance(focus.get("title"), str)
+            and bool(focus["title"].strip())
+            and len(focus["title"]) <= 220
+            and focus.get("status")
+            in {
+                "todo",
+                "queued",
+                "running",
+                "in_progress",
+                "review",
+                "blocked",
+                "failed",
+                "done",
+                "complete",
+                "unknown",
+            }
+            and focus.get("source_kind") == "canonical_pm_snapshot",
+            f"Workspace-context projection has no valid current focus for {workspace_key}",
+        )
+        artifacts = item.get("artifacts")
+        _require(
+            isinstance(artifacts, list) and 0 < len(artifacts) <= 4,
+            f"Workspace-context projection has no bounded source artifact for {workspace_key}",
+        )
+        seen_refs: set[str] = set()
+        for artifact in artifacts:
+            _require(
+                isinstance(artifact, dict)
+                and set(artifact) == WORKSPACE_CONTEXT_ARTIFACT_FIELDS,
+                f"Workspace-context projection has a malformed artifact for {workspace_key}",
+            )
+            title = artifact.get("title")
+            summary = artifact.get("summary")
+            reference = artifact.get("reference")
+            source_sha256 = artifact.get("source_sha256")
+            _require(
+                artifact.get("kind")
+                in {"analytics", "execution_log", "briefing", "dispatch"}
+                and isinstance(title, str)
+                and bool(title.strip())
+                and len(title) <= 180
+                and isinstance(summary, str)
+                and bool(summary.strip())
+                and len(summary) <= 480
+                and isinstance(reference, str)
+                and reference.startswith(f"workspace://{workspace_key}/")
+                and ".." not in reference
+                and reference not in seen_refs
+                and artifact.get("consumption_role") == "reference_only"
+                and artifact.get("source_state") == "verified_preexisting"
+                and isinstance(source_sha256, str)
+                and re.fullmatch(r"[0-9a-f]{64}", source_sha256) is not None,
+                f"Workspace-context projection artifact is invalid for {workspace_key}",
+            )
+            try:
+                source_updated = datetime.fromisoformat(
+                    str(artifact.get("source_updated_at") or "").replace("Z", "+00:00")
+                )
+            except ValueError as exc:
+                raise ProjectionVerificationError(
+                    f"Workspace-context source timestamp is invalid for {workspace_key}"
+                ) from exc
+            _require(
+                source_updated.tzinfo is not None
+                and source_updated.utcoffset() == timezone.utc.utcoffset(source_updated)
+                and source_updated <= observed,
+                f"Workspace-context source is not proven preexisting for {workspace_key}",
+            )
+            seen_refs.add(reference)
+            artifact_count += 1
+        primary_titles[workspace_key] = str(artifacts[0]["title"])
+        projected_keys.append(workspace_key)
+
+    _require(
+        len(projected_keys) == len(set(projected_keys))
+        and set(projected_keys) == expected_workspaces,
+        "Workspace-context projection does not cover each active project exactly once",
+    )
+    try:
+        serialized = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ProjectionVerificationError(
+            "Workspace-context projection is not bounded JSON"
+        ) from exc
+    _require(
+        len(serialized.encode("utf-8")) <= 128 * 1024,
+        "Workspace-context projection exceeds its bounded size",
+    )
+    _verify_privacy(value, label="Workspace-context")
+    return {
+        "status": "passed",
+        "cycle_id": cycle_id,
+        "clock_authority": "ai_clone_utc",
+        "workspace_count": len(projected_keys),
+        "artifact_count": artifact_count,
+        "primary_artifact_titles": primary_titles,
+        "projection_is_write_authority": False,
+    }
+
+
 def _verify_shared_ops_reconciliation(
     value: Any,
     *,
@@ -1238,6 +1642,8 @@ def verify(
     ops: dict[str, Any],
     *,
     registry: dict[str, Any] | None = None,
+    workspace_goals: dict[str, Any] | None = None,
+    workspace_context: dict[str, Any] | None = None,
     workspace_html: str | None = None,
     require_action_readiness: bool = True,
 ) -> dict[str, Any]:
@@ -1246,6 +1652,22 @@ def verify(
 
         registry = workspace_registry_payload(include_executive=False)
     expected_workspaces = _active_registry_workspace_keys(registry)
+    workspace_goal_projection_evidence = (
+        _verify_workspace_goal_projection(
+            workspace_goals,
+            expected_workspaces=expected_workspaces,
+        )
+        if workspace_goals is not None
+        else {"status": "not_checked"}
+    )
+    workspace_context_projection_evidence = (
+        _verify_workspace_context_projection(
+            workspace_context,
+            expected_workspaces=expected_workspaces,
+        )
+        if workspace_context is not None
+        else {"status": "not_checked"}
+    )
     content_result = _verify_content(content)
     ops_result = _verify_ops(
         ops,
@@ -1264,7 +1686,7 @@ def verify(
     if require_action_readiness:
         _require(action_ready, "controller action readiness is degraded")
     return {
-        "schema_version": "integrated_production_projection_verification/v2",
+        "schema_version": "integrated_production_projection_verification/v3",
         "status": "passing" if action_ready else "degraded",
         "data_integrity_status": "passing",
         "readability_status": "readable",
@@ -1274,6 +1696,8 @@ def verify(
         "content_lifecycle_evidence": content_result["content_lifecycle_evidence"],
         "counts": content_result["counts"],
         "active_workspace_count": len(expected_workspaces),
+        "workspace_goal_projection_evidence": workspace_goal_projection_evidence,
+        "workspace_context_projection_evidence": workspace_context_projection_evidence,
         **ops_result,
         "frontend_owner_surfaces_verified": workspace_html is not None,
     }
@@ -1284,13 +1708,24 @@ def main() -> int:
     parser.add_argument("--content", type=Path, required=True)
     parser.add_argument("--ops", type=Path, required=True)
     parser.add_argument("--registry", type=Path, required=True)
+    parser.add_argument("--workspace-goals", type=Path, required=True)
+    parser.add_argument("--workspace-context", type=Path, required=True)
     parser.add_argument("--workspace-html", type=Path)
     args = parser.parse_args()
     content = json.loads(args.content.read_text(encoding="utf-8"))
     ops = json.loads(args.ops.read_text(encoding="utf-8"))
     registry = json.loads(args.registry.read_text(encoding="utf-8"))
+    workspace_goals = json.loads(args.workspace_goals.read_text(encoding="utf-8"))
+    workspace_context = json.loads(args.workspace_context.read_text(encoding="utf-8"))
     html = args.workspace_html.read_text(encoding="utf-8") if args.workspace_html else None
-    result = verify(content, ops, registry=registry, workspace_html=html)
+    result = verify(
+        content,
+        ops,
+        registry=registry,
+        workspace_goals=workspace_goals,
+        workspace_context=workspace_context,
+        workspace_html=html,
+    )
     print(json.dumps(result, sort_keys=True))
     return 0
 

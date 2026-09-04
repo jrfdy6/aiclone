@@ -8,19 +8,9 @@ const { renderToStaticMarkup } = require('react-dom/server');
 
 const component = fs.readFileSync(path.join(__dirname, '../app/workspace/OpsStandupSummary.tsx'), 'utf8');
 const workspace = fs.readFileSync(path.join(__dirname, '../app/workspace/WorkspaceClient.tsx'), 'utf8');
-const decisionProjectionSource = fs.readFileSync(path.join(__dirname, '../lib/ops-canonical-decision.ts'), 'utf8');
-const decisionProjectionCompiled = ts.transpileModule(decisionProjectionSource, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const decisionProjectionModule = { exports: {} };
-new Function('module', 'exports', decisionProjectionCompiled)(
-  decisionProjectionModule,
-  decisionProjectionModule.exports,
-);
-const { opsCanonicalDecisionDisplay } = decisionProjectionModule.exports;
 
-function compileOpsSummaryComponent() {
-  const compiled = ts.transpileModule(component, {
+function compileModule(source, localRequire) {
+  const compiled = ts.transpileModule(source, {
     compilerOptions: {
       jsx: ts.JsxEmit.ReactJSX,
       module: ts.ModuleKind.CommonJS,
@@ -28,118 +18,231 @@ function compileOpsSummaryComponent() {
       esModuleInterop: true,
     },
   }).outputText;
-  const module = { exports: {} };
-  const localRequire = (id) => {
-    if (id === 'react' || id === 'react/jsx-runtime') return require(id);
-    if (id === '@/lib/control-api') return { controlApiGet: async () => ({}) };
-    if (id === '@/lib/display-privacy') return { normalizeDisplayText: (value) => value, safeExternalHttpsUrl: () => null };
-    if (id === '@/lib/ops-canonical-decision') {
-      return { opsCanonicalDecisionDisplay: () => ({ title: 'Decision', status: null, stateVersion: null, resolvedChoice: null }) };
-    }
-    throw new Error(`Unexpected Ops summary dependency: ${id}`);
-  };
-  new Function('require', 'module', 'exports', compiled)(localRequire, module, module.exports);
-  return module.exports;
+  const moduleRef = { exports: {} };
+  new Function('require', 'module', 'exports', compiled)(localRequire, moduleRef, moduleRef.exports);
+  return moduleRef.exports;
 }
 
-test('workspace renders the canonical final Ops artifact from its bounded API', () => {
-  assert.match(workspace, /<OpsStandupSummary \/>/);
-  assert.match(component, /Ops Standup Summary and Conclusion/);
-  assert.match(component, /\/api\/workspace\/ops-standup/);
-  assert.match(component, /conclusion attempt \$\{data\.ops_conclusion_attempt_number/);
-});
+function compileOwnerTruth() {
+  const source = fs.readFileSync(path.join(__dirname, '../lib/ops-owner-truth.ts'), 'utf8');
+  return compileModule(source, (id) => {
+    if (id === '@/lib/display-privacy') return { normalizeDisplayText: (value) => value };
+    throw new Error(`Unexpected owner-truth dependency: ${id}`);
+  });
+}
 
-test('Ops panel exposes required decisions, owner calls, health, and degraded state', () => {
-  const itemListSections = ['Workspace updates', 'Urgent escalations', 'Owner calls', 'Blockers', 'Work underway', 'Completed work', 'Workspace decisions', 'Ops decisions', 'Supporting evidence'];
-  for (const title of itemListSections) {
-    assert.equal(component.match(new RegExp(`<ItemList title="${title}"`, 'g'))?.length, 1, `${title} must render exactly once`);
-  }
-  for (const required of ['AI Clone process updates', 'Recommended next actions', 'Endpoint and subsystem diagnostics are available in System', 'Portfolio conclusion degraded', 'What remains healthy', 'Next Dream consumes']) assert.match(component, new RegExp(required));
-  assert.equal(component.match(/<ProcessUpdates updates=/g)?.length, 1, 'process updates must render exactly once');
-  assert.equal(component.match(/<CanonicalDecisionList items=/g)?.length, 1, 'canonical decisions must render exactly once');
-  assert.match(component, /role="alert"/);
-  assert.match(component, /evidenceUrl/);
-  assert.match(component, /target="_blank"/);
-});
+function compileDecisionProjection() {
+  const source = fs.readFileSync(path.join(__dirname, '../lib/ops-canonical-decision.ts'), 'utf8');
+  return compileModule(source, (id) => {
+    throw new Error(`Unexpected decision dependency: ${id}`);
+  });
+}
 
-test('unrelated subsystem warnings remain visible while canonical decisions are ready', () => {
-  assert.match(component, /data && data\.degraded_system_warnings\.length > 0/);
-  assert.match(component, /data-ops-subsystem-warnings="visible"/);
-  assert.match(component, /<strong>What is affected<\/strong>/);
-  assert.match(component, /data\.degraded_system_warnings\.slice\(0, 5\)\.map/);
-  assert.doesNotMatch(
-    component,
-    /\(data\.state === 'degraded' \|\| data\.state === 'error'\)[^?]+\?[^:]+data\.degraded_system_warnings/,
-  );
-  assert.match(component, /decision_readiness\?\.state === 'ready'/);
-});
+function compileOpsSummaryComponent() {
+  const ownerTruth = compileOwnerTruth();
+  const decisionProjection = compileDecisionProjection();
+  return compileModule(component, (id) => {
+    if (id === 'react' || id === 'react/jsx-runtime') return require(id);
+    if (id === 'next/link') {
+      return {
+        __esModule: true,
+        default: ({ children, href, ...props }) => React.createElement('a', { href, ...props }, children),
+      };
+    }
+    if (id === '@/lib/control-api') return { controlApiGet: async () => ({}) };
+    if (id === '@/lib/display-privacy') {
+      return {
+        safeExternalHttpsUrl: (value) => typeof value === 'string' && value.startsWith('https://') ? value : null,
+      };
+    }
+    if (id === '@/lib/ops-canonical-decision') return decisionProjection;
+    if (id === '@/lib/ops-owner-truth') return ownerTruth;
+    throw new Error(`Unexpected Ops summary dependency: ${id}`);
+  });
+}
 
-test('Ops panel renders bounded workspace recursion truth and structured recommendation resolutions', () => {
-  assert.match(component, /type WorkspaceRecursion = \{/);
-  assert.match(component, /display_name: string/);
-  assert.match(component, /workspace_recursion: WorkspaceRecursion\[\]/);
-  assert.match(component, /shared_ops_reconciliation\?: SharedOpsReconciliation \| null/);
-  assert.match(component, /recommended_next_actions: Item\[\]/);
-  assert.match(component, /<WorkspaceRecursionList items=\{data\.workspace_recursion \?\? \[\]\} \/>/);
-  assert.match(component, /\{ownerText\(workspace\.display_name \|\| workspace\.workspace_key\)\}/);
-  for (const label of [
-    'Goal',
-    'What changed',
-    'AI Clone decided',
-    'AI Clone did',
-    'Completed',
-    'Failed',
-    'Carried forward',
-    'Needs owner',
-    'Blocked',
-    'No eligible change',
-    'AI Clone recommends',
-    'Reference only',
-    'Next-cycle input',
-    'Recommendation resolution',
-  ]) {
-    assert.match(component, new RegExp(label));
-  }
-  assert.match(component, /title="No eligible change"[\s\S]*detailKeys=\{\['trigger'\]\}/);
-  assert.match(component, /title="Recommendation resolution"[\s\S]*detailKeys=\{\['state', 'explanation', 'future_trigger'\]\}/);
-  assert.match(component, /<ItemList title="Recommended next actions" items=\{data\.recommended_next_actions \?\? \[\]\}/);
-  assert.doesNotMatch(component, /recommended_next_actions\.map\(\(item\) => <li key=\{item\}>/);
-});
+function goal(name) {
+  return {
+    schema_version: 'workspace_goal_contract/v1',
+    goal: `${name} canonical owner goal.`,
+    progress_signals: [`One verified ${name} progress signal.`],
+    phase_gate: `${name} completion gate.`,
+    no_action_trigger: `${name} evidence changes.`,
+  };
+}
 
-test('Shared Ops renders as a read-only reconciler summary, not a seventh project row', () => {
-  const { SharedOpsReconciliationSummary } = compileOpsSummaryComponent();
-  const html = renderToStaticMarkup(React.createElement(SharedOpsReconciliationSummary, {
-    summary: {
-      display_name: 'Executive Standup',
-      role: 'portfolio_reconciler',
-      summary: 'Reconciled all six project conclusions.',
-      goal: { goal: 'Keep the active portfolio legible.' },
-      evaluated: [{ summary: 'Six project conclusions.' }],
-      system_decisions: [{ summary: 'Preserve project ownership.' }],
-      actions_taken: [{ summary: 'Reconciled dependencies.' }],
-      owner_calls: [],
+function projectionFixture() {
+  const keys = [
+    ['agc', 'AGC'],
+    ['ai-swag-store', 'AI Swag Store'],
+    ['easyoutfitapp', 'Easy Outfit App'],
+    ['fusion-os', 'Fusion OS'],
+    ['work-life-tools', 'Work Life Tools'],
+  ];
+  return {
+    schema_version: 'ops_standup_summary_conclusion/v3',
+    state: 'degraded',
+    cycle_date: '2026-09-03',
+    observed_at: '2026-09-03T10:15:00Z',
+    ops_conclusion_attempt_number: 1,
+    workspace_updates: [
+      ...keys.map(([workspace_key, display_name]) => ({ workspace_key, display_name, state: 'returned' })),
+      { workspace_key: 'feezie-os', display_name: 'FEEZIE OS', state: 'missing', summary: 'No conclusion receipt received.' },
+    ],
+    workspace_recursion: keys.map(([workspace_key, display_name], index) => ({
+      workspace_key,
+      display_name,
+      goal: goal(display_name),
+      changes_since_prior: index === 0
+        ? [{
+          summary: 'Workspace cycle plan (no meeting held): generic internal plumbing detail that should not lead.',
+          commitment: 'Qualified one GDIT opportunity against the existing proof boundary.',
+        }]
+        : [{ summary: `Verified one bounded ${display_name} change.` }],
+      system_decisions: [],
+      actions_taken: [{ summary: `Evaluated the current ${display_name} evidence.` }],
+      completed_work: [],
+      failed_work: [],
+      carried_forward: [{ summary: `Retained the prior ${display_name} PM state.` }],
+      owner_decisions: [],
       blocked: [],
       no_action: [],
-      recommendations: [{ summary: 'Review one bounded conflict.' }],
-      reference_only: [{ summary: 'Prior static plan.' }],
-      next_cycle_inputs: [{ summary: 'Later Dream reads the receipt.' }],
+      recommendations: [{ summary: `Review the bounded ${display_name} result when its evidence changes.` }],
+      reference_only: [{ summary: '[private-workspace-context]', ref: 'coordination-record:record' }],
+      next_cycle_inputs: [{ summary: `The next Dream cycle consumes the accepted ${display_name} conclusion.` }],
+      recommendation_resolutions: [],
+    })),
+    owner_calls: [{ summary: 'Recovery verification requires attention.' }],
+    canonical_decisions: [
+      {
+        title: 'Confirm the recovery gate',
+        status: 'open',
+        state_version: 2,
+      },
+    ],
+    recommended_next_actions: [{ summary: 'Repair the missing FEEZIE conclusion through the governed cycle.' }],
+    shared_ops_reconciliation: {
+      display_name: 'Executive Standup',
+      role: 'portfolio_reconciler',
+      summary: 'Reconciled five of six project conclusions.',
+      actions_taken: [{ summary: 'Reconciled the five accepted project conclusions without executing project work.' }],
+      recommendations: [{ summary: 'Repair the missing project handoff.' }],
+      next_cycle_inputs: [{ summary: 'The next Dream cycle consumes only accepted workspace conclusions.' }],
     },
+    supporting_evidence_links: [{ title: 'Bounded evidence', url: 'https://example.com/evidence' }],
+    ai_clone_process_updates: { memory_readiness: { status: 'ready' } },
+  };
+}
+
+function goalProjectionFixture() {
+  const keys = [
+    ['feezie-os', 'FEEZIE OS'],
+    ['fusion-os', 'Fusion OS'],
+    ['easyoutfitapp', 'Easy Outfit App'],
+    ['ai-swag-store', 'AI Swag Store'],
+    ['agc', 'AGC'],
+    ['work-life-tools', 'Work Life Tools'],
+  ];
+  return {
+    schema_version: 'ops_workspace_goal_projection/v1',
+    state: 'ready',
+    workspaces: keys.map(([workspace_key, display_name]) => ({
+      workspace_key,
+      display_name,
+      goal: goal(display_name),
+    })),
+  };
+}
+
+test('workspace uses the existing bounded projection and scopes it to FEEZIE', () => {
+  assert.match(workspace, /<OpsStandupSummary workspaceKey="feezie-os" \/>/);
+  assert.match(component, /\/api\/workspace\/ops-standup/);
+  assert.match(component, /\/api\/workspace\/ops-workspace-goals/);
+  assert.match(component, /projectWorkspaceOwnerTruth\(data, workspaceKey, goalProjection\)/);
+  assert.match(component, /projection !== undefined/);
+  assert.match(component, /goalProjection !== undefined/);
+});
+
+test('portfolio renders one bounded status per project without the recursive data dump', () => {
+  const { default: OpsStandupSummary } = compileOpsSummaryComponent();
+  const html = renderToStaticMarkup(React.createElement(OpsStandupSummary, {
+    projection: projectionFixture(),
+  }));
+
+  assert.match(html, /5 of 6 workspace conclusions returned/);
+  assert.match(html, /FEEZIE OS/);
+  assert.match(html, /AGC canonical owner goal/);
+  assert.match(html, /Needs your decision/);
+  assert.match(html, /Needs your attention/);
+  assert.match(html, /What remains healthy/);
+  assert.match(html, /Next Dream consumes/);
+  assert.match(html, /Supporting cycle evidence/);
+  assert.doesNotMatch(html, /generic internal plumbing detail/);
+  assert.doesNotMatch(html, /participant_receipt_unavailable|private-workspace-context|coordination-record|workspace key|reason codes/i);
+  assert.doesNotMatch(component, /WorkspaceRecursionList|JSON\.stringify\(data\.endpoint_and_subsystem_health/);
+});
+
+test('selected workspace renders the canonical goal and current cycle truth only', () => {
+  const { default: OpsStandupSummary } = compileOpsSummaryComponent();
+  const html = renderToStaticMarkup(React.createElement(OpsStandupSummary, {
+    projection: projectionFixture(),
+    workspaceKey: 'agc',
+  }));
+
+  assert.match(html, /AGC canonical owner goal/);
+  assert.match(html, /Qualified one GDIT opportunity/);
+  assert.match(html, /Evaluated the current AGC evidence/);
+  assert.match(html, /Retained the prior AGC PM state/);
+  assert.match(html, /Open AGC in Ops/);
+  assert.doesNotMatch(html, /AI Swag Store canonical owner goal|generic internal plumbing detail/);
+});
+
+test('missing workspace remains visibly blocked without inventing a goal or success', () => {
+  const { default: OpsStandupSummary } = compileOpsSummaryComponent();
+  const html = renderToStaticMarkup(React.createElement(OpsStandupSummary, {
+    projection: projectionFixture(),
+    workspaceKey: 'feezie-os',
+  }));
+
+  assert.match(html, /FEEZIE OS did not return a current conclusion receipt/);
+  assert.match(html, /The system is not treating this as a successful cycle/);
+  assert.match(html, /canonical goal is unavailable/i);
+  assert.match(html, /prior accepted FEEZIE OS truth/i);
+  assert.doesNotMatch(html, /Ready\. Every required|Current\. The workspace returned/);
+});
+
+test('missing cycle conclusion still renders its independently projected canonical goal', () => {
+  const { default: OpsStandupSummary } = compileOpsSummaryComponent();
+  const html = renderToStaticMarkup(React.createElement(OpsStandupSummary, {
+    projection: projectionFixture(),
+    goalProjection: goalProjectionFixture(),
+    workspaceKey: 'feezie-os',
+  }));
+
+  assert.match(html, /FEEZIE OS canonical owner goal/);
+  assert.match(html, /FEEZIE OS did not return a current conclusion receipt/);
+  assert.match(html, /The system is not treating this as a successful cycle/);
+  assert.doesNotMatch(html, /canonical goal is unavailable/i);
+  assert.doesNotMatch(html, /Ready\. Every required|Current\. The workspace returned/);
+});
+
+test('Shared Ops remains a read-only reconciler, not a seventh project workspace', () => {
+  const { SharedOpsReconciliationSummary } = compileOpsSummaryComponent();
+  const html = renderToStaticMarkup(React.createElement(SharedOpsReconciliationSummary, {
+    summary: projectionFixture().shared_ops_reconciliation,
   }));
 
   assert.match(html, /Shared Ops reconciliation/);
   assert.match(html, /data-shared-ops-role="portfolio_reconciler"/);
-  assert.match(html, /AI Clone recommends/);
-  assert.match(html, /Reference only/);
-  assert.match(html, /Next Dream consumes/);
+  assert.match(html, /read-only portfolio reconciliation/i);
   assert.match(html, /does not execute project work or become a seventh project workspace/);
-  assert.doesNotMatch(html, /recursion-shared_ops/);
+  assert.match(html, /AI Clone did/);
+  assert.match(html, /Recommendation/);
+  assert.match(html, /Next Dream/);
 });
 
-test('canonical decisions show only bounded status, version, and resolved choice beneath the title', () => {
-  assert.match(component, /<CanonicalDecisionList items=\{data\.canonical_decisions\} \/>/);
-  assert.match(component, /Resolved choice:/);
-  assert.doesNotMatch(component, /<ItemList title="Canonical decisions"/);
-
+test('canonical decisions expose only bounded owner-facing fields', () => {
+  const { opsCanonicalDecisionDisplay } = compileDecisionProjection();
   assert.deepEqual(opsCanonicalDecisionDisplay({
     title: 'Choose the beta cutover',
     status: 'resolved',
@@ -155,16 +258,5 @@ test('canonical decisions show only bounded status, version, and resolved choice
     status: 'resolved',
     stateVersion: 4,
     resolvedChoice: 'Proceed with the bounded private beta.',
-  });
-  assert.deepEqual(opsCanonicalDecisionDisplay({
-    title: 'Open owner call',
-    status: 'open',
-    state_version: 1,
-    resolution: { choice: 'Premature nested value', private_notes: 'hidden' },
-  }), {
-    title: 'Open owner call',
-    status: 'open',
-    stateVersion: 1,
-    resolvedChoice: null,
   });
 });

@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import ops_workspace_goal_projection_service
 from app.services import ops_standup_projection_service
 from app.services import workspace_registry_service
 from app.services.integrated_system_store import IntegratedSystemStore
@@ -25,6 +26,13 @@ from app.services.ops_standup_projection_service import (
     ops_projection_semantic_sha256,
     unavailable_ops_standup_projection,
     validate_ops_standup_projection,
+)
+from app.services.ops_workspace_goal_projection_service import (
+    OpsWorkspaceGoalProjectionError,
+    build_ops_workspace_goal_projection,
+    ops_workspace_goal_projection_semantic_sha256,
+    unavailable_ops_workspace_goal_projection,
+    validate_ops_workspace_goal_projection,
 )
 from app.services.portfolio_cycle_service import PortfolioCycleService
 from app.services.workspace_snapshot_store import upsert_snapshot
@@ -75,6 +83,63 @@ def _active_workspace_recursion() -> list[dict]:
         and entry.get("portfolio_visible") is True
         and entry.get("status") in ACTIVE_PORTFOLIO_WORKSPACE_STATUSES
     ]
+
+
+def _goal_projection_authority_entries() -> tuple[dict, ...]:
+    """Provide a bounded authority fixture without reading private workspace files."""
+
+    entries: list[dict] = []
+    for entry in workspace_registry_entries():
+        if (
+            entry.get("kind") != "workspace"
+            or entry.get("portfolio_visible") is not True
+            or entry.get("status") not in ACTIVE_PORTFOLIO_WORKSPACE_STATUSES
+        ):
+            continue
+        workspace_key = str(entry["key"])
+        entries.append(
+            {
+                **entry,
+                "goal_contract_status": "available_private_authority",
+                "goal_contract_observed_at": "2026-08-20T06:15:00Z",
+                "goal_contract_authority_sha256": "4" * 64,
+                "goal_contract": {
+                    "schema_version": "workspace_goal_contract/v1",
+                    "goal": (
+                        f"Advance {workspace_key} only from verified bounded evidence."
+                    ),
+                    "progress_signals": [
+                        "One verified goal-aligned change is durably recorded."
+                    ],
+                    "phase_gate": (
+                        "The current bounded phase has verified completion evidence."
+                    ),
+                    "no_action_trigger": (
+                        "New eligible evidence or a governed lifecycle change arrives."
+                    ),
+                    "safe_internal_boundary": [
+                        "Analyze approved evidence and maintain bounded internal work."
+                    ],
+                    "owner_required_boundary": [
+                        "External, irreversible, or strategic action requires the owner."
+                    ],
+                    "authority_refs": ["SOURCE_OF_TRUTH.md"],
+                },
+            }
+        )
+    return tuple(entries)
+
+
+@pytest.fixture
+def workspace_goal_projection(monkeypatch) -> dict:
+    """Build ready projection data from an explicit public-safe test fixture."""
+
+    monkeypatch.setattr(
+        ops_workspace_goal_projection_service,
+        "_active_project_entries",
+        _goal_projection_authority_entries,
+    )
+    return build_ops_workspace_goal_projection()
 
 
 def _semantic_projection(
@@ -1463,6 +1528,208 @@ def test_workspace_route_can_read_canonical_ops_only_when_local_fallback_is_expl
     response = TestClient(app).get("/api/workspace/ops-standup")
     assert response.status_code == 200
     assert response.json() == expected
+
+
+def test_workspace_goal_projection_covers_every_active_project_from_one_authority(
+    workspace_goal_projection,
+):
+    projection = workspace_goal_projection
+
+    assert projection["schema_version"] == "ops_workspace_goal_projection/v1"
+    assert projection["state"] == "ready"
+    assert projection["clock"]["authority"] == "ai_clone_utc"
+    assert len(projection["authority_sha256"]) == 64
+    assert len(projection["projected_contracts_sha256"]) == 64
+    assert [item["workspace_key"] for item in projection["workspaces"]] == [
+        "feezie-os",
+        "fusion-os",
+        "easyoutfitapp",
+        "ai-swag-store",
+        "agc",
+        "work-life-tools",
+    ]
+    assert all(
+        set(item["goal"])
+        == {
+            "schema_version",
+            "goal",
+            "progress_signals",
+            "phase_gate",
+            "no_action_trigger",
+        }
+        for item in projection["workspaces"]
+    )
+    serialized = json.dumps(projection)
+    assert "safe_internal_boundary" not in serialized
+    assert "owner_required_boundary" not in serialized
+    assert "authority_refs" not in serialized
+    assert "/Users/" not in serialized
+
+
+def test_workspace_goal_projection_rejects_partial_or_tampered_portfolio(
+    workspace_goal_projection,
+):
+    partial = copy.deepcopy(workspace_goal_projection)
+    partial["workspaces"] = partial["workspaces"][:-1]
+    with pytest.raises(OpsWorkspaceGoalProjectionError, match="exact active"):
+        validate_ops_workspace_goal_projection(partial)
+
+    tampered = copy.deepcopy(workspace_goal_projection)
+    tampered["workspaces"][0]["goal"]["goal"] = "Changed without a new projection digest."
+    with pytest.raises(OpsWorkspaceGoalProjectionError, match="digest mismatch"):
+        validate_ops_workspace_goal_projection(tampered)
+
+
+def test_workspace_goal_projection_fails_closed_without_private_authority(monkeypatch):
+    unavailable_entries = tuple(
+        {
+            **entry,
+            "goal_contract_status": "private_authority_unavailable",
+            "goal_contract_observed_at": None,
+            "goal_contract_authority_sha256": None,
+            "goal_contract": {},
+        }
+        for entry in _goal_projection_authority_entries()
+    )
+    monkeypatch.setattr(
+        ops_workspace_goal_projection_service,
+        "_active_project_entries",
+        lambda: unavailable_entries,
+    )
+
+    with pytest.raises(OpsWorkspaceGoalProjectionError, match="authority is unavailable"):
+        build_ops_workspace_goal_projection()
+
+
+def test_workspace_goal_projection_unavailable_state_claims_no_authority():
+    projection = unavailable_ops_workspace_goal_projection(
+        "workspace_goal_projection_not_synced"
+    )
+
+    assert validate_ops_workspace_goal_projection(projection) == projection
+    assert projection["state"] == "unavailable"
+    assert projection["observed_at"] is None
+    assert projection["workspaces"] == []
+
+
+def test_workspace_goal_route_reads_the_independent_goal_projection(
+    monkeypatch,
+    workspace_goal_projection,
+):
+    projection = workspace_goal_projection
+    monkeypatch.setattr(
+        "app.routes.workspace.get_snapshot_payload",
+        lambda workspace, snapshot_type: projection
+        if snapshot_type == "ops_workspace_goal_contracts"
+        else None,
+    )
+
+    response = TestClient(app).get("/api/workspace/ops-workspace-goals")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.json() == projection
+
+
+def test_workspace_goal_sync_receipt_binds_authority_and_semantics(
+    monkeypatch,
+    workspace_goal_projection,
+):
+    projection = workspace_goal_projection
+    monkeypatch.setattr(
+        "app.routes.brain.upsert_snapshot_monotonic",
+        lambda workspace, kind, payload, **kwargs: (
+            {"payload": payload, "updated_at": payload["generated_at"]},
+            True,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/brain/ops-workspace-goals/sync",
+        json={
+            "schema_version": "ops_workspace_goal_projection_sync/v1",
+            "generated_at": projection["generated_at"],
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 200
+    receipt = response.json()
+    assert receipt["disposition"] == "stored"
+    assert receipt["authority_sha256"] == projection["authority_sha256"]
+    assert receipt["projected_contracts_sha256"] == projection[
+        "projected_contracts_sha256"
+    ]
+    assert receipt["semantic_payload_sha256"] == (
+        ops_workspace_goal_projection_semantic_sha256(projection)
+    )
+
+
+def test_workspace_goal_sync_is_idempotent_for_the_same_canonical_authority(
+    monkeypatch,
+    workspace_goal_projection,
+):
+    projection = workspace_goal_projection
+    stored_projection = json.loads(json.dumps(projection))
+    stored_projection["generated_at"] = projection["generated_at"]
+    monkeypatch.setattr(
+        "app.routes.brain.upsert_snapshot_monotonic",
+        lambda workspace, kind, payload, **kwargs: (
+            {
+                "payload": stored_projection,
+                "updated_at": stored_projection["generated_at"],
+            },
+            False,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/brain/ops-workspace-goals/sync",
+        json={
+            "schema_version": "ops_workspace_goal_projection_sync/v1",
+            "generated_at": projection["generated_at"],
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stored"] is False
+    assert response.json()["disposition"] == "idempotent_same_authority"
+
+
+def test_workspace_goal_sync_retains_a_newer_canonical_observation(
+    monkeypatch,
+    workspace_goal_projection,
+):
+    projection = workspace_goal_projection
+    stored_projection = json.loads(json.dumps(projection))
+    stored_projection["generated_at"] = projection["generated_at"]
+    stored_projection["observed_at"] = projection["generated_at"]
+    stored_projection["clock"]["observed_at"] = stored_projection["observed_at"]
+    monkeypatch.setattr(
+        "app.routes.brain.upsert_snapshot_monotonic",
+        lambda workspace, kind, payload, **kwargs: (
+            {
+                "payload": stored_projection,
+                "updated_at": stored_projection["generated_at"],
+            },
+            False,
+        ),
+    )
+
+    response = TestClient(app).post(
+        "/api/brain/ops-workspace-goals/sync",
+        json={
+            "schema_version": "ops_workspace_goal_projection_sync/v1",
+            "generated_at": projection["generated_at"],
+            "projection": projection,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stored"] is False
+    assert response.json()["disposition"] == "retained_newer"
+    assert response.json()["observed_at"] == stored_projection["observed_at"]
 
 
 def test_sync_route_acknowledges_exact_hash(monkeypatch, tmp_path):

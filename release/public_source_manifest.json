@@ -27,6 +27,7 @@
     "backend/tests/test_pm_execution_claim_failure.py",
     "backend/tests/test_pm_owner_decision_authority_guard.py",
     "backend/tests/test_ops_standup_projection_service.py",
+    "backend/tests/test_ops_workspace_context_projection_service.py",
     "backend/tests/test_portfolio_cycle_service.py",
     "backend/tests/test_portfolio_workspace_snapshot_service.py",
     "backend/tests/test_public_social_feed_runtime.py",
@@ -87,7 +88,7 @@
     "scripts/personal-brand/refresh_social_feed.py": "backend/scripts/personal-brand/refresh_social_feed.py",
     "scripts/personal-brand/sync_market_signal_archive.py": "backend/scripts/personal-brand/sync_market_signal_archive.py"
   },
-  "inventory_sha256": "a16d18bdc4638ff115d6c4749fd40965c989200c6c71dbec3b6337da687af027",
+  "inventory_sha256": "31bf1bf3b1d80f24ed7326208e5e753dbbdc62e7c5fce6b1e206466a34341489",
   "excludes": [
     "**/.DS_Store",
     "**/.mypy_cache",
@@ -133,6 +134,7 @@
     "backend/tests/test_pm_execution_claim_failure.py",
     "backend/tests/test_pm_owner_decision_authority_guard.py",
     "backend/tests/test_ops_standup_projection_service.py",
+    "backend/tests/test_ops_workspace_context_projection_service.py",
     "backend/tests/test_portfolio_cycle_service.py",
     "backend/tests/test_portfolio_workspace_snapshot_service.py",
     "backend/tests/test_public_social_feed_runtime.py",

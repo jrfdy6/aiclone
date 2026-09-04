@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 545,
+    "file_count": 550,
     "files": [
       {
         "mode": 493,
@@ -72,8 +72,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/__init__.py",
-        "sha256": "84f7fcaaf279f625f12dfec4578af2552ada4fc3555b6b4a7270d15378ede1f1",
-        "size": 7669
+        "sha256": "45263def4d159550f7619aaee0c36cc1dc845049b4abae45de12f8588fef533d",
+        "size": 7851
       },
       {
         "mode": 420,
@@ -102,8 +102,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/brain.py",
-        "sha256": "5c1585a686f2a822d922a0891315d604e0067cfdffa72d2043cff90bafa09404",
-        "size": 41488
+        "sha256": "51061591945d74c07a47c066eab268c2d26fc66e7b84d2acc4a72a2888d853f0",
+        "size": 43614
       },
       {
         "mode": 420,
@@ -366,8 +366,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/brain.py",
-        "sha256": "f4d0f204c7ce36403017e65660733b15e19d0c3470d525c68e00d596c5f1a846",
-        "size": 65541
+        "sha256": "4f8bf93ac943b3e3dd55371eb3e7c7eeb4cb17ac569ba8e938ce00ae7ac30996",
+        "size": 72924
       },
       {
         "mode": 420,
@@ -684,8 +684,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/workspace.py",
-        "sha256": "3544af363abd646e137e8b09b5f909897601ef315cfe697cda6dfbd544c93b3f",
-        "size": 42189
+        "sha256": "da3a708561e73c3ca8ca1692ae424eca0ab9b11342a849655d2bfb34b31c4dfe",
+        "size": 45205
       },
       {
         "mode": 420,
@@ -1256,6 +1256,18 @@
         "path": "backend/app/services/ops_standup_projection_service.py",
         "sha256": "b4d23b52aa1cdff4e201fe3629d17818f5af4cd63619d31cd1c51c14b413e6ee",
         "size": 82277
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/ops_workspace_context_projection_service.py",
+        "sha256": "998357e2aa64891539f5856b2edc7c8cf3b85a070f2808e85c4a7b426b526600",
+        "size": 30336
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/ops_workspace_goal_projection_service.py",
+        "sha256": "75a7ddd0f6869cfefe42f1918dc3563b60d6323d81c0905bfc186b256adc9803",
+        "size": 13233
       },
       {
         "mode": 420,
@@ -2124,8 +2136,14 @@
       {
         "mode": 420,
         "path": "backend/tests/test_ops_standup_projection_service.py",
-        "sha256": "97a7f27b228363edda339ebdb98a52f86753c130aa8980b3ec89c7a385f46731",
-        "size": 71227
+        "sha256": "0d1e7b664f0ad3f424b1e78853ff35fa5f4e67753e547364124b91d6a14ced3c",
+        "size": 80775
+      },
+      {
+        "mode": 420,
+        "path": "backend/tests/test_ops_workspace_context_projection_service.py",
+        "sha256": "bee5c3439f24292b365a3dcce7aaa186c3fd01c00666be625d9bbafa9abced85",
+        "size": 13212
       },
       {
         "mode": 420,
@@ -2160,8 +2178,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_release_builder.py",
-        "sha256": "b376408cf378a099ca35a4b0bd6f7e512220eb02e4a6e0da490cea466e59374f",
-        "size": 29689
+        "sha256": "112a8e75bbd222fa5d8f86a81fa7100316e60b16a1ccd0554376979cb7a893cd",
+        "size": 30199
       },
       {
         "mode": 420,
@@ -2508,8 +2526,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "e0858a3a835a8aceffb4ff7ee60b31e57021d459ac4020f8db980c37f0da1b6f",
-        "size": 864514
+        "sha256": "4f815e5646253bbb6b692517d356038cb1fc2d27f451c29d5138109b4052e778",
+        "size": 872041
       },
       {
         "mode": 420,
@@ -2646,8 +2664,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/OpsStandupSummary.tsx",
-        "sha256": "18d5f449f9edefef78c59c8586636f640b83b29a1c16c340e4c6908327efbba9",
-        "size": 27942
+        "sha256": "372a332a4e623a845235ddb3c356f1d01508879fcbfaf3f4aa2efa29ead315bb",
+        "size": 20863
       },
       {
         "mode": 420,
@@ -2670,8 +2688,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/WorkspaceClient.tsx",
-        "sha256": "c3fafebff43a720b5715c0471b30b5e33b19487d3d17e275ccaea7f74cbaa722",
-        "size": 242785
+        "sha256": "61a2b221e0e6a9d2415af2c983842d46c6a3468e2aed30ede9f24863853d5312",
+        "size": 242810
       },
       {
         "mode": 420,
@@ -2897,6 +2915,12 @@
       },
       {
         "mode": 420,
+        "path": "frontend/lib/ops-owner-truth.ts",
+        "sha256": "7b5e2b1ceff373eef48a7bcea845426175bb8d8920471652c480659f745ecc26",
+        "size": 30954
+      },
+      {
+        "mode": 420,
         "path": "frontend/lib/public-profile.ts",
         "sha256": "ec296cf3f6576600b8fa0628297dd25b22c9e957c8d9c7dcb9b8acc4a4b70c8b",
         "size": 1085
@@ -3012,8 +3036,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/canonical-decisions.test.cjs",
-        "sha256": "3eb7988da0a5be67602585491ad413bd9f41a9d5a387401bcf500843e7d5b60c",
-        "size": 12899
+        "sha256": "8eecae90c814c6d107fbd3657291c5d8f03c8d28478b527d241dbb69ad841cd5",
+        "size": 12931
       },
       {
         "mode": 420,
@@ -3143,21 +3167,27 @@
       },
       {
         "mode": 420,
+        "path": "frontend/tests/ops-owner-truth.test.cjs",
+        "sha256": "c79ff916d49b0ec04031291ec1100378b86e0baac43696ab61e678d9accd3751",
+        "size": 11837
+      },
+      {
+        "mode": 420,
         "path": "frontend/tests/ops-standup-summary.test.cjs",
-        "sha256": "2f432aa27a2eb407643ecefab4e42d3f4cc4e6431f6effdfecdb5bfb6892aa2d",
-        "size": 8118
+        "sha256": "9f589e47c285e3a5eb7ac87494515269d2caed573ce6c644bfa0b2a86b106903",
+        "size": 11106
       },
       {
         "mode": 420,
         "path": "frontend/tests/ops-standups-ux.test.cjs",
-        "sha256": "f07dcef42b102faefe94b04aec92c474bee720f1f1f08b19b58473ab32d11397",
-        "size": 33872
+        "sha256": "550a06d05d1169706dcf749165d42c655c196cfdf9e9841a4240e045d7cc4053",
+        "size": 34221
       },
       {
         "mode": 420,
         "path": "frontend/tests/owner-experience-stabilization.test.cjs",
-        "sha256": "4d361015614911eeab9ed9877319d05235e39c2928ecc059a23a1219959a57ff",
-        "size": 13055
+        "sha256": "ec72027aeb5bcb5993d475443c26b2d39edc9b2a6343adb7be5c163ce22de054",
+        "size": 16457
       },
       {
         "mode": 420,
@@ -3228,8 +3258,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "c5d7bf61e3e2ebd52f590535b6c90e3b5da38d3338da471c2c3e32b44c87c386",
-        "size": 7587
+        "sha256": "147cc204b930d690051093582096c4be22f237617a0d960be919348679d6c4f9",
+        "size": 7727
       },
       {
         "mode": 493,
@@ -3264,25 +3294,25 @@
       {
         "mode": 420,
         "path": "scripts/verify_integrated_production_projection.py",
-        "sha256": "b900922206a3bbbb5bbd538a19fa77fde722a1cedce4f1af5924e9623290635f",
-        "size": 52030
+        "sha256": "2e44433120ffe52a7c848d272e734b548689fd67fe8a5291062565d3d4365c88",
+        "size": 67839
       },
       {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "3a7b649ce483c735ee1e675ed224fd79826d726530e02b12883da548d467f0cc",
-        "size": 9830
+        "sha256": "467449f32201819c38cd9890436b21e7716b2c91717a416a5d323b785f6a2863",
+        "size": 9612
       }
     ],
-    "tree_sha256": "a619abc08a9991a6d41472935f6d3dfb0c542b9fe3e2606bd520c90bb6e84598"
+    "tree_sha256": "4ee743d230c8746ab5de1436edeedb6349e47ad7c4e1d80c9cd486976823c740"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "c5d7bf61e3e2ebd52f590535b6c90e3b5da38d3338da471c2c3e32b44c87c386"
+    "sha256": "147cc204b930d690051093582096c4be22f237617a0d960be919348679d6c4f9"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "a16d18bdc4638ff115d6c4749fd40965c989200c6c71dbec3b6337da687af027",
+    "inventory_sha256": "31bf1bf3b1d80f24ed7326208e5e753dbbdc62e7c5fce6b1e206466a34341489",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },
