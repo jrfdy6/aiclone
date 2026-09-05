@@ -176,12 +176,28 @@ type AutomationMismatchReport = {
   run_count?: number;
   mismatch_count?: number;
   action_required_count?: number;
+  evidence_record_count?: number;
+  affected_automation_count?: number;
+  failing_automation_count?: number;
+  successful_action_required_count?: number;
+  failed_action_required_count?: number;
+  reporter_action_required_count?: number;
   mismatches?: Array<{
     kind?: string;
     severity?: string;
     automation_id?: string | null;
     automation_name?: string | null;
     message?: string;
+  }>;
+  automation_groups?: Array<{
+    automation_id?: string;
+    automation_name?: string | null;
+    classification?: string;
+    severity?: string;
+    latest_status?: string;
+    action_required?: boolean;
+    evidence_record_count?: number;
+    mismatch_kinds?: string[];
   }>;
 };
 
@@ -8168,6 +8184,7 @@ function AutomationsPanel({
 }) {
   const hasRows = automations.length > 0;
   const mismatchReport = index?.mismatches ?? null;
+  const automationGroups = mismatchReport?.automation_groups ?? [];
   const observedCount = automations.filter((job) => job.last_status && job.last_status !== 'unknown').length;
   const deliveredCount = automations.filter((job) => job.last_delivered === true).length;
   const latestTaskFailures = automations.filter((job) => ['error', 'failed', 'degraded'].includes((job.last_status ?? '').toLowerCase()));
@@ -8195,19 +8212,34 @@ function AutomationsPanel({
         <TelemetryMeta label="Configured" value={hasRows ? String(index?.count ?? automations.length) : '—'} detail="Registry contracts, not a health claim" />
         <TelemetryMeta label="Observed" value={hasRows ? String(observedCount) : '—'} detail="Jobs with mirrored run evidence" />
         <TelemetryMeta label="Delivered" value={hasRows ? String(deliveredCount) : '—'} detail="Latest observed delivery succeeded" />
-        <TelemetryMeta label="Mismatches" value={mismatchReport ? String(mismatchReport.mismatch_count ?? 0) : '—'} detail={`${mismatchReport?.action_required_count ?? 0} action required`} />
+        <TelemetryMeta
+          label="Affected lanes"
+          value={mismatchReport ? String(mismatchReport.affected_automation_count ?? mismatchReport.mismatch_count ?? 0) : '—'}
+          detail={mismatchReport
+            ? `${mismatchReport.failing_automation_count ?? 0} failing · ${mismatchReport.successful_action_required_count ?? 0} successful reviews · ${mismatchReport.evidence_record_count ?? mismatchReport.mismatch_count ?? 0} evidence records`
+            : 'Deduplicated runtime follow-through'}
+        />
       </div>
       {index?.source_of_truth && (
         <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Source of truth: {index.source_of_truth}</p>
       )}
-      {(mismatchReport?.mismatches ?? []).length > 0 && (
+      {(automationGroups.length > 0 || (mismatchReport?.mismatches ?? []).length > 0) && (
         <div style={{ borderRadius: '12px', border: '1px solid #7c2d12', backgroundColor: '#120b08', padding: '12px', display: 'grid', gap: '6px' }}>
-          <p style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 700, margin: 0 }}>Runtime mismatches that need attention</p>
-          {(mismatchReport?.mismatches ?? []).slice(0, 6).map((item, indexValue) => (
-            <p key={`${item.kind || 'mismatch'}-${item.automation_id || indexValue}`} style={{ color: '#fed7aa', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
-              {item.automation_name || humanizeSnakeCase(item.kind || 'Automation mismatch')}: {ownerSafeErrorMessage(item.message, 'Observed runtime does not match the registry contract.')}
-            </p>
-          ))}
+          <p style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 700, margin: 0 }}>Deduplicated automation follow-through</p>
+          <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+            Raw receipts remain available for audit. Each lane appears once here, and successful maintenance reviews are not described as failures.
+          </p>
+          {automationGroups.length > 0
+            ? automationGroups.slice(0, 6).map((item, indexValue) => (
+                <p key={item.automation_id || indexValue} style={{ color: '#fed7aa', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                  {item.automation_name || humanizeSnakeCase(item.automation_id || 'Automation lane')}: {humanizeSnakeCase(item.classification || 'follow-up')} · latest {humanizeSnakeCase(item.latest_status || 'unknown')} · {item.evidence_record_count ?? 0} evidence record{item.evidence_record_count === 1 ? '' : 's'}
+                </p>
+              ))
+            : (mismatchReport?.mismatches ?? []).slice(0, 6).map((item, indexValue) => (
+                <p key={`${item.kind || 'mismatch'}-${item.automation_id || indexValue}`} style={{ color: '#fed7aa', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                  {item.automation_name || humanizeSnakeCase(item.kind || 'Automation mismatch')}: {ownerSafeErrorMessage(item.message, 'Observed runtime does not match the registry contract.')}
+                </p>
+              ))}
         </div>
       )}
       {latestTaskFailures.length > 0 && (

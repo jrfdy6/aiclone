@@ -347,7 +347,11 @@ test('loads observed automation truth instead of treating configured contracts a
   assert.match(clientSource, /Configuration and observed runtime are shown separately/);
   assert.match(clientSource, /job\.last_status \|\| 'unknown'/);
   assert.match(clientSource, /job\.last_delivered === true/);
-  assert.match(clientSource, /mismatchReport\?\.action_required_count/);
+  assert.match(clientSource, /mismatchReport\.affected_automation_count/);
+  assert.match(clientSource, /mismatchReport\.failing_automation_count/);
+  assert.match(clientSource, /mismatchReport\.successful_action_required_count/);
+  assert.match(clientSource, /Affected lanes/);
+  assert.match(clientSource, /Deduplicated automation follow-through/);
 });
 
 test('keeps unsaved Brief and Persona writing intact across polling refreshes', () => {

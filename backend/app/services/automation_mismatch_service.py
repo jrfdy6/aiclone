@@ -3,9 +3,32 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.models.automations import Automation, AutomationMismatch, AutomationMismatchReport, AutomationRun
+from app.models.automations import (
+    Automation,
+    AutomationIssueGroup,
+    AutomationMismatch,
+    AutomationMismatchReport,
+    AutomationRun,
+)
 from app.services.automation_run_service import list_runs
 from app.services.automation_service import automation_source_of_truth, list_automations
+
+
+SUCCESS_STATES = {"ok", "success", "complete", "completed"}
+NEUTRAL_STATES = {"no_eligible_change", "skipped"}
+FAILURE_STATES = {
+    "blocked",
+    "degraded",
+    "error",
+    "failed",
+    "failure",
+    "timed_out",
+    "timeout",
+}
+AGGREGATE_REPORTER_AUTOMATION_IDS = {"launchd_health_audit"}
+NON_REGISTRY_EXECUTION_RECEIPT_IDS = {"standup_participant_report"}
+FAILURE_MISMATCH_KINDS = {"delivery_failure", "run_error"}
+SEVERITY_ORDER = {"info": 0, "warn": 1, "warning": 1, "error": 2, "critical": 3}
 
 
 def _run_timestamp(run: AutomationRun) -> datetime:
@@ -47,6 +70,110 @@ def _latest_launchd_states(runs: list[AutomationRun]) -> dict[str, dict]:
     return {str(key): value for key, value in states.items() if isinstance(value, dict)}
 
 
+def _run_succeeded(run: AutomationRun | None) -> bool:
+    return bool(run and run.status.strip().lower() in SUCCESS_STATES)
+
+
+def _run_failed(run: AutomationRun | None) -> bool:
+    if not run:
+        return False
+    status = run.status.strip().lower()
+    return status in FAILURE_STATES or status.startswith("failed_")
+
+
+def _run_is_neutral(run: AutomationRun | None) -> bool:
+    return bool(run and run.status.strip().lower() in NEUTRAL_STATES)
+
+
+def _is_aggregate_reporter_action(run: AutomationRun) -> bool:
+    if run.automation_id not in AGGREGATE_REPORTER_AUTOMATION_IDS:
+        return False
+    issues = (run.metadata or {}).get("launchd_issues")
+    return isinstance(issues, list) and bool(issues)
+
+
+def _highest_severity(items: list[AutomationMismatch]) -> str:
+    if not items:
+        return "info"
+    return max(
+        (str(item.severity or "info").lower() for item in items),
+        key=lambda value: SEVERITY_ORDER.get(value, 1),
+    )
+
+
+def _build_automation_groups(
+    *,
+    registry_by_id: dict[str, Automation],
+    latest_by_id: dict[str, AutomationRun],
+    mismatches: list[AutomationMismatch],
+) -> list[AutomationIssueGroup]:
+    mismatches_by_id: dict[str, list[AutomationMismatch]] = {}
+    for mismatch in mismatches:
+        automation_id = str(mismatch.automation_id or "").strip()
+        if automation_id:
+            mismatches_by_id.setdefault(automation_id, []).append(mismatch)
+
+    direct_action_ids = {
+        automation_id
+        for automation_id, run in latest_by_id.items()
+        if run.action_required and not _is_aggregate_reporter_action(run)
+    }
+    group_ids = set(mismatches_by_id).union(direct_action_ids)
+    groups: list[AutomationIssueGroup] = []
+    for automation_id in group_ids:
+        run = latest_by_id.get(automation_id)
+        registry_item = registry_by_id.get(automation_id)
+        issue_rows = mismatches_by_id.get(automation_id, [])
+        mismatch_kinds = sorted({str(item.kind) for item in issue_rows if item.kind})
+        severity = _highest_severity(issue_rows)
+        run_failed = _run_failed(run)
+        mismatch_failed = any(
+            str(item.kind) in FAILURE_MISMATCH_KINDS
+            or SEVERITY_ORDER.get(str(item.severity or "").lower(), 1) >= SEVERITY_ORDER["error"]
+            for item in issue_rows
+        )
+        if run_failed or mismatch_failed:
+            classification = "failure"
+        elif bool(run and run.action_required and _run_succeeded(run)):
+            classification = "successful_action_required"
+        elif bool(run and run.action_required) or SEVERITY_ORDER.get(
+            severity,
+            1,
+        ) >= SEVERITY_ORDER["warn"]:
+            classification = "warning"
+        else:
+            classification = "information"
+        groups.append(
+            AutomationIssueGroup(
+                automation_id=automation_id,
+                automation_name=(
+                    (run.automation_name if run else None)
+                    or (registry_item.name if registry_item else None)
+                    or next((item.automation_name for item in issue_rows if item.automation_name), None)
+                ),
+                classification=classification,
+                severity="error" if classification == "failure" and severity == "info" else severity,
+                latest_status=str(run.status or "unknown") if run else "unknown",
+                action_required=bool(run and run.action_required),
+                evidence_record_count=len(issue_rows),
+                mismatch_kinds=mismatch_kinds,
+            )
+        )
+    classification_order = {
+        "failure": 0,
+        "successful_action_required": 1,
+        "warning": 2,
+        "information": 3,
+    }
+    groups.sort(
+        key=lambda item: (
+            classification_order.get(item.classification, 9),
+            (item.automation_name or item.automation_id).lower(),
+        )
+    )
+    return groups
+
+
 def build_mismatch_report(
     *,
     automations: Optional[list[Automation]] = None,
@@ -77,7 +204,10 @@ def build_mismatch_report(
             )
 
     for automation_id, run in latest_by_id.items():
-        if automation_id not in registry_by_id:
+        if (
+            automation_id not in registry_by_id
+            and automation_id not in NON_REGISTRY_EXECUTION_RECEIPT_IDS
+        ):
             mismatches.append(
                 AutomationMismatch(
                     kind="unregistered_run",
@@ -121,7 +251,7 @@ def build_mismatch_report(
                     message="The automation ledger entry does not contain an observed run timestamp.",
                 )
             )
-        elif run.status.lower() not in {"ok", "success"}:
+        elif _run_failed(run):
             mismatches.append(
                 AutomationMismatch(
                     kind="run_error",
@@ -130,6 +260,17 @@ def build_mismatch_report(
                     automation_name=run.automation_name,
                     message="The latest Codex automation run finished in a non-success state.",
                     metadata={"status": run.status, "error": run.error},
+                )
+            )
+        elif not _run_succeeded(run) and not _run_is_neutral(run):
+            mismatches.append(
+                AutomationMismatch(
+                    kind="run_non_success_state",
+                    severity="warn",
+                    automation_id=run.automation_id,
+                    automation_name=run.automation_name,
+                    message="The latest Codex automation run has an unresolved non-success state.",
+                    metadata={"status": run.status},
                 )
             )
         elif (
@@ -152,6 +293,21 @@ def build_mismatch_report(
                 )
             )
 
+    groups = _build_automation_groups(
+        registry_by_id=registry_by_id,
+        latest_by_id=latest_by_id,
+        mismatches=mismatches,
+    )
+    direct_action_runs = [
+        run
+        for run in latest_by_id.values()
+        if run.action_required and not _is_aggregate_reporter_action(run)
+    ]
+    reporter_action_required_count = sum(
+        1
+        for run in latest_by_id.values()
+        if run.action_required and _is_aggregate_reporter_action(run)
+    )
     return AutomationMismatchReport(
         source_of_truth=automation_source_of_truth(),
         registry_count=len(registry),
@@ -159,5 +315,16 @@ def build_mismatch_report(
         run_count=len(all_runs),
         mismatch_count=len(mismatches),
         action_required_count=sum(1 for run in latest_by_id.values() if run.action_required),
+        evidence_record_count=len(mismatches),
+        affected_automation_count=len(groups),
+        failing_automation_count=sum(1 for item in groups if item.classification == "failure"),
+        successful_action_required_count=sum(
+            1 for run in direct_action_runs if _run_succeeded(run)
+        ),
+        failed_action_required_count=sum(
+            1 for run in direct_action_runs if _run_failed(run)
+        ),
+        reporter_action_required_count=reporter_action_required_count,
         mismatches=mismatches,
+        automation_groups=groups,
     )

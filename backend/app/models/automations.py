@@ -88,8 +88,21 @@ class AutomationMismatch(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AutomationIssueGroup(BaseModel):
+    """Deduplicated owner-facing state for one affected automation lane."""
+
+    automation_id: str
+    automation_name: Optional[str] = None
+    classification: str = "warning"
+    severity: str = "info"
+    latest_status: str = "unknown"
+    action_required: bool = False
+    evidence_record_count: int = 0
+    mismatch_kinds: List[str] = Field(default_factory=list)
+
+
 class AutomationMismatchReport(BaseModel):
-    """Summary report for automation mismatches and action-needed state."""
+    """Raw evidence plus a deduplicated owner-facing automation summary."""
 
     source_of_truth: str
     registry_count: int = 0
@@ -97,4 +110,11 @@ class AutomationMismatchReport(BaseModel):
     run_count: int = 0
     mismatch_count: int = 0
     action_required_count: int = 0
+    evidence_record_count: int = 0
+    affected_automation_count: int = 0
+    failing_automation_count: int = 0
+    successful_action_required_count: int = 0
+    failed_action_required_count: int = 0
+    reporter_action_required_count: int = 0
     mismatches: List[AutomationMismatch] = Field(default_factory=list)
+    automation_groups: List[AutomationIssueGroup] = Field(default_factory=list)

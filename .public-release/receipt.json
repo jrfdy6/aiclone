@@ -96,8 +96,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/automations.py",
-        "sha256": "33e18fec0c76b08567c0fa2e5f7fb1999b725eb475cc41ef7d076badef5234b3",
-        "size": 2954
+        "sha256": "cfc70293d06fdbbe3b2bba7f1da86e070fe5a7a6eea313b07d39c85ce8dbc078",
+        "size": 3688
       },
       {
         "mode": 420,
@@ -750,8 +750,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/automation_mismatch_service.py",
-        "sha256": "1b6030b720964e2aca955640555306db51ec57f562990511f1f8a4b756da47bb",
-        "size": 7042
+        "sha256": "f28e456b62070dd26eee4c82f91c8301936fbf1f90c5628f959677eb1f3c3a9c",
+        "size": 13135
       },
       {
         "mode": 420,
@@ -1974,8 +1974,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/youtube_watchlist_service.py",
-        "sha256": "5803ed1bebdeae2aff4d9ad15cc3038af48eaa5596abcdbf7f02d6637b9bf174",
-        "size": 114781
+        "sha256": "b0154db7ce9dcec2715ca31f19d9011a02433719e5efa6d7694ebbeedf1aafbd",
+        "size": 121331
       },
       {
         "mode": 420,
@@ -2346,8 +2346,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/BrainClient.tsx",
-        "sha256": "33c511cb534ed0b025d8b8389e62c642e4c9aaee52c7b466432921b5c8131902",
-        "size": 476614
+        "sha256": "bf7e20ec76f7ad8b069d0cb10d1af2c4111daf698c1d988b5be75003a0613d16",
+        "size": 478443
       },
       {
         "mode": 420,
@@ -3054,8 +3054,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/brain-navigation.test.cjs",
-        "sha256": "2c891cb5687d3c22b04fee8b5d4bae97522d0d187d09f8c592694ed4a05160c4",
-        "size": 18709
+        "sha256": "b63fc21af7c7471cc4adde069b9ade990198ea0728ce43db672ab42d9dce3dd4",
+        "size": 18987
       },
       {
         "mode": 420,
@@ -3328,7 +3328,7 @@
         "size": 9612
       }
     ],
-    "tree_sha256": "560fba5ce9fb1250dc6858b98ec85c5faa10cf11feaaab0cfb3b18fd030b947b"
+    "tree_sha256": "86ef5e68b4633422b371a7bf79bf711c10acd36226eee6ad107f3b4108e37a0b"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

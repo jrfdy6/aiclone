@@ -121,6 +121,7 @@ ATOM_NS = {
     "yt": "http://www.youtube.com/xml/schemas/2015",
     "media": "http://search.yahoo.com/mrss/",
 }
+YOUTUBE_VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
 WATCHLIST_LIMIT_PER_CHANNEL = max(1, int(os.getenv("YOUTUBE_WATCHLIST_LIMIT_PER_CHANNEL", "3")))
 WHISPER_MODEL_NAME = os.getenv("YOUTUBE_INGEST_WHISPER_MODEL", "base")
 AUTO_INGEST_MAX_VIDEOS_PER_RUN = max(1, int(os.getenv("YOUTUBE_AUTO_INGEST_MAX_VIDEOS_PER_RUN", "3")))
@@ -283,9 +284,29 @@ def _truncate(value: str, limit: int = 280) -> str:
     return cleaned[: limit - 3].rstrip() + "..."
 
 
+class YouTubeMediaCaptureError(RuntimeError):
+    """Safe, stage-specific media failure with no command, URL, path, or stderr."""
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        reason: str,
+        fallback_from_stage: str | None = None,
+        fallback_from_reason: str | None = None,
+    ) -> None:
+        self.stage = stage
+        self.reason = reason
+        self.fallback_from_stage = fallback_from_stage
+        self.fallback_from_reason = fallback_from_reason
+        super().__init__(f"{stage}: {reason}")
+
+
 def _safe_runtime_error_code(exc: BaseException) -> str:
     """Return a stable diagnostic without commands, paths, URLs, or stderr."""
 
+    if isinstance(exc, YouTubeMediaCaptureError):
+        return exc.reason
     if isinstance(exc, HTTPError):
         if exc.code == 404:
             return "youtube_source_not_found"
@@ -309,6 +330,81 @@ def _safe_runtime_error_code(exc: BaseException) -> str:
     if isinstance(exc, (TimeoutError, OSError)):
         return "youtube_runtime_unavailable"
     return f"youtube_{re.sub(r'(?<!^)(?=[A-Z])', '_', type(exc).__name__).lower()}"
+
+
+def _safe_media_command_reason(exc: BaseException, *, stage: str) -> str:
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"youtube_{stage}_timeout"
+    if isinstance(exc, OSError):
+        return "youtube_media_runtime_unavailable"
+    output = ""
+    if isinstance(exc, subprocess.CalledProcessError):
+        output = " ".join(
+            value
+            for value in (str(exc.stderr or ""), str(exc.stdout or ""))
+            if value
+        ).lower()
+    if "sign in to confirm" in output or "not a bot" in output:
+        return "youtube_provider_auth_challenge"
+    if "http error 429" in output or "too many requests" in output:
+        return "youtube_rate_limited"
+    if "http error 403" in output or "forbidden" in output:
+        return "youtube_source_access_denied"
+    if "private video" in output or "video unavailable" in output:
+        return "youtube_source_unavailable"
+    if "requested format is not available" in output or "no video formats found" in output:
+        return "youtube_format_unavailable"
+    if "unable to download" in output or "download failed" in output:
+        return "youtube_download_failed"
+    return f"youtube_{stage}_command_failed"
+
+
+def _run_youtube_media_command(
+    args: list[str],
+    *,
+    stage: str,
+    timeout: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            args,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        raise YouTubeMediaCaptureError(
+            stage=stage,
+            reason=_safe_media_command_reason(exc, stage=stage),
+        ) from None
+
+
+def _safe_runtime_error_details(
+    exc: BaseException,
+    *,
+    default_stage: str,
+) -> dict[str, str]:
+    details = {
+        "stage": (
+            exc.stage
+            if isinstance(exc, YouTubeMediaCaptureError)
+            else default_stage
+        ),
+        "reason": _safe_runtime_error_code(exc),
+    }
+    if (
+        isinstance(exc, YouTubeMediaCaptureError)
+        and exc.fallback_from_stage
+    ):
+        details["fallback_from_stage"] = exc.fallback_from_stage
+    if (
+        isinstance(exc, YouTubeMediaCaptureError)
+        and exc.fallback_from_reason
+    ):
+        details["fallback_from_reason"] = exc.fallback_from_reason
+    return details
 
 
 def _load_watchlist(workspace_root: Path | None = None) -> dict[str, Any]:
@@ -423,6 +519,19 @@ def _youtube_video_id(value: str | None) -> str:
         values = parse_qs(parsed.query).get("v") or []
         if values:
             return _clean_text(values[0])
+    return ""
+
+
+def _validated_provider_video_id(*values: Any) -> str:
+    """Accept only the 11-character public video identity from provider data."""
+
+    for value in values:
+        raw = _clean_text(value)
+        if not raw:
+            continue
+        candidate = raw if YOUTUBE_VIDEO_ID_PATTERN.fullmatch(raw) else _youtube_video_id(raw)
+        if YOUTUBE_VIDEO_ID_PATTERN.fullmatch(candidate):
+            return candidate
     return ""
 
 
@@ -664,13 +773,20 @@ def _fetch_youtube_feed_entries(
 
     videos: list[dict[str, Any]] = []
     seen_video_keys: set[str] = set()
+    invalid_entry_count = 0
     for entry in root.findall("atom:entry", ATOM_NS):
         title = _clean_text(entry.findtext("atom:title", default="", namespaces=ATOM_NS))
-        video_id = _clean_text(entry.findtext("yt:videoId", default="", namespaces=ATOM_NS))
-        video_url = _clean_text(entry.findtext("atom:link", default="", namespaces=ATOM_NS))
-        if not video_url and video_id:
-            video_url = f"https://www.youtube.com/watch?v={video_id}"
-        if not video_url or not title:
+        link = entry.find("atom:link", ATOM_NS)
+        provider_url = _clean_text(link.attrib.get("href")) if link is not None else ""
+        video_id = _validated_provider_video_id(
+            entry.findtext("yt:videoId", default="", namespaces=ATOM_NS),
+            provider_url,
+        )
+        if not video_id:
+            invalid_entry_count += 1
+            continue
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        if not title:
             continue
         # YouTube playlist Atom feeds can repeat the same entry. Collapse only
         # duplicates inside this feed route so channel-versus-playlist
@@ -707,6 +823,7 @@ def _fetch_youtube_feed_entries(
         if len(videos) >= limit:
             break
     payload["videos"] = videos
+    payload["invalid_entry_count"] = invalid_entry_count
     return payload
 
 
@@ -745,7 +862,7 @@ def _fetch_flat_channel_entries(
     executable = shutil.which("yt-dlp")
     if not executable:
         raise RuntimeError("yt-dlp is unavailable for bounded channel discovery")
-    result = subprocess.run(
+    result = _run_youtube_media_command(
         [
             executable,
             "--flat-playlist",
@@ -756,11 +873,8 @@ def _fetch_flat_channel_entries(
             "--no-update",
             channel_url,
         ],
-        check=True,
-        capture_output=True,
-        text=True,
+        stage="channel_manifest",
         timeout=PLAYLIST_MANIFEST_TIMEOUT_SECONDS,
-        shell=False,
     )
     decoded = json.loads(result.stdout)
     raw_entries = decoded.get("entries") if isinstance(decoded, dict) else None
@@ -773,11 +887,19 @@ def _fetch_flat_channel_entries(
     channel_id = _clean_text(decoded.get("channel_id")) or _clean_text(decoded.get("uploader_id")) or _extract_channel_id(channel_url)
     videos: list[dict[str, Any]] = []
     seen_video_ids: set[str] = set()
+    invalid_entry_count = 0
     for raw_entry in raw_entries[: max(1, limit)]:
         if not isinstance(raw_entry, dict):
             continue
-        video_id = _clean_text(raw_entry.get("id")) or _youtube_video_id(_clean_text(raw_entry.get("url")))
-        if not video_id or video_id in seen_video_ids:
+        video_id = _validated_provider_video_id(
+            raw_entry.get("id"),
+            raw_entry.get("url"),
+            raw_entry.get("webpage_url"),
+        )
+        if not video_id:
+            invalid_entry_count += 1
+            continue
+        if video_id in seen_video_ids:
             continue
         seen_video_ids.add(video_id)
         video_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -804,6 +926,7 @@ def _fetch_flat_channel_entries(
         "feed_url": None,
         "discovery_mode": "yt_dlp_channel_fallback",
         "inspection_window_count": len(videos),
+        "invalid_entry_count": invalid_entry_count,
         "videos": videos,
     }
 
@@ -834,7 +957,7 @@ def _fetch_flat_playlist_manifest(
     executable = shutil.which("yt-dlp")
     if not executable:
         raise RuntimeError("yt-dlp is unavailable for complete playlist discovery")
-    result = subprocess.run(
+    result = _run_youtube_media_command(
         [
             executable,
             "--flat-playlist",
@@ -843,11 +966,8 @@ def _fetch_flat_playlist_manifest(
             "--no-update",
             playlist_url,
         ],
-        check=True,
-        capture_output=True,
-        text=True,
+        stage="playlist_manifest",
         timeout=PLAYLIST_MANIFEST_TIMEOUT_SECONDS,
-        shell=False,
     )
     decoded = json.loads(result.stdout)
     raw_entries = decoded.get("entries") if isinstance(decoded, dict) else None
@@ -862,11 +982,17 @@ def _fetch_flat_playlist_manifest(
     videos: list[dict[str, Any]] = []
     seen_video_ids: set[str] = set()
     duplicate_entries = 0
+    invalid_entries = 0
     for ordinal, raw_entry in enumerate(raw_entries, start=1):
         if not isinstance(raw_entry, dict):
             continue
-        video_id = _clean_text(raw_entry.get("id")) or _youtube_video_id(_clean_text(raw_entry.get("url")))
+        video_id = _validated_provider_video_id(
+            raw_entry.get("id"),
+            raw_entry.get("url"),
+            raw_entry.get("webpage_url"),
+        )
         if not video_id:
+            invalid_entries += 1
             continue
         if video_id in seen_video_ids:
             duplicate_entries += 1
@@ -911,6 +1037,7 @@ def _fetch_flat_playlist_manifest(
             "entries": len(raw_entries),
             "unique_videos": len(videos),
             "duplicate_entries": duplicate_entries,
+            "invalid_entries": invalid_entries,
         },
         "videos": videos,
     }
@@ -940,6 +1067,7 @@ def _fetch_playlist_entries(playlist: dict[str, Any], *, limit: int, existing_ur
         "entries": len(payload.get("videos") or []),
         "unique_videos": len(payload.get("videos") or []),
         "duplicate_entries": 0,
+        "invalid_entries": int(payload.get("invalid_entry_count") or 0),
     }
     return payload
 
@@ -1439,13 +1567,16 @@ def backfill_pending_youtube_transcripts(
             backfilled.append(updated)
         except Exception as exc:  # pragma: no cover - runtime dependent
             LOGGER.exception("Pending YouTube transcript backfill failed for %s", url)
+            error_details = _safe_runtime_error_details(
+                exc,
+                default_stage="canonical_capture_or_projection",
+            )
             errors.append(
                 {
                     "asset_id": _clean_text(asset.get("asset_id")),
                     "title": _clean_text(asset.get("title")),
                     "url": url,
-                    "stage": "canonical_capture_or_projection",
-                    "reason": _safe_runtime_error_code(exc),
+                    **error_details,
                     "error_class": type(exc).__name__,
                 }
             )
@@ -1491,22 +1622,18 @@ def backfill_pending_youtube_transcripts(
 
 
 def _yt_dlp_json(url: str) -> dict[str, Any]:
-    result = subprocess.run(
+    result = _run_youtube_media_command(
         ["yt-dlp", "--dump-single-json", "--no-playlist", url],
-        check=True,
-        capture_output=True,
-        text=True,
+        stage="metadata",
     )
     return json.loads(result.stdout)
 
 
 def _download_audio(url: str, temp_dir: str) -> Path:
     output_template = str(Path(temp_dir) / "%(id)s.%(ext)s")
-    subprocess.run(
+    _run_youtube_media_command(
         ["yt-dlp", "--no-playlist", "-x", "--audio-format", "mp3", "-o", output_template, url],
-        check=True,
-        capture_output=True,
-        text=True,
+        stage="audio_download",
     )
     files = sorted(Path(temp_dir).glob("*"))
     audio_files = [path for path in files if path.suffix.lower() in {".mp3", ".m4a", ".wav", ".webm", ".opus"}]
@@ -1537,7 +1664,7 @@ def _subtitle_text_from_vtt(path: Path) -> str:
 
 def _download_subtitle_transcript(url: str, temp_dir: str) -> str:
     output_template = str(Path(temp_dir) / "%(id)s.%(ext)s")
-    subprocess.run(
+    _run_youtube_media_command(
         [
             "yt-dlp",
             "--no-playlist",
@@ -1554,9 +1681,7 @@ def _download_subtitle_transcript(url: str, temp_dir: str) -> str:
             output_template,
             url,
         ],
-        check=True,
-        capture_output=True,
-        text=True,
+        stage="subtitle_download",
     )
     subtitle_candidates = sorted(Path(temp_dir).glob("*.vtt"), key=lambda item: item.stat().st_size, reverse=True)
     for candidate in subtitle_candidates:
@@ -1637,16 +1762,48 @@ def _transcribe_audio(audio_path: Path, model_name: str) -> str:
 def _transcribe_youtube_url(url: str) -> tuple[str, dict[str, Any]]:
     metadata = _yt_dlp_json(url)
     with tempfile.TemporaryDirectory(prefix="youtube-watchlist-") as temp_dir:
+        subtitle_failure: YouTubeMediaCaptureError | None = None
         try:
             subtitle_transcript = _download_subtitle_transcript(url, temp_dir)
-        except Exception:  # pragma: no cover - runtime dependent
+        except YouTubeMediaCaptureError as exc:  # pragma: no cover - runtime dependent
+            subtitle_failure = exc
+            subtitle_transcript = ""
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            subtitle_failure = YouTubeMediaCaptureError(
+                stage="subtitle_download",
+                reason=_safe_runtime_error_code(exc),
+            )
             subtitle_transcript = ""
         if subtitle_transcript:
             return subtitle_transcript, metadata
         if not _can_transcribe():
+            if subtitle_failure is not None:
+                metadata = dict(metadata)
+                metadata["capture_diagnostic"] = _safe_runtime_error_details(
+                    subtitle_failure,
+                    default_stage="subtitle_download",
+                )
             return "", metadata
-        audio_path = _download_audio(url, temp_dir)
-        transcript = _transcribe_audio(audio_path, WHISPER_MODEL_NAME)
+        try:
+            audio_path = _download_audio(url, temp_dir)
+        except YouTubeMediaCaptureError as exc:
+            if subtitle_failure is not None:
+                exc.fallback_from_stage = subtitle_failure.stage
+                exc.fallback_from_reason = subtitle_failure.reason
+            raise
+        try:
+            transcript = _transcribe_audio(audio_path, WHISPER_MODEL_NAME)
+        except Exception:
+            raise YouTubeMediaCaptureError(
+                stage="local_transcription",
+                reason="youtube_local_transcription_failed",
+                fallback_from_stage=(
+                    subtitle_failure.stage if subtitle_failure is not None else None
+                ),
+                fallback_from_reason=(
+                    subtitle_failure.reason if subtitle_failure is not None else None
+                ),
+            ) from None
     return transcript, metadata
 
 
@@ -1746,6 +1903,20 @@ def _ingest_watchlist_video(
         )
         result["compatibility_projection"] = "written"
     result["ingestion_mode"] = ingestion_mode
+    capture_diagnostic = metadata.get("capture_diagnostic")
+    if isinstance(capture_diagnostic, dict):
+        result["capture_diagnostic"] = {
+            key: value
+            for key, value in capture_diagnostic.items()
+            if key
+            in {
+                "stage",
+                "reason",
+                "fallback_from_stage",
+                "fallback_from_reason",
+            }
+            and isinstance(value, str)
+        }
     result["transcript_word_count"] = len((transcript_text or "").split()) if transcript_text else 0
     result["canonical_source_id"] = canonical_source_id
     result["canonical_capture"] = (
@@ -2674,23 +2845,36 @@ def sync_watchlist_auto_ingest(
                 ingested.append(result_summary)
                 record_capture_attempt(item, source_id=source_id, outcome="captured")
             else:
+                capture_diagnostic = (
+                    result.get("capture_diagnostic")
+                    if isinstance(result.get("capture_diagnostic"), dict)
+                    else None
+                )
                 deferred_captures.append(
                     {
                         **result_summary,
                         "reason": "transcript_not_yet_available",
+                        **(
+                            {"capture_diagnostic": capture_diagnostic}
+                            if capture_diagnostic
+                            else {}
+                        ),
                     }
                 )
                 record_capture_attempt(item, source_id=source_id, outcome="deferred")
         except Exception as exc:  # pragma: no cover - runtime dependent
             LOGGER.exception("Auto-ingest failed for watchlist video %s", url)
+            error_details = _safe_runtime_error_details(
+                exc,
+                default_stage="transcript_capture",
+            )
             errors.append(
                 {
                     "url": url,
                     "title": item.get("title"),
                     "channel_name": item.get("channel_name"),
                     "origin": item.get("_intake_origin"),
-                    "stage": "transcript_capture",
-                    "reason": _safe_runtime_error_code(exc),
+                    **error_details,
                     "error_class": type(exc).__name__,
                 }
             )
