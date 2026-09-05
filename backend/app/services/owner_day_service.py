@@ -13,6 +13,30 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _merge_mapping(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Refresh known fields without erasing healthy sources omitted by a partial refresh."""
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_mapping(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _validated_briefing(value: Any) -> dict[str, Any]:
+    required = {
+        'plain_language_title', 'what_it_means', 'why_now', 'workspace_goal',
+        'recommended_next_action', 'classification', 'current_evidence',
+        'unknowns', 'decision_options',
+    }
+    if not isinstance(value, dict) or not required.issubset(value):
+        raise ValueError('a complete owner-day briefing is required')
+    if not isinstance(value.get('current_evidence'), list) or not value['current_evidence']:
+        raise ValueError('owner-day briefing requires current evidence')
+    return value
+
+
 class OwnerDayService:
     """Durable owner-day read/write model over the existing event ledger."""
 
@@ -26,9 +50,14 @@ class OwnerDayService:
             raise ValueError('owner_calendar_date must be YYYY-MM-DD')
         now = _now()
         session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'ai-clone:owner-day:{date}'))
-        overview_json = _canonical_json(overview)
         with self.store.connection() as c:
             c.execute('BEGIN IMMEDIATE')
+            existing = c.execute(
+                'SELECT overview_json FROM owner_day_sessions WHERE owner_calendar_date=?',
+                (date,),
+            ).fetchone()
+            prior_overview = json.loads(existing['overview_json']) if existing else {}
+            overview_json = _canonical_json(_merge_mapping(prior_overview, overview))
             c.execute(
                 "INSERT INTO owner_day_sessions(session_id,owner_calendar_date,status,overview_json,created_at,updated_at) VALUES(?,?, 'open',?,?,?) ON CONFLICT(owner_calendar_date) DO UPDATE SET overview_json=excluded.overview_json,updated_at=excluded.updated_at",
                 (session_id, date, overview_json, now, now),
@@ -47,12 +76,14 @@ class OwnerDayService:
             raise ValueError('action_id and workspace_key are required')
         now = _now()
         source_json = _canonical_json(values['source'])
+        briefing = _validated_briefing(values.get('briefing'))
+        briefing_json = _canonical_json(briefing)
         action_id = values['action_id'].strip()
         with self.store.connection() as c:
             c.execute('BEGIN IMMEDIATE')
             c.execute(
-                "INSERT INTO owner_day_actions(action_id,session_id,workspace_key,title,description,source_json,status,next_step,outcome_json,created_at,updated_at) VALUES(?,?,?,?,?,?,'Open / Not reviewed',?,NULL,?,?) ON CONFLICT(action_id) DO NOTHING",
-                (action_id, values['session_id'], values['workspace_key'].strip(), values['title'][:300], values['description'][:2000], source_json, values.get('next_step'), now, now),
+                "INSERT INTO owner_day_actions(action_id,session_id,workspace_key,title,description,source_json,status,next_step,outcome_json,created_at,updated_at,briefing_json) VALUES(?,?,?,?,?,?,'Open / Not reviewed',?,NULL,?,?,?) ON CONFLICT(action_id) DO NOTHING",
+                (action_id, values['session_id'], values['workspace_key'].strip(), values['title'][:300], values['description'][:2000], source_json, values.get('next_step'), now, now, briefing_json),
             )
             row = c.execute('SELECT * FROM owner_day_actions WHERE action_id=?', (action_id,)).fetchone()
             if not row:
@@ -61,6 +92,28 @@ class OwnerDayService:
                 raise ValueError('owner-day action idempotency conflict')
             c.execute('COMMIT')
         return self._action(row)
+
+    def update_briefing(self, action_id: str, briefing: dict[str, Any]) -> dict[str, Any]:
+        """Enrich a legacy or incomplete item without recording owner evidence."""
+        briefing = _validated_briefing(briefing)
+        now = _now()
+        with self.store.connection() as c:
+            c.execute('BEGIN IMMEDIATE')
+            row = c.execute(
+                'SELECT action_id FROM owner_day_actions WHERE action_id=?', (action_id,)
+            ).fetchone()
+            if not row:
+                raise KeyError('unknown owner-day action')
+            c.execute(
+                'UPDATE owner_day_actions SET briefing_json=?,updated_at=? WHERE action_id=?',
+                (_canonical_json(briefing), now, action_id),
+            )
+            c.execute('COMMIT')
+        with self.store.connection() as c:
+            updated = c.execute(
+                'SELECT * FROM owner_day_actions WHERE action_id=?', (action_id,)
+            ).fetchone()
+        return self._action(updated)
 
     def update_action(self, action_id: str, *, status: str, next_step: str | None, outcome: dict[str, Any] | None, idempotency_key: str) -> dict[str, Any]:
         if status not in OWNER_DAY_STATUSES:
@@ -80,6 +133,7 @@ class OwnerDayService:
         event_payload = {
             'action_id': action_id, 'session_id': None, 'workspace_key': None,
             'status': status, 'next_step': next_step, 'outcome': outcome,
+            'briefing': None,
         }
         with self.store.connection() as c:
             c.execute('BEGIN IMMEDIATE')
@@ -88,6 +142,9 @@ class OwnerDayService:
                 raise KeyError('unknown owner-day action')
             event_payload['session_id'] = row['session_id']
             event_payload['workspace_key'] = row['workspace_key']
+            event_payload['briefing'] = (
+                json.loads(row['briefing_json']) if row['briefing_json'] else None
+            )
             existing_event = c.execute('SELECT payload_json FROM system_events WHERE idempotency_key=?', (event_key,)).fetchone()
             if existing_event:
                 existing_payload = json.loads(existing_event['payload_json'])
@@ -119,6 +176,10 @@ class OwnerDayService:
     def _action(row: Any) -> dict[str, Any]:
         result = dict(row)
         result['source'] = json.loads(result.pop('source_json'))
+        result['briefing'] = (
+            json.loads(result.pop('briefing_json')) if result.get('briefing_json') else None
+        )
+        result.pop('briefing_json', None)
         result['outcome'] = json.loads(result.pop('outcome_json')) if result.get('outcome_json') else None
         result.pop('outcome_json', None)
         return result

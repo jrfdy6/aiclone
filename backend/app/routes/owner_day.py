@@ -1,5 +1,10 @@
 from fastapi import APIRouter, HTTPException
-from app.models import OwnerDayActionCreate, OwnerDayActionUpdate, OwnerDaySessionUpsert
+from app.models import (
+    OwnerDayActionCreate,
+    OwnerDayActionUpdate,
+    OwnerDayBriefingUpdate,
+    OwnerDaySessionUpsert,
+)
 from app.services.owner_day_service import OwnerDayService
 
 router = APIRouter(tags=['Owner Day'], prefix='/api/owner-day')
@@ -27,6 +32,14 @@ def create_action(payload: OwnerDayActionCreate):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.put('/actions/{action_id}/briefing', response_model=dict)
+def update_action_briefing(action_id: str, payload: OwnerDayBriefingUpdate):
+    try:
+        return service.update_briefing(action_id, payload.briefing.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.patch('/actions/{action_id}', response_model=dict)
 def update_action(action_id: str, payload: OwnerDayActionUpdate):
     try:
@@ -35,4 +48,3 @@ def update_action(action_id: str, payload: OwnerDayActionUpdate):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-

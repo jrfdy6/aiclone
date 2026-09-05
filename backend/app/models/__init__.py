@@ -110,7 +110,12 @@ from .standups import (
     StandupPromotionResult,
     StandupUpdate,
 )
-from .owner_day import OwnerDayActionCreate, OwnerDayActionUpdate, OwnerDaySessionUpsert
+from .owner_day import (
+    OwnerDayActionCreate,
+    OwnerDayActionUpdate,
+    OwnerDayBriefingUpdate,
+    OwnerDaySessionUpsert,
+)
 from .timeline import TimelineEvent
 from .social_feedback import SocialFeedbackCreate
 from .social_assist import (

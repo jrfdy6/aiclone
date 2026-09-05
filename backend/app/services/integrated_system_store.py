@@ -649,6 +649,12 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE INDEX owner_day_actions_session_idx ON owner_day_actions(session_id, updated_at, action_id);
         """,
     ),
+    (
+        9,
+        """
+        ALTER TABLE owner_day_actions ADD COLUMN briefing_json TEXT;
+        """,
+    ),
 )
 
 
