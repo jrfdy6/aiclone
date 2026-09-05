@@ -616,6 +616,39 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         END;
         """,
     ),
+    (
+        8,
+        """
+        CREATE TABLE owner_day_sessions (
+            session_id TEXT PRIMARY KEY,
+            owner_calendar_date TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL CHECK (status IN ('open','closed')),
+            overview_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        ) STRICT;
+
+        CREATE TABLE owner_day_actions (
+            action_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES owner_day_sessions(session_id) ON DELETE RESTRICT,
+            workspace_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            source_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'Open / Not reviewed','In progress','Needs decision','Waiting on someone else',
+                'Blocked','Completed','Deferred until date','Deferred until trigger',
+                'Deferred indefinitely','Reopened','Closed / not pursuing'
+            )),
+            next_step TEXT,
+            outcome_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(session_id, action_id)
+        ) STRICT;
+        CREATE INDEX owner_day_actions_session_idx ON owner_day_actions(session_id, updated_at, action_id);
+        """,
+    ),
 )
 
 

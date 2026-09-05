@@ -25,6 +25,7 @@ _V3_NEW_DURABLE_EVENT_TYPES = frozenset(
         "decision.created",
         "workspace.action_completed",
         "workspace.action_failed",
+        "owner.day_action_updated",
     }
 )
 
@@ -47,6 +48,7 @@ _EVENT_LANES = {
     "workspace.concluded": "operational_continuity",
     "workspace.action_completed": "operational_continuity",
     "workspace.action_failed": "operational_continuity",
+    "owner.day_action_updated": "operational_continuity",
     "ops.concluded": "operational_continuity",
     "ops.reconcluded": "operational_continuity",
     "owner.feedback_recorded": "reversible_pattern",

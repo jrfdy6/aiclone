@@ -1,7 +1,7 @@
 {
   "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 550,
+    "file_count": 554,
     "files": [
       {
         "mode": 493,
@@ -60,8 +60,8 @@
       {
         "mode": 420,
         "path": "backend/app/main.py",
-        "sha256": "25a28f73c74e88c19e72d4ad809d7cdbe7319b7e87ac3077c01d646da09cb69e",
-        "size": 10711
+        "sha256": "b39b5abd2afc9bcb02c5a836ceba1bec58893ca2b92838943c5590611e58610b",
+        "size": 10763
       },
       {
         "mode": 420,
@@ -72,8 +72,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/__init__.py",
-        "sha256": "45263def4d159550f7619aaee0c36cc1dc845049b4abae45de12f8588fef533d",
-        "size": 7851
+        "sha256": "e5f85c9848140392656930e50f33f1ee20f0234972876b45df7dc17f4733b363",
+        "size": 8025
       },
       {
         "mode": 420,
@@ -200,6 +200,12 @@
         "path": "backend/app/models/open_brain.py",
         "sha256": "fdfd447403a227244532bc28c9e4e41364c4ff0696ce7df0b70c014b62882b6c",
         "size": 1311
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/models/owner_day.py",
+        "sha256": "4636385852af4b0a6f85d58bf25f04926cfa9c4e9cec412e5e94442d2a3186d8",
+        "size": 840
       },
       {
         "mode": 420,
@@ -542,6 +548,12 @@
         "path": "backend/app/routes/outreach_manual.py",
         "sha256": "9ebc71f303f89cfbcc8e4ec9a6959431bf4bafce15183c1fc886e3ed5341b233",
         "size": 507
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/routes/owner_day.py",
+        "sha256": "66121f6b93d91d8e5c3a6a17d9503aa35e781c10734aa5cee76ccec3e8086178",
+        "size": 1534
       },
       {
         "mode": 420,
@@ -1092,8 +1104,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/integrated_memory_readiness_service.py",
-        "sha256": "b3bbfb06d12c315fdbed6f1eafbf80c9ad8891b16bb0934c5993f5bba43293b5",
-        "size": 55458
+        "sha256": "5b9d6a1d6ddfec7b38c06a9ca7e06637ebee0aebb2de0c3a6af79f771411692d",
+        "size": 55552
       },
       {
         "mode": 420,
@@ -1110,8 +1122,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/integrated_system_store.py",
-        "sha256": "aedf77c9bc323a5fcf97b18123210a43195d1da94e881a4c5d4cf640d44682f3",
-        "size": 46024
+        "sha256": "1358978863042de3a9665febf0ca349d9856215281ad1c1d96144f87ac5a6fb0",
+        "size": 47388
       },
       {
         "mode": 420,
@@ -1268,6 +1280,12 @@
         "path": "backend/app/services/ops_workspace_goal_projection_service.py",
         "sha256": "75a7ddd0f6869cfefe42f1918dc3563b60d6323d81c0905bfc186b256adc9803",
         "size": 13233
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/owner_day_service.py",
+        "sha256": "1c6d5c71cba26b0f14cc9a9fb5513950ab577add7fcb76f96143a5824af52d78",
+        "size": 7267
       },
       {
         "mode": 420,
@@ -2144,6 +2162,12 @@
         "path": "backend/tests/test_ops_workspace_context_projection_service.py",
         "sha256": "bee5c3439f24292b365a3dcce7aaa186c3fd01c00666be625d9bbafa9abced85",
         "size": 13212
+      },
+      {
+        "mode": 420,
+        "path": "backend/tests/test_owner_day_service.py",
+        "sha256": "8cf027a633969004c586fbae1035eee6ecd96afc9a4970a9ddf68f98434b7eab",
+        "size": 1885
       },
       {
         "mode": 420,
@@ -3258,8 +3282,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "147cc204b930d690051093582096c4be22f237617a0d960be919348679d6c4f9",
-        "size": 7727
+        "sha256": "84757451b42cf9623f36c353b8124cd84e2a9b956144bb66bfd6c4dbf0cbcf1f",
+        "size": 7821
       },
       {
         "mode": 493,
@@ -3304,15 +3328,15 @@
         "size": 9612
       }
     ],
-    "tree_sha256": "4ee743d230c8746ab5de1436edeedb6349e47ad7c4e1d80c9cd486976823c740"
+    "tree_sha256": "df221f12dabc4fedd4fe6f81dfd6f61b3ef7791880a1a32bbea9bade5593f42f"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "147cc204b930d690051093582096c4be22f237617a0d960be919348679d6c4f9"
+    "sha256": "84757451b42cf9623f36c353b8124cd84e2a9b956144bb66bfd6c4dbf0cbcf1f"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "31bf1bf3b1d80f24ed7326208e5e753dbbdc62e7c5fce6b1e206466a34341489",
+    "inventory_sha256": "091546a3ab7a53079ac850e2bf9fa9db6d263d423cbad2b359b43caa95e5c1c3",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

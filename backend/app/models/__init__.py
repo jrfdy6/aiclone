@@ -110,6 +110,7 @@ from .standups import (
     StandupPromotionResult,
     StandupUpdate,
 )
+from .owner_day import OwnerDayActionCreate, OwnerDayActionUpdate, OwnerDaySessionUpsert
 from .timeline import TimelineEvent
 from .social_feedback import SocialFeedbackCreate
 from .social_assist import (
@@ -234,6 +235,9 @@ __all__ = [
     "StandupPromotionRequest",
     "StandupPromotionResult",
     "StandupUpdate",
+    "OwnerDaySessionUpsert",
+    "OwnerDayActionCreate",
+    "OwnerDayActionUpdate",
     "TimelineEvent",
     "SocialFeedbackCreate",
     "SocialEngagementActionRequest",

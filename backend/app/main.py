@@ -49,6 +49,7 @@ from app.routes import (
     system_logs,
     timeline,
     workspace,
+    owner_day,
     topic_intelligence,
 )
 from app.services import open_brain_db
@@ -233,6 +234,7 @@ app.include_router(pm_board.router)
 app.include_router(social_assist.router)
 app.include_router(social_feedback.router)
 app.include_router(workspace.router)
+app.include_router(owner_day.router)
 app.include_router(standups.router)
 app.include_router(timeline.router)
 app.include_router(topic_intelligence.router, prefix="/api/topic-intelligence")
