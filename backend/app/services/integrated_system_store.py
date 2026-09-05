@@ -17,7 +17,7 @@ from app.services.source_authorship_policy_service import (
 )
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 
 
 def _utcnow() -> str:

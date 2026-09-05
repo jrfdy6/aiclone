@@ -546,6 +546,45 @@ _BASE_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS neo_meeting_requests_status_idx ON neo_meeting_requests(status, created_at DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS neo_meeting_requests_session_client_request_uidx ON neo_meeting_requests(session_id, client_request_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS neo_meeting_requests_session_fingerprint_uidx ON neo_meeting_requests(session_id, request_fingerprint)",
+    """
+    CREATE TABLE IF NOT EXISTS owner_day_sessions (
+        session_id UUID PRIMARY KEY,
+        owner_calendar_date DATE NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'open',
+        overview JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS owner_day_actions (
+        action_id TEXT PRIMARY KEY,
+        session_id UUID NOT NULL REFERENCES owner_day_sessions(session_id) ON DELETE RESTRICT,
+        workspace_key TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        source JSONB NOT NULL,
+        briefing JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Open / Not reviewed',
+        next_step TEXT,
+        outcome JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS owner_day_actions_session_idx ON owner_day_actions(session_id, updated_at, action_id)",
+    """
+    CREATE TABLE IF NOT EXISTS owner_day_events (
+        event_id UUID PRIMARY KEY,
+        action_id TEXT NOT NULL REFERENCES owner_day_actions(action_id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL CHECK (event_type = 'owner.day_action_updated'),
+        payload JSONB NOT NULL,
+        provenance JSONB NOT NULL,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS owner_day_events_occurred_idx ON owner_day_events(occurred_at, event_id)",
 )
 
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from app.models import (
     OwnerDayActionCreate,
     OwnerDayActionUpdate,
@@ -6,9 +6,16 @@ from app.models import (
     OwnerDaySessionUpsert,
 )
 from app.services.owner_day_service import OwnerDayService
+from app.security.control_plane import control_plane_auth_required, request_is_authorized
 
 router = APIRouter(tags=['Owner Day'], prefix='/api/owner-day')
 service = OwnerDayService()
+
+
+def _require_owner_day_read(request: Request) -> None:
+    """Keep lifecycle exports behind the authenticated control plane."""
+    if control_plane_auth_required() and not request_is_authorized(request):
+        raise HTTPException(status_code=401, detail="Control-plane authentication required")
 
 
 @router.put('/sessions', response_model=dict)
@@ -22,6 +29,12 @@ def read_session(owner_calendar_date: str):
     if not session:
         raise HTTPException(status_code=404, detail='Owner-day session not found')
     return {**session, 'actions': service.list_actions(session['session_id'])}
+
+
+@router.get('/events', response_model=list[dict], dependencies=[Depends(_require_owner_day_read)])
+def read_events(limit: int = 500):
+    """Bounded append-only feed consumed by the existing local Dream runner."""
+    return service.list_events(limit=limit)
 
 
 @router.post('/actions', response_model=dict)
